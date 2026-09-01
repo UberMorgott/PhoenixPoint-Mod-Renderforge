@@ -34,7 +34,7 @@ IN: DLSS SR (Quality/Balanced/Performance/Ultra Performance), DLAA, Auto mode, n
 picker, runtime toggle, auto-disable SMAA, NVIDIA-only graceful no-op.
 OUT (documented, not built): Frame Generation (D3D12-only; `-force-d3d12` on Unity 2019.4 is an
 experiment for later), DLSS 5 neural rendering (unreleased; same NGX contract, add when official),
-Ray Reconstruction, mip-bias retune of every texture (v2 if visibly soft).
+Ray Reconstruction. (Mip bias was pulled into v1 — see "Texture mip bias" below.)
 
 ## Architecture — two DLLs, one mod folder
 
@@ -215,6 +215,18 @@ is wrong before we ever touch the game.
     ringing halos at 50 (crop `crop-7-nis.png`). Frame-time delta read off the overlay's 0.5 s average is
     noise-level (≤0.5 ms at 1280×720). Panel: `6-panel-sharp.png` / `6-panel-sharp-off.png`.
     Persisted in `ModConfig.json` (`"Sharpness": 100` after the run).
+- **Texture mip bias** (`src\MipBias.cs`, 2026-09-02). Unity 2019.4 has no global LOD bias, so the
+  driver sweeps `Resources.FindObjectsOfTypeAll<Texture2D>()` and sets `mipMapBias =
+  log2(renderW/outW)` (DLSS programming guide: Performance −1.0, Quality −0.585, DLAA/Passthrough 0)
+  on every mipmapped texture when a generation goes Live, again 2 s later (level content still
+  streaming), and writes 0 back on release. Skipped: `mipmapCount <= 1` and names containing
+  `lut|noise|dither|ramp|gradient` (PPv2 LUT, Amplify blue noise). Idempotent (sweeps only when the
+  effective bias changes); no dictionary of originals — the first sweep samples 20 textures and
+  logs `originals max|bias|`, live = 0.000, vanilla ships 0. PPCLI switch
+  `call DlssMod.MipBias.SetEnabled(false)`. Measured live (Performance 640×360→1280×720, Instance2):
+  1813 textures set, 753 skipped, 9–15 ms per sweep; `build\shots\8-mip-{off,on}.png`: mean |luma
+  gradient| over two rock regions 2.93 → 3.25, rock grain visible in the 4× crops
+  `crop-8-mip-{off,on}.png`, HUD/overlay text identical (ScreenSpaceOverlay, sprites have no mips).
 - **Benchmark overlay** (`src\Overlay.cs`, `ShowOverlay=false`, `OverlayPosition=TopCenter` of
   `TopLeft|TopCenter|TopRight|BottomCenter`): one ScreenSpaceOverlay canvas, sortingOrder 30000,
   no GraphicRaycaster, `raycastTarget=false`, HUD font (first `Text` found) else Arial, size
