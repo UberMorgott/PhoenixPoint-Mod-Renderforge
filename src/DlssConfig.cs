@@ -21,6 +21,8 @@ namespace DlssMod
         public KeyCode OverlayHotkey = KeyCode.O;       // Ctrl+Alt+O: benchmark overlay show/hide
         public bool ShowOverlay = false;
         public OverlayCorner OverlayPosition = OverlayCorner.TopCenter;
+        public float OverlayScale = 1.0f;               // Overlay text size multiplier, 0.5..3
+        public int FrameRateLimit = 0;                  // 0 = uncapped; the game itself pins 60. VSync still caps at the monitor rate.
         public DebugView DebugView = DebugView.None;
     }
 }

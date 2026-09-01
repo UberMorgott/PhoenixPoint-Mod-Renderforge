@@ -18,6 +18,7 @@ namespace DlssMod
         private RectTransform box;
         private Text text;
         private OverlayCorner corner;
+        private float scale = 1f;
         private int placedH;
         private float sinceRefresh;
         private readonly Queue<float> dts = new Queue<float>();
@@ -28,6 +29,7 @@ namespace DlssMod
             if (!cfg.ShowOverlay) { if (inst != null) inst.gameObject.SetActive(false); return; }
             if (inst == null) Create();
             inst.corner = cfg.OverlayPosition;
+            inst.scale = Mathf.Clamp(cfg.OverlayScale, 0.5f, 3f);
             inst.placedH = 0;                // re-place on next Update
             inst.gameObject.SetActive(true);
         }
@@ -99,7 +101,7 @@ namespace DlssMod
         private void Place()
         {
             placedH = Screen.height;
-            text.fontSize = Mathf.RoundToInt(14f * Screen.height / 1080f);
+            text.fontSize = Mathf.RoundToInt(14f * scale * Screen.height / 1080f);
             Vector2 a;
             switch (corner)
             {

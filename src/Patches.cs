@@ -1,5 +1,6 @@
 using Base.Lighting;
 using HarmonyLib;
+using PhoenixPoint.Common.Core;
 using UnityEngine.Rendering.PostProcessing;
 
 namespace DlssMod
@@ -18,5 +19,13 @@ namespace DlssMod
     internal static class LightingManager_ApplyPostProcessOptions_Patch
     {
         static void Postfix() => DlssDriver.Instance?.AfterApplyPostProcessOptions();
+    }
+
+    /// <summary>OptionsManager.InitVideoOptions (OptionsManager.cs:505) is the game's ONLY SetFrameRateLimit(60) call
+    /// (no platform subclass overrides Platform.SetFrameRateLimit, Platform.cs:376); re-apply the config value after it.</summary>
+    [HarmonyPatch(typeof(OptionsManager), "InitVideoOptions")]
+    internal static class OptionsManager_InitVideoOptions_Patch
+    {
+        static void Postfix() => DlssMod.ApplyFrameRateLimit();
     }
 }

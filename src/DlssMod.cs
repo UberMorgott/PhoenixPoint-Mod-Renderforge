@@ -28,6 +28,7 @@ namespace DlssMod
             Instance = this;
             ModDir = base.Instance?.Entry?.Directory ?? ".";
             Available = false;
+            ApplyFrameRateLimit();
             try
             {
                 if (!Native.Load(ModDir))
@@ -68,6 +69,7 @@ namespace DlssMod
                 if (InitCode == Native.DLSS_OK) Native.Dlss_Shutdown();
             }
             catch (Exception ex) { Logger.LogError("DLSS disable THREW " + ex); }
+            Application.targetFrameRate = 60;   // the game's own value (OptionsManager.cs:505)
             Available = false;
             InitCode = -1;
             Instance = null;
@@ -81,7 +83,16 @@ namespace DlssMod
         public override void OnConfigChanged()
         {
             Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Cfg.DebugView);
+            ApplyFrameRateLimit();
             AttachAndApply();
+        }
+
+        /// <summary>Also the InitVideoOptions postfix (Patches.cs), which runs on the game's own SetFrameRateLimit(60).</summary>
+        public static void ApplyFrameRateLimit()
+        {
+            var cfg = Instance?.Cfg;
+            if (cfg == null) return;
+            Application.targetFrameRate = cfg.FrameRateLimit <= 0 ? -1 : cfg.FrameRateLimit;
         }
 
         /// <summary>ModManager.SaveModConfig (ModManager.cs:120): the same path the mod-manager screen uses (UIStateModManagment.cs:137).</summary>
