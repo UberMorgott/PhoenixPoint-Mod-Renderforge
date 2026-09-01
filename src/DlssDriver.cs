@@ -48,6 +48,15 @@ namespace DlssMod
         private bool broken;                // threw once inside a Unity callback -> self-disabled
 
         public bool IsLive => gen == Gen.Live;
+        public bool Passthrough => passthrough;
+        public Camera SceneCamera => cam;
+        public PostProcessLayer Layer => layer;
+        public DlssMode LiveMode => liveMode;
+        public int Quality => quality;
+        public int RenderW => renderW;
+        public int RenderH => renderH;
+        public int OutW => outW;
+        public int OutH => outH;
 
         public static DlssDriver Create()
         {
@@ -116,6 +125,12 @@ namespace DlssMod
 
         private void Update()
         {
+            var cfg = DlssMod.Instance?.Cfg;
+            if (cfg != null)
+            {
+                if (Input.GetKeyDown(cfg.ToggleHotkey)) DlssMod.Toggle();
+                if (Input.GetKeyDown(cfg.OverlayHotkey)) DlssMod.ToggleOverlay();
+            }
             if (broken) return;
             try { Step(); }
             catch (Exception ex) { Fail("Update threw: " + ex); }
