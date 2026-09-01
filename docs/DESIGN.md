@@ -78,37 +78,56 @@ is wrong before we ever touch the game.
 - `DlssConfig : ModConfig` — public fields (this is also the mod-manager settings UI):
   `DlssMode Mode = Auto` (`Off, Auto, DLAA, Quality, Balanced, Performance, UltraPerformance`),
   `bool ShowInGraphicsOptions = true`. Nothing else in v1.
-- `DlssDriver : MonoBehaviour` on the scene camera. Per-frame:
-  1. `OnPreCull`: `ResetProjectionMatrix()`; `nonJitteredProjectionMatrix = projectionMatrix`;
-     add Halton(2,3) jitter `(jx,jy)` in render-pixel units (phase count = 8·(out/render)²) to
-     `projectionMatrix[0,2]/[1,2]` as `2·j/renderW`, `-2·j/renderH` (sign verified live via
-     the sharpness of static geometry — the single most likely thing to get wrong);
-     `depthTextureMode |= Depth | MotionVectors`; `targetTexture = colorRT` (render-res,
-     RGBA16F = PPv2 HDR path... verified by reading `PostProcessLayer` state; else ARGB32).
-  2. A `CommandBuffer` on `CameraEvent.AfterEverything` (see ordering below) copies inputs and
-     runs the DLSS eval.
-  3. `OnPostRender`: `ResetProjectionMatrix()` so picking/UI raycasts see the clean matrix, then
-     `Graphics.Blit(outRT, (RenderTexture)null)` writes the upscaled frame to the backbuffer.
-- Ordering (v1, simplest that works): camera renders everything incl. PPv2 into `colorRT` at
-  render res. The `AfterEverything` command buffer does:
-  `Blit(BuiltinRenderTextureType.MotionVectors → mvRT RG16F)`,
-  `Blit(BuiltinRenderTextureType.Depth → depthRT RFloat)` (raw hardware depth via a copy shader,
-  reversed-Z kept), then `IssuePluginEventAndData(evalFn, 2, framePtr)` writing `outRT`
-  (`enableRandomWrite=true` → UAV). The screen write is NOT in the command buffer (the camera
-  target is `colorRT`); it is the `OnPostRender` blit above. Overlay HUD draws afterwards at
-  native res, untouched.
-  Consequence accepted for v1: PPv2 effects (bloom/DoF/SSR/AO) run at render res and get
-  upscaled with the frame. v2 (only if visibly worse than SMAA): Harmony PPv2 so DLSS runs before
-  the uber pass.
-- `InReset=1` on the first frame after create, on level change, and when the camera teleports
-  (Cinemachine cut: `CinemachineBrain.ActiveBlend == null && cameraChanged`). `InMVScale` =
-  `(-renderW, -renderH)` pending live sign check (Unity MV = previous→current NDC delta? verify
-  by the ghosting direction; both options in one flag).
+- `DlssDriver : MonoBehaviour` on the scene camera (revised after the Codex review, 2026-09-01).
+  Gate: `SystemInfo.graphicsDeviceType == Direct3D11`, else dormant.
+  1. Jitter is applied in a Harmony **postfix on `PostProcessLayer.OnPreCull`** — PPv2's own
+     `OnPreCull` calls `ResetProjectionMatrix()` + re-assigns `nonJitteredProjectionMatrix` every
+     frame, and MonoBehaviour message order is not guaranteed, so a sibling `OnPreCull` can lose.
+     Postfix body: `nonJittered = projectionMatrix` (already reset by PPv2); Halton(2,3) offset
+     `(jx,jy)` in render pixels, phase count = 8·(outW/renderW)²; `proj[0,2] += 2·jx/renderW`,
+     `proj[1,2] += 2·jy/renderH` (PPv2 `TemporalAntialiasing` sign convention);
+     `useJitteredProjectionMatrixForTransparentRendering = false`;
+     `depthTextureMode |= Depth | MotionVectors`; `targetTexture = colorRT` (render res).
+  2. `CommandBuffer` at `CameraEvent.BeforeImageEffects` (depth/MV transients are alive there):
+     `CopyTexture(BuiltinRenderTextureType.MotionVectors → mvRT RGHalf)` (same size/format,
+     no resample, no Y flip); depth: material-less `Blit(BuiltinRenderTextureType.Depth →
+     depthRT RFloat)` point-sampled, no conversion (`DepthInverted` flag from
+     `SystemInfo.usesReversedZBuffer`). If the material-less depth blit proves lossy, v1.1 embeds
+     a tiny copy shader as D3D11 bytecode — no AssetBundle in the package.
+  3. `CommandBuffer` at `CameraEvent.AfterEverything`: `IssuePluginEventAndData(evalAndDataFn, 2,
+     frameSlotPtr)` → NGX writes `outRT` (native res, `enableRandomWrite=true` → UAV).
+  4. `OnPostRender` (scene camera): `ResetProjectionMatrix()` so picking/UI raycasts see the
+     clean matrix; `GL.InvalidateState()` so Unity re-applies its D3D11 state after NGX.
+  5. **Present camera** — a second `Camera` on our own GameObject, `depth = scene.depth + 1`,
+     `targetTexture = null`, `cullingMask = 0`, `clearFlags = Nothing`, no `PostProcessLayer`,
+     one `CommandBuffer` at `AfterEverything`: `Blit(outRT → BuiltinRenderTextureType.CameraTarget)`.
+     This is the only thing that writes the backbuffer; `ScreenSpaceOverlay` HUD draws after it at
+     native res. (`Graphics.Blit(x, null)` from the scene camera would write back into `colorRT`,
+     because `null` = the camera's current target — that was the spec's original bug.)
+- Threading: per-frame values go through a **ring of 4 frame slots** owned by the native DLL
+  (`Dlss_GetFrameSlot()` returns the next slot pointer; managed fills it via `Dlss_SetFrame(slot,
+  ...)` and passes the same pointer as the event `data`). The render thread never reads a slot the
+  main thread is writing. RT release on resize is deferred two frames after the release event (3)
+  was issued, so no in-flight event touches a dead resource. Event callbacks are the
+  `UnityRenderingEventAndData(int, void*)` ABI.
+- NGX v1 flag matrix: `MVLowRes=1`, `MVJittered=0` (MVs come from the non-jittered matrices),
+  `DepthInverted=SystemInfo.usesReversedZBuffer`, `IsHDR=0` (PPv2 output is display-referred
+  LDR: tonemapped + dithered; `colorRT` = `ARGB32`... unless PPv2 is found to blit HDR, then
+  `ARGBHalf` still with `IsHDR=0`), `AutoExposure=0`. `InMVScale = (-renderW, -renderH)`
+  (Unity MV = NDC previous→current; DLSS wants current→previous in pixels). Both signs are still
+  confirmed live by the ghosting direction on a moving unit.
+  Consequence accepted for v1: PPv2 effects (bloom/DoF/SSR/AO, dither) run at render res before
+  the upscale. v2 (only if visibly worse than SMAA): Harmony PPv2 so DLSS runs before the uber pass.
+- Reset: `InReset=1` on the first frame after create, on `OnLevelStart`, on a Cinemachine cut
+  (`CinemachineBrain.ActiveBlend == null` and the active virtual camera changed), and when the
+  camera position jumps > 50 m or FOV changes between frames.
 - Auto mode table (output height): ≤1200 → DLAA; ≤1600 → Quality; else → Performance.
 - SMAA: postfix `LightingManager.ApplyPostProcessOptions` → when DLSS active force
   `antialiasingMode = None` (SMAA on top of DLSS = blur). Restored on Off.
-- Resolution change / alt-tab / fullscreen switch: `Screen.width/height` diff vs cached →
-  release + recreate feature (event 3 then 1), reallocate RTs.
+- Resolution / mode changes: a small generation state machine — `Idle → Creating → Live →
+  Releasing → Idle`. Trigger = `Screen.width/height` or `Mode` differs from the live generation;
+  `Releasing` issues event 3, then after two frames frees RTs, allocates new ones and issues
+  event 1. No polling-driven recreate while a generation is in flight.
 - Options panel: postfix `UIModuleGraphicsOptionsPanel.Init/Show` → clone the TextureQuality
   `ArrowPickerController` GameObject, label "DLSS", items = mode names, value ↔
   `DlssConfig.Mode`, on change `DlssDriver.Apply` + `Config.Save`. Hidden when
@@ -119,10 +138,11 @@ is wrong before we ever touch the game.
 ### Data flow per frame
 
 ```
-Cinemachine → camera matrices → [OnPreCull: jitter, targetTexture=colorRT(render res)]
-→ opaque + MV pass + transparent + PPv2 (render res, in colorRT)
-→ [CB AfterEverything: copy MV, copy depth, DLSS eval → outRT (native res)]
-→ [OnPostRender: ResetProjectionMatrix, Blit outRT → backbuffer]
+Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=colorRT(render res)]
+→ opaque + MV pass + transparent → [CB BeforeImageEffects: copy MV, copy depth]
+→ PPv2 (render res, into colorRT) → [CB AfterEverything: DLSS eval → outRT (native res)]
+→ [OnPostRender: ResetProjectionMatrix, GL.InvalidateState]
+→ present camera [CB: Blit outRT → backbuffer]
 → Unity draws ScreenSpaceOverlay HUD at native res
 ```
 
@@ -130,8 +150,9 @@ Cinemachine → camera matrices → [OnPreCull: jitter, targetTexture=colorRT(re
 
 - No NVIDIA / no RTX / old driver: `Dlss_Init` ≠ success → mod dormant, one log line, picker
   hidden, nothing patched. Must never throw into the game's frame.
-- NGX error at create/eval: driver disables itself (`Mode` shown as Off with reason in log),
-  camera restored to direct rendering the same frame.
+- NGX error at create/eval: the frame already rendered offscreen cannot be rewound, so the present
+  camera blits `colorRT` (stretched) for that frame; from the next frame the driver is off
+  (`Mode` shown as Off with reason in log) and the camera renders directly again.
 - Native DLL missing/unloadable: same dormant path.
 - Render-thread callback must be exception-free C; all pointers validated non-null, sizes cached.
 
@@ -147,13 +168,27 @@ Cinemachine → camera matrices → [OnPreCull: jitter, targetTexture=colorRT(re
 
 ## Phases
 
-1. Repo + native shim + probe → probe green. Commit.
-2. Managed driver, DLAA only (render res = out res) → in-game screenshot shows AA, no HUD damage.
-   **Ping user here.**
+1. Repo + native shim + probe → probe green. Commit. (DONE `e707936`; skeleton `da37f7d`,
+   in-game `DLSS available` on Instance2.)
+2. Managed driver in three screenshot-gated steps (Codex's ordering — prove Unity resource
+   lifetime and presentation before NGX):
+   a. **Passthrough**: scene camera → `colorRT` (native res) → event 2 is a no-op → present
+      camera → backbuffer. Screenshot: scene identical, HUD sharp; `Mode=Off` restores the camera.
+   b. **Debug views**: `DebugView = Depth | MotionVectors` blits `depthRT`/`mvRT` to the screen
+      instead of `outRT`; screenshot with a moving unit shows sane MVs (uniform on camera pan).
+   c. **DLAA** (render res = out res). Screenshot: edges anti-aliased, no HUD damage, no
+      ghosting on a unit that moved one turn. **Ping user here.**
 3. Upscale modes + Auto + SMAA auto-off + resolution-change handling.
 4. Graphics-panel picker + ModConfig + dormant path on non-NVIDIA.
 5. README, NVIDIA notice, Workshop packaging (Workshop id TBD by user, tags `Gameplay`?). Release.
 6. Experiment (separate decision): `-force-d3d12` viability → Frame Gen.
+
+## Future scope (user, 2026-09-01)
+
+DLSS first; later FSR and XeSS through the same driver (the native shim's ABI is upscaler-shaped:
+init / optimal / create / set-frame / event / release). Folder and mod name `DLSS` are
+provisional and get renamed to something vendor-neutral before publishing. Publish sequence:
+in-game success → GitHub repo → Steam Workshop → Nexus.
 
 ## Repo
 
