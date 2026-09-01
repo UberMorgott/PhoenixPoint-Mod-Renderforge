@@ -129,8 +129,9 @@ namespace DlssMod
             string mode, aa;
             if (live)
             {
+                bool sameRes = d.RenderW == d.OutW && d.RenderH == d.OutH;   // DLAA: no upscale, show one resolution
                 mode = d.LiveMode + (d.LiveMode == DlssMode.Auto ? "/" + QualityName(d.Quality) : "")
-                     + " (" + d.RenderW + "x" + d.RenderH + " -> " + d.OutW + "x" + d.OutH + ")";
+                     + " (" + (sameRes ? "" : d.RenderW + "x" + d.RenderH + " -> ") + d.OutW + "x" + d.OutH + ")";
                 aa = "DLSS";
             }
             else
