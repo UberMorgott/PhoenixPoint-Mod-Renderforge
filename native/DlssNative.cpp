@@ -25,7 +25,12 @@ static struct {
 
     NVSDK_NGX_DLSS_Create_Params create;
     int quality;
-    NVSDK_NGX_D3D11_DLSS_Eval_Params frame;
+    // Ring of per-frame blocks: main thread fills slot N while the render thread may still read slot N-1..N-3.
+    NVSDK_NGX_D3D11_DLSS_Eval_Params slots[4];
+    unsigned slotIdx;
+    NVSDK_NGX_D3D11_DLSS_Eval_Params* lastSlot;
+    int passthrough;
+    int lastError;
 } S = { DLSS_ERR_NO_DEVICE };
 
 static NVSDK_NGX_PerfQuality_Value ToNgxQuality(int q)
@@ -109,12 +114,19 @@ void __cdecl Dlss_SetCreateParams(unsigned w, unsigned h, unsigned outW, unsigne
     S.create.InFeatureCreateFlags = f;
 }
 
-void __cdecl Dlss_SetFrame(void* color, void* depth, void* mv, void* output,
+void* __cdecl Dlss_GetFrameSlot(void)
+{
+    return &S.slots[S.slotIdx++ & 3u];
+}
+
+void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void* output,
                            float jitterX, float jitterY, float mvScaleX, float mvScaleY,
                            int reset, float dtMs, unsigned renderW, unsigned renderH,
                            float preExposure, float sharpness)
 {
-    NVSDK_NGX_D3D11_DLSS_Eval_Params* p = &S.frame;
+    NVSDK_NGX_D3D11_DLSS_Eval_Params* p = (NVSDK_NGX_D3D11_DLSS_Eval_Params*)slot;
+    if (!p) return;
+    S.lastSlot = p;
     memset(p, 0, sizeof(*p));
     p->Feature.pInColor = (ID3D11Resource*)color;
     p->Feature.pInOutput = (ID3D11Resource*)output;
@@ -150,18 +162,40 @@ static void DoCreate(void)
     if (!ctx) { S.lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; return; }
     S.lastCreate = NGX_D3D11_CREATE_DLSS_EXT(ctx, &S.feature, S.params, &S.create);
     ctx->Release();
-    if (NVSDK_NGX_FAILED(S.lastCreate)) S.feature = NULL;
+    if (NVSDK_NGX_FAILED(S.lastCreate)) { S.feature = NULL; S.lastError = (int)S.lastCreate; }
 }
 
-static void DoEvaluate(void)
+static int SameSize(ID3D11Resource* a, ID3D11Resource* b)
 {
-    if (!S.feature || !S.params) { S.lastEval = NVSDK_NGX_Result_FAIL_FeatureNotFound; return; }
-    NVSDK_NGX_D3D11_DLSS_Eval_Params* p = &S.frame;
-    if (!p->Feature.pInColor || !p->Feature.pInOutput || !p->pInDepth || !p->pInMotionVectors) { S.lastEval = NVSDK_NGX_Result_FAIL_MissingInput; return; }
+    ID3D11Texture2D* ta = NULL; ID3D11Texture2D* tb = NULL;
+    D3D11_TEXTURE2D_DESC da = {}, db = {};
+    if (FAILED(a->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&ta)) || !ta) return 0;
+    if (FAILED(b->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&tb)) || !tb) { ta->Release(); return 0; }
+    ta->GetDesc(&da); tb->GetDesc(&db);
+    ta->Release(); tb->Release();
+    return da.Width == db.Width && da.Height == db.Height;
+}
+
+static void DoEvaluate(NVSDK_NGX_D3D11_DLSS_Eval_Params* p)
+{
+    if (!p) p = S.lastSlot;
+    if (!p) { S.lastEval = NVSDK_NGX_Result_FAIL_MissingInput; S.lastError = (int)S.lastEval; return; }
+    if (!S.device) { S.lastEval = NVSDK_NGX_Result_FAIL_NotInitialized; S.lastError = (int)S.lastEval; return; }
+    if (!p->Feature.pInColor || !p->Feature.pInOutput || (!S.passthrough && (!p->pInDepth || !p->pInMotionVectors))) {
+        S.lastEval = NVSDK_NGX_Result_FAIL_MissingInput; S.lastError = (int)S.lastEval; return;
+    }
     ID3D11DeviceContext* ctx = NULL;
     S.device->GetImmediateContext(&ctx);
-    if (!ctx) { S.lastEval = NVSDK_NGX_Result_FAIL_PlatformError; return; }
-    S.lastEval = NGX_D3D11_EVALUATE_DLSS_EXT(ctx, S.feature, S.params, p);
+    if (!ctx) { S.lastEval = NVSDK_NGX_Result_FAIL_PlatformError; S.lastError = DLSS_ERR_NO_CONTEXT; return; }
+    if (S.passthrough) {
+        if (SameSize(p->Feature.pInColor, p->Feature.pInOutput)) { ctx->CopyResource(p->Feature.pInOutput, p->Feature.pInColor); S.lastEval = NVSDK_NGX_Result_Success; }
+        else { S.lastEval = NVSDK_NGX_Result_FAIL_InvalidParameter; S.lastError = DLSS_ERR_PASSTHROUGH_SIZE; }
+    } else if (!S.feature || !S.params) {
+        S.lastEval = NVSDK_NGX_Result_FAIL_FeatureNotFound; S.lastError = (int)S.lastEval;
+    } else {
+        S.lastEval = NGX_D3D11_EVALUATE_DLSS_EXT(ctx, S.feature, S.params, p);
+        if (NVSDK_NGX_FAILED(S.lastEval)) S.lastError = (int)S.lastEval;
+    }
     ctx->Release();
 }
 
@@ -172,20 +206,23 @@ static void DoRelease(void)
     S.feature = NULL;
 }
 
-static void __stdcall OnRenderEvent(int eventId)
+static void __stdcall OnRenderEventAndData(int eventId, void* data)
 {
     switch (eventId) {
     case DLSS_EV_CREATE:   DoCreate();   break;
-    case DLSS_EV_EVALUATE: DoEvaluate(); break;
+    case DLSS_EV_EVALUATE: DoEvaluate((NVSDK_NGX_D3D11_DLSS_Eval_Params*)data); break;
     case DLSS_EV_RELEASE:  DoRelease();  break;
     default: break;
     }
 }
 
-static void __stdcall OnRenderEventAndData(int eventId, void* /*data*/) { OnRenderEvent(eventId); }
+static void __stdcall OnRenderEvent(int eventId) { OnRenderEventAndData(eventId, NULL); }
 
 void* __cdecl Dlss_GetRenderEventFunc(void)        { return (void*)&OnRenderEvent; }
 void* __cdecl Dlss_GetRenderEventAndDataFunc(void) { return (void*)&OnRenderEventAndData; }
+
+int __cdecl Dlss_Passthrough(int on) { int prev = S.passthrough; S.passthrough = on ? 1 : 0; return prev; }
+int __cdecl Dlss_LastError(void)     { return S.lastError; }
 
 int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* featureAlive)
 {

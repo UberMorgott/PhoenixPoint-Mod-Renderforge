@@ -8,6 +8,7 @@
 #define NGX_OK(r) ((((unsigned)(r)) & 0xFFF00000u) != 0xBAD00000u)
 
 typedef void(__stdcall* RenderEventFn)(int);
+typedef void(__stdcall* RenderEventAndDataFn)(int, void*);
 
 static int g_failed = 0;
 
@@ -58,6 +59,7 @@ int wmain(int argc, wchar_t** argv)
     if (g_failed) return 1;
 
     RenderEventFn ev = (RenderEventFn)Dlss_GetRenderEventFunc();
+    RenderEventAndDataFn evd = (RenderEventAndDataFn)Dlss_GetRenderEventAndDataFunc();
     Dlss_SetCreateParams(RW, RH, OW, OH, DLSS_Q_QUALITY, DLSS_F_HDR | DLSS_F_DEPTH_INVERTED | DLSS_F_MV_LOW_RES | DLSS_F_AUTO_EXPOSURE);
     ev(DLSS_EV_CREATE);
     Dlss_Status(&c, &e, &alive);
@@ -66,13 +68,31 @@ int wmain(int argc, wchar_t** argv)
 
     const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
     for (int i = 0; i < 3; ++i) {
-        Dlss_SetFrame(color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.0f);
-        ev(DLSS_EV_EVALUATE);
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         char name[32]; sprintf_s(name, "Evaluate[%d]", i);
         Report(name, e);
     }
     ctx->Flush();
+
+    // Passthrough: same-size copy, no NGX. out2 = render-res UAV target.
+    ID3D11Texture2D* out2 = MakeTex(dev, RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS);
+    Dlss_Passthrough(1);
+    {
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, color, NULL, NULL, out2, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        evd(DLSS_EV_EVALUATE, slot);
+        Dlss_Status(&c, &e, &alive);
+        Report("Passthrough", e);
+        Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        evd(DLSS_EV_EVALUATE, slot);
+        printf("Passthrough size mismatch -> lastError=%d (expect %d)\n", Dlss_LastError(), DLSS_ERR_PASSTHROUGH_SIZE);
+        if (Dlss_LastError() != DLSS_ERR_PASSTHROUGH_SIZE) g_failed = 1;
+    }
+    Dlss_Passthrough(0);
+    out2->Release();
 
     ev(DLSS_EV_RELEASE);
     Dlss_Status(&c, &e, &alive);
