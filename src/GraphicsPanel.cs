@@ -3,7 +3,6 @@ using HarmonyLib;
 using I2.Loc;
 using PhoenixPoint.Common.View.ViewModules;
 using PhoenixPoint.Geoscape.View.ViewControllers;
-using PhoenixPoint.Modding;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -64,7 +63,7 @@ namespace DlssMod
                 var mod = DlssMod.Instance;
                 if (mod == null) return;
                 DlssMod.SetMode(((DlssMode)i).ToString(), mod.Cfg.DebugView.ToString());
-                ModManager.GetInstance().SaveModConfig();   // ModManager.cs:120 - the same path UIStateModManagment uses (:137)
+                DlssMod.SaveConfig();
             }
             catch (Exception ex)
             {
