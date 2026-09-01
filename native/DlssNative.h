@@ -24,7 +24,7 @@ enum { DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_
 enum { DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3 };
 
 // Dlss_LastError codes that are not NVSDK_NGX_Result values.
-enum { DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2 };
+enum { DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3 };
 
 // Main thread. anyD3D11Resource = ID3D11Resource* (Unity GetNativeTexturePtr). Idempotent.
 DLSS_API int __cdecl Dlss_Init(void* anyD3D11Resource, const wchar_t* dllDir, const wchar_t* logDir);
@@ -38,6 +38,8 @@ DLSS_API void __cdecl Dlss_SetCreateParams(unsigned w, unsigned h, unsigned outW
 // Dlss_SetFrame and pass the same pointer as the `data` of DLSS_EV_EVALUATE (AndData callback).
 DLSS_API void* __cdecl Dlss_GetFrameSlot(void);
 // Main thread. Fills `slot` (from Dlss_GetFrameSlot). All resources = ID3D11Resource*.
+// sharpness 0..1 = our RCAS compute pass on `output` after NGX (0 = skipped); NGX's own InSharpness is deprecated and stays 0.
+// A failed RCAS setup sets Dlss_LastError() = DLSS_ERR_SHARPEN and disables the pass; the DLSS frame is unaffected.
 DLSS_API void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void* output,
                                     float jitterX, float jitterY, float mvScaleX, float mvScaleY,
                                     int reset, float dtMs, unsigned renderW, unsigned renderH,

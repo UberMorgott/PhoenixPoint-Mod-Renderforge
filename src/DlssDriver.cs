@@ -344,9 +344,11 @@ namespace DlssMod
                 // Verified by an 8x crop: (+jx,+jy) doubles thin edges, (-jx,-jy) resolves them. Same as HDRP's DLSSPass.
                 // MV: Unity's texture is (current - previous) in UV space (PPv2 TAA fetches history at uv - mv); DLSS wants
                 // current -> previous in pixels, hence InMVScale = (-renderW, -renderH).
+                // Sharpness = our RCAS pass in the shim (NGX InSharpness is deprecated in SDK 310), read live: slider/100.
+                float sharp = passthrough ? 0f : Mathf.Clamp01((DlssMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
                 IntPtr slot = Native.Dlss_GetFrameSlot();
                 Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, -jx, -jy, -renderW, -renderH,
-                    reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, 0f);
+                    reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
                 frames++;

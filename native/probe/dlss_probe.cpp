@@ -69,13 +69,15 @@ int wmain(int argc, wchar_t** argv)
     const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
     for (int i = 0; i < 3; ++i) {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         char name[32]; sprintf_s(name, "Evaluate[%d]", i);
         Report(name, e);
     }
     ctx->Flush();
+    printf("RCAS sharpen   lastError=%d (expect 0; %d = shader/view setup failed)\n", Dlss_LastError(), DLSS_ERR_SHARPEN);
+    if (Dlss_LastError() != 0) g_failed = 1;
 
     // Passthrough: same-size copy, no NGX. out2 = render-res UAV target.
     ID3D11Texture2D* out2 = MakeTex(dev, RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS);

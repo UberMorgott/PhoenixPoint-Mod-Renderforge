@@ -3,6 +3,8 @@
 #include "DlssNative.h"
 
 #include <d3d11.h>
+#include <d3dcompiler.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -29,9 +31,129 @@ static struct {
     NVSDK_NGX_D3D11_DLSS_Eval_Params slots[4];
     unsigned slotIdx;
     NVSDK_NGX_D3D11_DLSS_Eval_Params* lastSlot;
+    float slotSharp[4];           // our sharpness per slot (NGX InSharpness is deprecated in SDK 310: "Sharpness is not supported")
     int passthrough;
     int lastError;
+
+    // RCAS sharpen pass (runs after NGX on the output UAV). Scratch = SRV copy of the output, since in-place read+write is a hazard.
+    ID3D11ComputeShader* rcasCs;
+    ID3D11Buffer* rcasCb;
+    ID3D11Texture2D* scratch;
+    ID3D11ShaderResourceView* scratchSrv;
+    ID3D11UnorderedAccessView* outUav;
+    ID3D11Resource* outUavRes;    // the resource outUav was built for (released on DLSS_EV_RELEASE, before Unity frees RTs)
+    unsigned scratchW, scratchH;
+    DXGI_FORMAT scratchFmt;
+    int rcasDead;                 // shader compile / view creation failed once -> pass skipped for good
 } S = { DLSS_ERR_NO_DEVICE };
+
+// AMD FidelityFX RCAS (ffx_fsr1.h FsrRcasF, MIT), written from the public formula. Denominators are epsilon-guarded
+// instead of relying on rcp()->inf + NaN-dropping min/max. FSR_RCAS_DENOISE on. Alpha passes through.
+static const char kRcasHlsl[] =
+"Texture2D<float4> src : register(t0);\n"
+"RWTexture2D<float4> dst : register(u0);\n"
+"cbuffer C : register(b0) { float con; float pad0; uint W; uint H; };\n"
+"float3 L(int2 p) { p = clamp(p, int2(0,0), int2(int(W)-1, int(H)-1)); return src.Load(int3(p,0)).rgb; }\n"
+"[numthreads(8,8,1)]\n"
+"void main(uint3 id : SV_DispatchThreadID) {\n"
+"  if (id.x >= W || id.y >= H) return;\n"
+"  int2 p = int2(id.xy);\n"
+"  float3 b = L(p+int2(0,-1)), d = L(p+int2(-1,0)), e = L(p), f = L(p+int2(1,0)), h = L(p+int2(0,1));\n"
+"  float bL = b.b*0.5+(b.r*0.5+b.g), dL = d.b*0.5+(d.r*0.5+d.g), eL = e.b*0.5+(e.r*0.5+e.g);\n"
+"  float fL = f.b*0.5+(f.r*0.5+f.g), hL = h.b*0.5+(h.r*0.5+h.g);\n"
+"  float mxL = max(max(max(bL,dL),max(eL,fL)),hL), mnL = min(min(min(bL,dL),min(eL,fL)),hL);\n"
+"  float nz = 0.25*(bL+dL+fL+hL) - eL;\n"
+"  nz = saturate(abs(nz) / max(mxL - mnL, 1e-5));\n"
+"  nz = -0.5*nz + 1.0;\n"
+"  float3 mn4 = min(min(b,d),min(f,h)), mx4 = max(max(b,d),max(f,h));\n"
+"  float3 hitMin = mn4 / max(4.0*mx4, 1e-5);\n"
+"  float3 hitMax = (1.0 - mx4) / min(4.0*mn4 - 4.0, -1e-5);\n"
+"  float3 lobeRGB = max(-hitMin, hitMax);\n"
+"  float lobe = max(-0.1875, min(max(max(lobeRGB.r,lobeRGB.g),lobeRGB.b), 0.0)) * con;\n"
+"  lobe *= nz;\n"
+"  float3 c = (lobe*(b+d+f+h) + e) / (4.0*lobe + 1.0);\n"
+"  dst[id.xy] = float4(c, src.Load(int3(p,0)).a);\n"
+"}\n";
+
+static void RcasFail(void) { S.rcasDead = 1; S.lastError = DLSS_ERR_SHARPEN; }
+
+static void RcasReleaseViews(void)
+{
+    if (S.outUav) { S.outUav->Release(); S.outUav = NULL; } S.outUavRes = NULL;
+    if (S.scratchSrv) { S.scratchSrv->Release(); S.scratchSrv = NULL; }
+    if (S.scratch) { S.scratch->Release(); S.scratch = NULL; }
+    S.scratchW = S.scratchH = 0;
+}
+
+static int RcasEnsureShader(void)
+{
+    if (S.rcasCs) return 1;
+    ID3DBlob* code = NULL; ID3DBlob* err = NULL;
+    HRESULT hr = D3DCompile(kRcasHlsl, sizeof(kRcasHlsl) - 1, "rcas", NULL, NULL, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err);
+    if (err) err->Release();
+    if (FAILED(hr) || !code) { RcasFail(); return 0; }
+    hr = S.device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), NULL, &S.rcasCs);
+    code->Release();
+    if (FAILED(hr)) { RcasFail(); return 0; }
+    D3D11_BUFFER_DESC bd = {};
+    bd.ByteWidth = 16; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(S.device->CreateBuffer(&bd, NULL, &S.rcasCb))) { RcasFail(); return 0; }
+    return 1;
+}
+
+// sharpness 0..1 (slider/100). Mapping = the FSR1 sample's: attenuation stops = 2*(1-s), con = exp2(-stops), so
+// s=1 -> con=1 (full RCAS), s=0 -> pass skipped by the caller.
+static void DoSharpen(ID3D11DeviceContext* ctx, ID3D11Resource* output, float sharpness)
+{
+    if (S.rcasDead || !output || !S.device) return;
+    if (!RcasEnsureShader()) return;
+
+    ID3D11Texture2D* tex = NULL;
+    if (FAILED(output->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&tex)) || !tex) { RcasFail(); return; }
+    D3D11_TEXTURE2D_DESC od = {}; tex->GetDesc(&od);
+    tex->Release();
+    DXGI_FORMAT viewFmt = od.Format;
+    if (viewFmt == DXGI_FORMAT_R8G8B8A8_TYPELESS) viewFmt = DXGI_FORMAT_R8G8B8A8_UNORM;
+    else if (viewFmt == DXGI_FORMAT_B8G8R8A8_TYPELESS) viewFmt = DXGI_FORMAT_B8G8R8A8_UNORM;
+    else if (viewFmt == DXGI_FORMAT_R16G16B16A16_TYPELESS) viewFmt = DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+    if (!S.scratch || S.scratchW != od.Width || S.scratchH != od.Height || S.scratchFmt != od.Format) {
+        RcasReleaseViews();
+        D3D11_TEXTURE2D_DESC sd = od;
+        sd.BindFlags = D3D11_BIND_SHADER_RESOURCE; sd.MiscFlags = 0; sd.Usage = D3D11_USAGE_DEFAULT; sd.CPUAccessFlags = 0;
+        if (FAILED(S.device->CreateTexture2D(&sd, NULL, &S.scratch))) { RcasFail(); return; }
+        D3D11_SHADER_RESOURCE_VIEW_DESC sv = {};
+        sv.Format = viewFmt; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sv.Texture2D.MipLevels = 1;
+        if (FAILED(S.device->CreateShaderResourceView(S.scratch, &sv, &S.scratchSrv))) { RcasFail(); return; }
+        S.scratchW = od.Width; S.scratchH = od.Height; S.scratchFmt = od.Format;
+    }
+    if (S.outUavRes != output) {
+        if (S.outUav) { S.outUav->Release(); S.outUav = NULL; }
+        D3D11_UNORDERED_ACCESS_VIEW_DESC uv = {};
+        uv.Format = viewFmt; uv.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+        if (FAILED(S.device->CreateUnorderedAccessView(output, &uv, &S.outUav))) { RcasFail(); return; }
+        S.outUavRes = output;
+    }
+
+    ctx->CopyResource(S.scratch, output);
+    D3D11_MAPPED_SUBRESOURCE m = {};
+    if (SUCCEEDED(ctx->Map(S.rcasCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+        float* fp = (float*)m.pData; unsigned* up = (unsigned*)m.pData;
+        fp[0] = exp2f(-2.0f * (1.0f - sharpness)); fp[1] = 0.0f; up[2] = od.Width; up[3] = od.Height;
+        ctx->Unmap(S.rcasCb, 0);
+    }
+    ctx->CSSetShader(S.rcasCs, NULL, 0);
+    ctx->CSSetConstantBuffers(0, 1, &S.rcasCb);
+    ctx->CSSetShaderResources(0, 1, &S.scratchSrv);
+    ctx->CSSetUnorderedAccessViews(0, 1, &S.outUav, NULL);
+    ctx->Dispatch((od.Width + 7) / 8, (od.Height + 7) / 8, 1);
+    // Unbind: the output must not stay bound as a UAV when Unity samples it for the present blit.
+    ID3D11UnorderedAccessView* nullUav = NULL; ID3D11ShaderResourceView* nullSrv = NULL; ID3D11Buffer* nullCb = NULL;
+    ctx->CSSetUnorderedAccessViews(0, 1, &nullUav, NULL);
+    ctx->CSSetShaderResources(0, 1, &nullSrv);
+    ctx->CSSetConstantBuffers(0, 1, &nullCb);
+    ctx->CSSetShader(NULL, NULL, 0);
+}
 
 static NVSDK_NGX_PerfQuality_Value ToNgxQuality(int q)
 {
@@ -128,9 +250,11 @@ void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void*
     if (!p) return;
     S.lastSlot = p;
     memset(p, 0, sizeof(*p));
+    ptrdiff_t idx = p - S.slots;
+    if (idx >= 0 && idx < 4) S.slotSharp[idx] = sharpness < 0 ? 0 : sharpness > 1 ? 1 : sharpness;
     p->Feature.pInColor = (ID3D11Resource*)color;
     p->Feature.pInOutput = (ID3D11Resource*)output;
-    p->Feature.InSharpness = sharpness;
+    p->Feature.InSharpness = 0;   // deprecated in SDK 310 ("Sharpness is not supported"); our RCAS pass uses slotSharp instead
     p->pInDepth = (ID3D11Resource*)depth;
     p->pInMotionVectors = (ID3D11Resource*)mv;
     p->InJitterOffsetX = jitterX;
@@ -195,12 +319,18 @@ static void DoEvaluate(NVSDK_NGX_D3D11_DLSS_Eval_Params* p)
     } else {
         S.lastEval = NGX_D3D11_EVALUATE_DLSS_EXT(ctx, S.feature, S.params, p);
         if (NVSDK_NGX_FAILED(S.lastEval)) S.lastError = (int)S.lastEval;
+        else {
+            ptrdiff_t idx = p - S.slots;
+            float sharp = (idx >= 0 && idx < 4) ? S.slotSharp[idx] : 0.0f;
+            if (sharp > 0.0f) DoSharpen(ctx, p->Feature.pInOutput, sharp);   // not in passthrough: no DLSS_EV_RELEASE there to drop the cached UAV
+        }
     }
     ctx->Release();
 }
 
 static void DoRelease(void)
 {
+    RcasReleaseViews();   // outUav refs a Unity RT the driver frees two frames after this event
     if (!S.feature) return;
     NVSDK_NGX_D3D11_ReleaseFeature(S.feature);
     S.feature = NULL;
@@ -247,6 +377,9 @@ void __cdecl Dlss_ReleaseNow(void) { DoRelease(); }
 void __cdecl Dlss_Shutdown(void)
 {
     DoRelease();
+    if (S.rcasCb) { S.rcasCb->Release(); S.rcasCb = NULL; }
+    if (S.rcasCs) { S.rcasCs->Release(); S.rcasCs = NULL; }
+    S.rcasDead = 0;
     if (S.params) { NVSDK_NGX_D3D11_DestroyParameters(S.params); S.params = NULL; }
     if (S.ngxInitialized) { NVSDK_NGX_D3D11_Shutdown1(S.device); S.ngxInitialized = 0; }
     if (S.device) { S.device->Release(); S.device = NULL; }

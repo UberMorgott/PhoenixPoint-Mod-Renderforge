@@ -14,7 +14,7 @@ endif()
 
 add_library(DlssNative SHARED DlssNative.cpp DlssNative.h)
 target_include_directories(DlssNative PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" PRIVATE "${DLSS_SDK}/include")
-target_link_libraries(DlssNative PRIVATE "${NGX_LIB}" d3d11 dxgi)
+target_link_libraries(DlssNative PRIVATE "${NGX_LIB}" d3d11 dxgi d3dcompiler)
 target_compile_definitions(DlssNative PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 add_executable(dlss_probe probe/dlss_probe.cpp)
