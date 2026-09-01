@@ -43,7 +43,7 @@ namespace DlssMod
         private bool aaSaved;
         private PostProcessLayer.Antialiasing savedAA;
 
-        private long frames;
+        private long frames, resets;
         private string lastFail = "";
         private bool broken;                // threw once inside a Unity callback -> self-disabled
 
@@ -101,12 +101,13 @@ namespace DlssMod
                 int c, e, alive; int init = Native.Dlss_Status(out c, out e, out alive);
                 return "gen=" + gen + " mode=" + liveMode + " view=" + liveView + " want=" + wantMode + "/" + wantView
                      + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " screen=" + Screen.width + "x" + Screen.height
-                     + " q=" + quality + " passthrough=" + passthrough + " frames=" + frames + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
+                     + " q=" + quality + " passthrough=" + passthrough + " frames=" + frames + " resets=" + resets + " fov=" + (cam ? cam.fieldOfView.ToString("F3") : "-") + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
                      + " init=" + init + " create=0x" + c.ToString("X") + "(" + Native.Dlss_ResultString(c) + ") eval=0x" + e.ToString("X") + "(" + Native.Dlss_ResultString(e) + ")"
                      + " feature=" + alive + " lastError=" + Native.Dlss_LastError()
                      + " cam=" + (cam ? cam.name : "null") + " target=" + (cam && cam.targetTexture ? cam.targetTexture.name : "null")
                      + " depthMode=" + (cam ? cam.depthTextureMode.ToString() : "-") + " aa=" + (layer ? layer.antialiasingMode.ToString() : "-")
                      + " colorSpace=" + QualitySettings.activeColorSpace + " reversedZ=" + SystemInfo.usesReversedZBuffer
+                     + " path=" + (cam ? cam.actualRenderingPath.ToString() : "-")
                      + " present=" + (present ? (present.enabled ? "on" : "off") : "none") + " broken=" + broken + " fail=" + lastFail;
             }
         }
@@ -301,24 +302,32 @@ namespace DlssMod
             if (broken || gen != Gen.Live || l != layer || cam == null) return;
             try
             {
-                var p = cam.projectionMatrix;
-                cam.nonJitteredProjectionMatrix = p;
                 Halton(jitterIndex, out jx, out jy);
                 jitterIndex = (jitterIndex + 1) % phaseCount;
                 if (passthrough) { jx = 0f; jy = 0f; }
+                var p = cam.projectionMatrix;
+                cam.nonJitteredProjectionMatrix = p;
                 // PPv2 sign convention (RuntimeUtilities.GetJitteredPerspectiveProjectionMatrix, decompiled): proj[0,2] += 2*jx/w.
                 p[0, 2] += 2f * jx / renderW;
                 p[1, 2] += 2f * jy / renderH;
                 cam.projectionMatrix = p;
-                cam.useJitteredProjectionMatrixForTransparentRendering = false;
+                // TRUE, unlike PPv2 TAA: DLSS needs every surface jittered; transparents rendered with the
+                // clean matrix keep hard aliased edges (seen live on the tactical path lines).
+                cam.useJitteredProjectionMatrixForTransparentRendering = true;
 
                 int reset = resetNext ? 1 : 0;
                 Vector3 pos = cam.transform.position;
                 if ((pos - lastPos).sqrMagnitude > 50f * 50f || !Mathf.Approximately(cam.fieldOfView, lastFov)) reset = 1;
                 lastPos = pos; lastFov = cam.fieldOfView; resetNext = false;
+                if (reset != 0) resets++;
 
+                // Signs (live-verified 2026-09-01, DLAA 1280x720): NGX gets (-jx, -jy). Unity's view space is right-handed
+                // (w_clip = -z_view), so "+2jx/w" on proj[0,2] shifts the image by -jx pixels; the same holds for y.
+                // Verified by an 8x crop: (+jx,+jy) doubles thin edges, (-jx,-jy) resolves them. Same as HDRP's DLSSPass.
+                // MV: Unity's texture is (current - previous) in UV space (PPv2 TAA fetches history at uv - mv); DLSS wants
+                // current -> previous in pixels, hence InMVScale = (-renderW, -renderH).
                 IntPtr slot = Native.Dlss_GetFrameSlot();
-                Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, jx, jy, -renderW, -renderH,
+                Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, -jx, -jy, -renderW, -renderH,
                     reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, 0f);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);

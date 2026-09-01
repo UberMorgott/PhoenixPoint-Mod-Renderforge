@@ -116,6 +116,14 @@ is wrong before we ever touch the game.
   `ARGBHalf` still with `IsHDR=0`), `AutoExposure=0`. `InMVScale = (-renderW, -renderH)`
   (Unity MV = NDC previous→current; DLSS wants current→previous in pixels). Both signs are still
   confirmed live by the ghosting direction on a moving unit.
+  **Live signs (2026-09-01, DLAA 1280×720, Instance2):** projection gets `proj[0,2] += 2jx/w`,
+  `proj[1,2] += 2jy/h` (PPv2 convention) and NGX gets `InJitterOffset = (-jx, -jy)` — Unity's view
+  space is right-handed so that projection offset moves the image by −j pixels; `(+jx,+jy)` doubles
+  thin edges in an 8× crop, `(-jx,-jy)` resolves them (same as HDRP's DLSSPass). `InMVScale =
+  (-renderW, -renderH)` kept by derivation (PPv2 TAA fetches history at `uv - mv`) — NOT yet
+  confirmed by a moving-unit ghost test (the camera-pan harness snapped instead of animating).
+  Also `useJitteredProjectionMatrixForTransparentRendering = true` (not `false` as above): with
+  `false` the tactical path lines stay hard-aliased under DLAA.
   Consequence accepted for v1: PPv2 effects (bloom/DoF/SSR/AO, dither) run at render res before
   the upscale. v2 (only if visibly worse than SMAA): Harmony PPv2 so DLSS runs before the uber pass.
 - Reset: `InReset=1` on the first frame after create, on `OnLevelStart`, on a Cinemachine cut
