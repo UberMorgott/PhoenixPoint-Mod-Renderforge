@@ -179,6 +179,32 @@ is wrong before we ever touch the game.
   `DlssMod.SaveConfig()` = `ModManager.GetInstance().SaveModConfig()` (`ModManager.cs:120`), used
   by the hotkeys and the graphics-panel picker. PPCLI substitutes for a keypress:
   `call DlssMod.DlssMod.Toggle / ToggleOverlay / SetOverlay("TopLeft")`.
+- **Sharpness** (2026-09-02). NOT NGX's: SDK 310 marks `NVSDK_NGX_DLSS_Feature_Flags_DoSharpening`
+  `[[deprecated("Sharpness is not supported")]]` (`nvsdk_ngx_defs.h:60,:296`) and the eval helper
+  still copies `InSharpness` into the parameter block, but nothing consumes it (sharpening was removed
+  in DLSS 3.x). The shim keeps `InSharpness = 0`.
+  - Our pass: AMD FidelityFX **RCAS** (FSR1 companion sharpener, MIT, written from the public formula,
+    `native\DlssNative.cpp kRcasHlsl`) as a `cs_5_0` compute shader compiled at runtime with
+    `D3DCompile` (`d3dcompiler_47.dll`, link `d3dcompiler.lib`), cached. Runs inside event 2 right
+    after a successful `NGX_D3D11_EVALUATE_DLSS_EXT`, in place on the output UAV, reading from an SRV
+    scratch copy (`CopyResource(scratch, output)`; in-place read+write is a hazard). Denominators are
+    epsilon-guarded (no rcp→inf/NaN reliance), FSR denoise term on, alpha passes through. Mapping
+    = the FSR1 sample's: slider/100 = s, attenuation stops = 2·(1−s), `con = exp2(-stops)`; s=0 skips
+    the pass. Views are dropped on event 3 (before the driver frees RTs); a failed setup sets
+    `Dlss_LastError() = DLSS_ERR_SHARPEN` (−3) and disables the pass, never the DLSS frame. ABI
+    unchanged: the existing `sharpness` arg of `Dlss_SetFrame` now feeds RCAS. Probe evaluates with
+    0.5 and asserts `lastError == 0`. Not applied in Passthrough (no release event there).
+  - Managed: `DlssConfig.Sharpness = 40` (0..100, localized "Sharpness"/"Резкость"), read by the
+    driver EVERY frame (no re-create). `DlssMod.SetSharpness(int)` = PPCLI/keypress substitute.
+  - Slider: `GraphicsPanel.BuildSlider` clones the panel's own ShadowDistance row (same
+    TextAndSlider prefab as VideoPanel's rows) right under the DLSS picker, label "SHARPNESS" /
+    "РЕЗКОСТЬ", whole 0..100 + readout, immediate apply + `SaveConfig()` like the picker; greyed
+    (CanvasGroup 0.35 + non-interactable) when the picker is Off, re-evaluated on every picker change.
+  - Verified live (DLAA 1280×720, Instance2, `build\shots\6-sharp-{0,50,100}.png`): mean |luma
+    gradient| over the scene 7.22 → 8.29 → 11.02; 100 visibly crisper on rock/vehicle texture, no
+    ringing halos at 50 (8× crops `crop-6-sharp*.png`). Frame time 4.6 ms (0) vs 5.1 ms (100) read off
+    the overlay's 0.5 s average — noise-level, ≤0.5 ms. Panel: `6-panel-sharp.png` /
+    `6-panel-sharp-off.png`. Persisted in `ModConfig.json` (`"Sharpness": 100` after the run).
 - **Benchmark overlay** (`src\Overlay.cs`, `ShowOverlay=false`, `OverlayPosition=TopCenter` of
   `TopLeft|TopCenter|TopRight|BottomCenter`): one ScreenSpaceOverlay canvas, sortingOrder 30000,
   no GraphicRaycaster, `raycastTarget=false`, HUD font (first `Text` found) else Arial, size

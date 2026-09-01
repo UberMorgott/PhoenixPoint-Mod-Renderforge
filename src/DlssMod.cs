@@ -160,6 +160,16 @@ namespace DlssMod
             return GetStatus();
         }
 
+        /// <summary>PPCLI substitute for the slider: {"member":"SetSharpness","args":[100]}. Live next frame + saved.</summary>
+        public static string SetSharpness(int value)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.Sharpness = Mathf.Clamp(value, 0, 100);
+            SaveConfig();
+            return "sharpness=" + m.Cfg.Sharpness;
+        }
+
         public static string GetStatus() => DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode);
 
         private static string Reason(int code)

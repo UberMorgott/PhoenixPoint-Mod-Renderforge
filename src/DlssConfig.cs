@@ -17,6 +17,8 @@ namespace DlssMod
     {
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance")]
         public DlssMode Mode = DlssMode.Auto;
+        [ConfigField("Sharpness", "0 = off … 100. RCAS pass after DLSS; also a slider in Options → Graphics.")]
+        public int Sharpness = 40;                      // 0..100 -> RCAS 0..1, applied every frame, live
         [ConfigField("Show DLSS in Graphics options")]
         public bool ShowInGraphicsOptions = true;
         // Pressed together with Ctrl+Alt (fixed chord, like ContentTool's fit bench Ctrl+Alt+B). No F-keys/Insert/End:
@@ -43,6 +45,7 @@ namespace DlssMod
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
         {
             { nameof(Mode), new[] { "Режим DLSS", "Выкл, Авто (по разрешению), DLAA, Quality, Balanced, Performance, Ultra Performance" } },
+            { nameof(Sharpness), new[] { "Резкость", "0 = выкл … 100. Проход RCAS после DLSS; также ползунок в Настройки → Графика." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
             { nameof(OverlayHotkey), new[] { "Клавиша оверлея (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

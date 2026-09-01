@@ -16,8 +16,11 @@ namespace DlssMod
     internal static class GraphicsPanel
     {
         private const string Name = "DlssPicker";
+        private const string SliderName = "DlssSharpness";
         private static readonly string[] Labels = { "Off", "Auto", "DLAA", "Quality", "Balanced", "Performance", "Ultra Performance" };
         private static bool loggedError;
+        private static Slider sharp;
+        private static Transform sharpValue;
 
         static void Postfix(UIModuleGraphicsOptionsPanel __instance)
         {
@@ -30,6 +33,8 @@ namespace DlssMod
                 if (!DlssMod.Available || !mod.Cfg.ShowInGraphicsOptions)
                 {
                     if (existing != null) existing.gameObject.SetActive(false);
+                    var row = src.transform.parent.Find(SliderName);
+                    if (row != null) row.gameObject.SetActive(false);
                     return;
                 }
                 ArrowPickerController picker;
@@ -47,6 +52,7 @@ namespace DlssMod
                 if (idx < 0 || idx >= Labels.Length) idx = 0;
                 picker.Init(Labels.Length, idx, i => OnChanged(picker, i));
                 SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[idx]);
+                BuildSlider(__instance, picker.transform, mod.Cfg);
             }
             catch (Exception ex)
             {
@@ -64,11 +70,80 @@ namespace DlssMod
                 if (mod == null) return;
                 DlssMod.SetMode(((DlssMode)i).ToString(), mod.Cfg.DebugView.ToString());
                 DlssMod.SaveConfig();
+                SetSliderEnabled(i != (int)DlssMode.Off);
             }
             catch (Exception ex)
             {
                 if (!loggedError) DlssMod.Instance?.Logger.LogError("DLSS picker change failed: " + ex);
                 loggedError = true;
+            }
+        }
+
+        /// <summary>"SHARPNESS" slider row right under the picker: a clone of the panel's own ShadowDistance row (same
+        /// TextAndSlider prefab family as VideoPanel's rows: "Slider", label "UITextGeneric_Medium (1)", readout
+        /// "UITextGeneric_Medium"). Immediate apply like the picker; greyed while the picker is Off.</summary>
+        private static void BuildSlider(UIModuleGraphicsOptionsPanel panel, Transform picker, DlssConfig cfg)
+        {
+            var srcSlider = panel.ShadowDistanceSlider;
+            if (srcSlider == null) return;
+            var content = picker.parent;
+            var row = content.Find(SliderName);
+            if (row == null)
+            {
+                var go = UnityEngine.Object.Instantiate(srcSlider.transform.parent.gameObject, content);
+                go.name = SliderName;
+                row = go.transform;
+            }
+            row.SetSiblingIndex(picker.GetSiblingIndex() + 1);
+            row.gameObject.SetActive(true);
+            sharp = row.GetComponentInChildren<Slider>(true);
+            sharpValue = row.Find("UITextGeneric_Medium");
+            var label = row.Find("UITextGeneric_Medium (1)");
+            if (label != null) SetRaw(label.GetComponent<Localize>(), label.GetComponent<Text>(), DlssConfig.Loc("Sharpness", "Резкость").ToUpperInvariant());
+            if (sharpValue != null) sharpValue.gameObject.SetActive(true);
+            sharp.gameObject.SetActive(true);
+            sharp.wholeNumbers = true;
+            sharp.minValue = 0;
+            sharp.maxValue = 100;
+            sharp.SetValueWithoutNotify(Mathf.Clamp(cfg.Sharpness, 0, 100));
+            ShowSharp((int)sharp.value);
+            sharp.onValueChanged.RemoveAllListeners();
+            sharp.onValueChanged.AddListener(OnSharp);
+            SetSliderEnabled(cfg.Mode != DlssMode.Off);
+        }
+
+        private static void OnSharp(float v)
+        {
+            try
+            {
+                var mod = DlssMod.Instance;
+                if (mod == null) return;
+                mod.Cfg.Sharpness = (int)v;      // the driver reads it every frame: live
+                ShowSharp((int)v);
+                DlssMod.SaveConfig();
+            }
+            catch (Exception ex)
+            {
+                if (!loggedError) DlssMod.Instance?.Logger.LogError("DLSS sharpness change failed: " + ex);
+                loggedError = true;
+            }
+        }
+
+        private static void ShowSharp(int v)
+        {
+            if (sharpValue != null) SetRaw(sharpValue.GetComponent<Localize>(), sharpValue.GetComponent<Text>(), v.ToString());
+        }
+
+        // Same grey as VideoPanel.SetSliderEnabled: interactable alone shows nothing on this prefab, a CanvasGroup does.
+        private static void SetSliderEnabled(bool on)
+        {
+            if (sharp == null) return;
+            sharp.interactable = on;
+            foreach (var go in new[] { sharp.gameObject, sharpValue != null ? sharpValue.gameObject : null })
+            {
+                if (go == null) continue;
+                var cg = go.GetComponent<CanvasGroup>() ?? go.AddComponent<CanvasGroup>();
+                cg.alpha = on ? 1f : 0.35f;
             }
         }
 
