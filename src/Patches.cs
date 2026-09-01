@@ -26,6 +26,6 @@ namespace DlssMod
     [HarmonyPatch(typeof(OptionsManager), "InitVideoOptions")]
     internal static class OptionsManager_InitVideoOptions_Patch
     {
-        static void Postfix() => DlssMod.ApplyFrameRateLimit();
+        static void Postfix() => DlssMod.ApplyFrameRate();
     }
 }

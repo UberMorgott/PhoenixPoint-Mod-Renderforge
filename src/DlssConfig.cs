@@ -22,7 +22,8 @@ namespace DlssMod
         public bool ShowOverlay = false;
         public OverlayCorner OverlayPosition = OverlayCorner.TopCenter;
         public float OverlayScale = 1.0f;               // Overlay text size multiplier, 0.5..3
-        public int FrameRateLimit = 0;                  // 0 = uncapped; the game itself pins 60. VSync still caps at the monitor rate.
+        public bool LimitFrameRate = false;             // off = uncapped (the game itself pins 60). VSync still caps at the monitor rate.
+        public int FrameRateLimit = 60;                 // used only when LimitFrameRate, clamped 30..300
         public DebugView DebugView = DebugView.None;
     }
 }
