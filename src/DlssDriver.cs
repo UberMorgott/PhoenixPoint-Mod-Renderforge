@@ -43,6 +43,7 @@ namespace DlssMod
         private bool aaSaved;
         private PostProcessLayer.Antialiasing savedAA;
 
+        private float mipReapplyAt;         // second MipBias sweep 2 s after Live: level content still streaming in
         private long frames, resets;
         private string lastFail = "";
         private bool broken;                // threw once inside a Unity callback -> self-disabled
@@ -154,6 +155,8 @@ namespace DlssMod
                     gen = Gen.Live;
                     resetNext = true;
                     AttachCamera();
+                    MipBias.Apply(passthrough ? 0f : Mathf.Log((float)renderW / outW, 2f));
+                    mipReapplyAt = Time.unscaledTime + 2f;
                     break;
                 case Gen.Live:
                     if (cam == null) { Fail("scene camera destroyed while live"); break; }
@@ -171,6 +174,7 @@ namespace DlssMod
                         if ((e & 0xFFF00000) == 0xBAD00000) { Fail("NGX evaluate failed: 0x" + e.ToString("X") + " " + Native.Dlss_ResultString(e) + " lastError=" + Native.Dlss_LastError()); break; }
                     }
                     KeepCameraState();
+                    if (mipReapplyAt > 0f && Time.unscaledTime >= mipReapplyAt) { mipReapplyAt = 0f; MipBias.Reapply(); }
                     break;
                 case Gen.Releasing:
                     if (++genFrames < 2) break;       // two frames after event 3: no in-flight event touches a dead RT
@@ -295,6 +299,7 @@ namespace DlssMod
 
         private void BeginRelease()
         {
+            MipBias.Reset();
             Detach();
             if (wantsFeature) GL.IssuePluginEvent(evFn, Native.DLSS_EV_RELEASE);
             Native.Dlss_Passthrough(0);

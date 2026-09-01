@@ -75,7 +75,7 @@ namespace DlssMod
             Instance = null;
         }
 
-        public override void OnLevelStart(Level level) => AttachAndApply();
+        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); }   // Reapply covers a level that starts with the generation still live
 
         /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
         public override void OnLevelEnd(Level level) => DlssDriver.Instance?.Apply(DlssMode.Off, Cfg.DebugView);
