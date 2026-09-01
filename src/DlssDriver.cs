@@ -126,7 +126,8 @@ namespace DlssMod
         private void Update()
         {
             var cfg = DlssMod.Instance?.Cfg;
-            if (cfg != null)
+            if (cfg != null && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+                            && (Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt)))
             {
                 if (Input.GetKeyDown(cfg.ToggleHotkey)) DlssMod.Toggle();
                 if (Input.GetKeyDown(cfg.OverlayHotkey)) DlssMod.ToggleOverlay();

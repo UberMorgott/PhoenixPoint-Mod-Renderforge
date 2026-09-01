@@ -164,9 +164,18 @@ is wrong before we ever touch the game.
     `(997.9, 238.7)` identical at `pixelWidth` 640 and 1280; `plans\aim-and-run.json` with
     `requireActor:true` (the game's own `SelectAtCursor`) resolved the actor in both modes;
     `CameraManager.CenterScreenPos` = `(640,360)` while live; health bars sit on units.
-- **Hotkeys** (`DlssConfig`): `ToggleHotkey=F11` (Off ↔ last non-Off mode; the remembered mode is
-  in-memory, after a restart in Off F11 restores Auto), `OverlayHotkey=F8`. Polled with
-  `Input.GetKeyDown` in `DlssDriver.Update`. Never F4/F5/F9/F10/F12 (game/Steam keys).
+- **Hotkeys** (`DlssConfig`): fixed `Ctrl+Alt` chord (either side, `Input.GetKey`) + configurable
+  letter: `ToggleHotkey=U` (Off ↔ last non-Off mode; the remembered mode is in-memory, after a
+  restart in Off the toggle restores Auto), `OverlayHotkey=O`. Polled with `Input.GetKeyDown` in
+  `DlssDriver.Update`. No F-keys/Insert/End (user's keyboard has none; F4/F5/F9/F10 are game keys).
+  Game chords are the `InputMapDef` ASSET `PhoenixInput` (153 actions, 191 chords), not code
+  (`InputChord.Keys` is a plain key set, no modifier flags — a game key still fires while Ctrl+Alt
+  is held). Read live 2026-09-02 via `JsonConvert.SerializeObject` per action: the game has NO
+  Ctrl+Alt chords; the only modifier chords are `left alt` (Show Item Labels), `ctrl+wheel`
+  (OverwatchSpread), `shift+f`. `D` is bound (`Camera Right`), so the requested Ctrl+Alt+D was
+  replaced by Ctrl+Alt+U. Free letters: `b h j k l o p u` (`b` left to ContentTool's fit bench).
+  A hotkey press is only a `wantMode` change; the driver's Idle→Creating→Live→Releasing machine
+  serialises create/release with the render thread, so a press mid-generation cannot wedge it.
   `DlssMod.SaveConfig()` = `ModManager.GetInstance().SaveModConfig()` (`ModManager.cs:120`), used
   by the hotkeys and the graphics-panel picker. PPCLI substitutes for a keypress:
   `call DlssMod.DlssMod.Toggle / ToggleOverlay / SetOverlay("TopLeft")`.
