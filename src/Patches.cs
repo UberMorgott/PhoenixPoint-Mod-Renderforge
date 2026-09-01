@@ -1,3 +1,4 @@
+using Base.Cameras;
 using Base.Lighting;
 using HarmonyLib;
 using PhoenixPoint.Common.Core;
@@ -19,6 +20,17 @@ namespace DlssMod
     internal static class LightingManager_ApplyPostProcessOptions_Patch
     {
         static void Postfix() => DlssDriver.Instance?.AfterApplyPostProcessOptions();
+    }
+
+    /// <summary>CameraManager.Camera SWAPS after OnLevelStart: the level's Loaded->Playing transition queues
+    /// SetOverrideCameraCrt (CameraManager.cs:232, priority -2000), which makes the scene's own camera (GeoscapeCamera,
+    /// the tactical camera) the override and deactivates the prefab MainCamera the mod had just bound. Left alone the
+    /// driver either stays Idle on the inactive camera (DLSS silently off) or, if it went Live first, keeps presenting a
+    /// stale outRT over the real camera (black screen with HUD until toggled). Rebind on every swap.</summary>
+    [HarmonyPatch(typeof(CameraManager), "SetOverrideCamera")]
+    internal static class CameraManager_SetOverrideCamera_Patch
+    {
+        static void Postfix(CameraManager __instance) => DlssDriver.Instance?.Attach(__instance.Camera);
     }
 
     /// <summary>OptionsManager.InitVideoOptions (OptionsManager.cs:505) is the game's ONLY SetFrameRateLimit(60) call

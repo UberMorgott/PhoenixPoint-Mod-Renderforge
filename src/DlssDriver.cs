@@ -157,7 +157,9 @@ namespace DlssMod
                     break;
                 case Gen.Live:
                     if (cam == null) { Fail("scene camera destroyed while live"); break; }
-                    if (wantMode == DlssMode.Off || wantMode != liveMode || !SameSizeClass(liveView, wantView)
+                    // Bound camera deactivated (CameraManager swapped to another one): a present camera left on would
+                    // blit a stale outRT over whatever renders now. Release; Idle re-creates on the rebound camera.
+                    if (!cam.isActiveAndEnabled || wantMode == DlssMode.Off || wantMode != liveMode || !SameSizeClass(liveView, wantView)
                         || Screen.width != outW || Screen.height != outH)
                     {
                         BeginRelease();
