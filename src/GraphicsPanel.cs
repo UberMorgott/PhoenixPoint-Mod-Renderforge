@@ -74,7 +74,7 @@ namespace DlssMod
 
         /// <summary>I2 Localize (Localize.cs:122 OnEnable / :336 SetTerm) overwrites the Text with a term lookup, and a
         /// missing term leaves the old text (:154,:169); so disable the bind and write the raw string.</summary>
-        private static void SetRaw(Localize bind, Text text, string value)
+        internal static void SetRaw(Localize bind, Text text, string value)
         {
             if (bind != null)
             {
