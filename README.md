@@ -4,7 +4,7 @@ DLSS Super Resolution, DLAA, sharpening, frame-rate control, and a benchmark ove
 
 ## Features
 
-- NVIDIA DLSS Super Resolution and DLAA using DLSS SDK 310.7 with the transformer model.
+- NVIDIA DLSS Super Resolution and DLAA using DLSS SDK 310.7 (shipped runtime `nvngx_dlss.dll` 310.7.129, NVIDIA-signed) with the transformer model.
 - Modes: Off, Auto, DLAA, Quality, Balanced, Performance, and Ultra Performance.
 - Auto selects by output height:
   - 1200p or lower: DLAA
@@ -163,7 +163,7 @@ Requirements:
 - Phoenix Point installation
 - [NVIDIA DLSS SDK](https://github.com/NVIDIA/DLSS) cloned into `..\refs\DLSS-sdk`
 
-The native shim links against `nvsdk_ngx_d.lib`. The runtime `nvngx_dlss.dll` is copied from the SDK during deployment and is not stored in this repository. NVIDIA Image Scaling headers are vendored under `native\nis\`.
+The native shim links against `nvsdk_ngx_d.lib`. The runtime `nvngx_dlss.dll` is copied from the SDK's `lib\Windows_x86_64\rel` slot at build time (we keep the newest NVIDIA-signed build there; the build verifies its Authenticode signature) and is not stored in this repository. NVIDIA Image Scaling headers are vendored under `native\nis\`.
 
 Build the managed component:
 
