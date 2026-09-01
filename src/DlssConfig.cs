@@ -9,7 +9,8 @@ namespace DlssMod
     /// <summary>Public fields = the in-game mod settings UI + ModConfig.json (ModConfig.GetConfigFields).</summary>
     public class DlssConfig : ModConfig
     {
-        public DlssMode Mode = DlssMode.Auto;
+        // ponytail: DLAA default until phase 3 fixes mouse picking under a reduced render res; then Auto.
+        public DlssMode Mode = DlssMode.DLAA;
         public bool ShowInGraphicsOptions = true;
         public DebugView DebugView = DebugView.None;
     }
