@@ -142,6 +142,42 @@ is wrong before we ever touch the game.
   `Available=false` or `ShowInGraphicsOptions=false`. Native widget, no custom UI.
 - `OnModDisabled`: driver off, RTs released, camera `targetTexture=null`, feature released,
   Harmony unpatch. Game must look byte-identical to no-mod.
+- **Picking / HUD under a reduced render res** (`src\Picking.cs`, phase 3b, verified 2026-09-02):
+  `targetTexture = colorRT` makes `Camera.pixelWidth/Height` the RENDER res while
+  `Input.mousePosition`, `Screen.*` and the overlay HUD stay at screen res.
+  - Unity dynamic resolution (the zero-patch fix) is DEAD on this engine: DRS is DX12-only on
+    Windows in 2019.4 — live `ScalableBufferManager.ResizeBuffers(0.67,0.67)` left
+    `widthScaleFactor = 1.0` on Instance2 (D3D11), although PPv2 does carry `useDynamicScale`.
+  - So Harmony seams, gated on `Seams.Scaled(cam)` (= driver live, this camera, render ≠ out):
+    prefix scales the INPUT of `Camera.ScreenPointToRay(Vector3,Eye)`,
+    `ScreenToWorldPoint(Vector3,Eye)`, `ScreenToViewportPoint(Vector3)` by `render/screen`;
+    postfix scales the OUTPUT of `WorldToScreenPoint(Vector3,Eye)`, `ViewportToScreenPoint(Vector3)`
+    back up. Only the innermost IL wrappers (the ones calling `*_Injected`) are patched; the 1-arg
+    overloads route through them. `pixelWidth/Height` are icalls (no IL) so their READERS are
+    transpiled (`get_pixelWidth` → `Seams.PixelWidth(cam)` = `Screen` size while live):
+    `CameraBehavior.CenterScreenPos`, `PlanarScrollCamera.GetEdgeScrollOffset`,
+    `FirstPersonCamera.UpdateInput/HandleInput/GetMouseOffset`, `UIStateFreeCam.GetTargetPos/
+    GetCameraPosByCameraTarget/GetDefaultTarget`, `FreeCursorController.SetFreeCursorActive`.
+    `CanvasScalerController` left alone: it only picks `matchWidthOrHeight` from `camera.aspect`
+    (unchanged by the scale); the HUD canvas itself is ScreenSpaceOverlay → Screen-sized.
+  - Evidence (Performance 640×360→1280×720, Instance2): `WorldToScreenPoint(actor)` =
+    `(997.9, 238.7)` identical at `pixelWidth` 640 and 1280; `plans\aim-and-run.json` with
+    `requireActor:true` (the game's own `SelectAtCursor`) resolved the actor in both modes;
+    `CameraManager.CenterScreenPos` = `(640,360)` while live; health bars sit on units.
+- **Hotkeys** (`DlssConfig`): `ToggleHotkey=F11` (Off ↔ last non-Off mode; the remembered mode is
+  in-memory, after a restart in Off F11 restores Auto), `OverlayHotkey=F8`. Polled with
+  `Input.GetKeyDown` in `DlssDriver.Update`. Never F4/F5/F9/F10/F12 (game/Steam keys).
+  `DlssMod.SaveConfig()` = `ModManager.GetInstance().SaveModConfig()` (`ModManager.cs:120`), used
+  by the hotkeys and the graphics-panel picker. PPCLI substitutes for a keypress:
+  `call DlssMod.DlssMod.Toggle / ToggleOverlay / SetOverlay("TopLeft")`.
+- **Benchmark overlay** (`src\Overlay.cs`, `ShowOverlay=false`, `OverlayPosition=TopCenter` of
+  `TopLeft|TopCenter|TopRight|BottomCenter`): one ScreenSpaceOverlay canvas, sortingOrder 30000,
+  no GraphicRaycaster, `raycastTarget=false`, HUD font (first `Text` found) else Arial, size
+  14·Screen.height/1080, 6 px margin. Lines: upscaler (nvngx file version via `version.dll`;
+  Mono's `FileVersionInfo` is empty for native DLLs), mode + `render -> out`, AA (DLSS / live
+  `PostProcessLayer.antialiasingMode`), FPS = 0.5 s moving average, refreshed 4×/s.
+  TopCenter is empty in tactical and geoscape; TopLeft covers the objectives title and
+  BottomCenter the ability-bar key labels in tactical — user's choice, not a default.
 
 ### Data flow per frame
 
