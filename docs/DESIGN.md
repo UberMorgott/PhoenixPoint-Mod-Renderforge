@@ -236,6 +236,15 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 5. README, NVIDIA notice, Workshop packaging (Workshop id TBD by user, tags `Gameplay`?). Release.
 6. Experiment (separate decision): `-force-d3d12` viability → Frame Gen.
 
+## Idea backlog (user, not scheduled)
+
+- **Color grading preset / LUT** (2026-09-02, "like Cyberpunk's natural-grey look"): PPv2 already
+  ships `ColorGrading` with `LDR LUT` / `External LUT` modes — drop in a LUT strip (1024×32) or
+  3D LUT with `contribution`, or build the look from temperature / saturation / contrast /
+  lift-gamma-gain without a file. Delivery = our own high-priority `PostProcessVolume` or a Harmony
+  tweak of the existing `ColorGrading` settings. Independent of DLSS (grading runs before the
+  upscale in the colour buffer). Could be a "Color preset" picker in this mod or a separate mod.
+
 ## Future scope (user, 2026-09-01)
 
 DLSS first; later FSR and XeSS through the same driver (the native shim's ABI is upscaler-shaped:
