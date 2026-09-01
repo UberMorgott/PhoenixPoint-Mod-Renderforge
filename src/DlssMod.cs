@@ -1,4 +1,8 @@
 using System;
+using Base.Cameras;
+using Base.Core;
+using Base.Levels;
+using HarmonyLib;
 using PhoenixPoint.Modding;
 using UnityEngine;
 
@@ -17,6 +21,7 @@ namespace DlssMod
 
         // Kept alive for the life of the mod: NGX holds the D3D11 device it was taken from.
         private static Texture2D probeTex;
+        private bool patched;
 
         public override void OnModEnabled()
         {
@@ -33,7 +38,7 @@ namespace DlssMod
                 }
                 probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
                 InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
-                Available = InitCode == Native.DLSS_OK;
+                Available = InitCode == Native.DLSS_OK && SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D11;
             }
             catch (Exception ex)
             {
@@ -41,21 +46,65 @@ namespace DlssMod
                 Logger.LogError("DLSS init THREW " + ex.Message);
             }
             Logger.LogInfo(Available ? "DLSS available" : "DLSS unavailable (code " + InitCode + "): " + Reason(InitCode));
+            if (!Available) return;
+            try
+            {
+                DlssDriver.Create();
+                ((Harmony)HarmonyInstance).PatchAll(typeof(DlssMod).Assembly);
+                patched = true;
+                AttachAndApply();
+            }
+            catch (Exception ex) { Logger.LogError("DLSS enable THREW " + ex); }
         }
 
         public override void OnModDisabled()
         {
-            if (InitCode == Native.DLSS_OK) { try { Native.Dlss_Shutdown(); } catch (Exception) { } }
+            try
+            {
+                DlssDriver.Instance?.Apply(DlssMode.Off, DebugView.None);
+                if (DlssDriver.Instance != null) UnityEngine.Object.Destroy(DlssDriver.Instance.gameObject);
+                if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
+                if (InitCode == Native.DLSS_OK) Native.Dlss_Shutdown();
+            }
+            catch (Exception ex) { Logger.LogError("DLSS disable THREW " + ex); }
             Available = false;
             InitCode = -1;
             Instance = null;
         }
 
+        public override void OnLevelStart(Level level) => AttachAndApply();
+
+        /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
+        public override void OnLevelEnd(Level level) => DlssDriver.Instance?.Apply(DlssMode.Off, Cfg.DebugView);
+
         public override void OnConfigChanged()
         {
-            Logger.LogInfo("DLSS mode = " + Cfg.Mode);
-            // phase 2b: DlssDriver.Apply(Cfg)
+            Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Cfg.DebugView);
+            AttachAndApply();
         }
+
+        private void AttachAndApply()
+        {
+            var d = DlssDriver.Instance;
+            if (d == null) return;
+            var cam = GameUtl.GameComponent<CameraManager>()?.Camera;
+            if (cam == null) return;          // main menu without CameraManager: wait for the next level
+            d.Attach(cam);
+            d.Apply(Cfg.Mode, Cfg.DebugView);
+        }
+
+        // ---- PPCLI `connect call` surface: {"op":"invoke","type":"DlssMod.DlssMod","assembly":"DLSS","member":"SetMode","args":["DLAA","None"]}
+        public static string SetMode(string mode, string view)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.Mode = (DlssMode)Enum.Parse(typeof(DlssMode), mode, true);
+            m.Cfg.DebugView = (DebugView)Enum.Parse(typeof(DebugView), view, true);
+            m.AttachAndApply();
+            return GetStatus();
+        }
+
+        public static string GetStatus() => DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode);
 
         private static string Reason(int code)
         {

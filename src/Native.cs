@@ -12,6 +12,8 @@ namespace DlssMod
         public const int DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMANCE = 3, DLSS_Q_ULTRA_PERFORMANCE = 4;
         public const int DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_MV_JITTERED = 8, DLSS_F_AUTO_EXPOSURE = 16;
         public const int DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3;
+        public const int DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2;
+        public const int NGX_SUCCESS = 1;
 
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr LoadLibraryW(string path);
@@ -36,7 +38,10 @@ namespace DlssMod
         public static extern void Dlss_SetCreateParams(uint w, uint h, uint outW, uint outH, int quality, int flags);
 
         [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
-        public static extern void Dlss_SetFrame(IntPtr color, IntPtr depth, IntPtr mv, IntPtr output,
+        public static extern IntPtr Dlss_GetFrameSlot();
+
+        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Dlss_SetFrame(IntPtr slot, IntPtr color, IntPtr depth, IntPtr mv, IntPtr output,
             float jitterX, float jitterY, float mvScaleX, float mvScaleY,
             int reset, float dtMs, uint renderW, uint renderH,
             float preExposure, float sharpness);
@@ -46,6 +51,12 @@ namespace DlssMod
 
         [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetRenderEventAndDataFunc();
+
+        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_Passthrough(int on);
+
+        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_LastError();
 
         [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Status(out int lastCreateResult, out int lastEvalResult, out int featureAlive);
