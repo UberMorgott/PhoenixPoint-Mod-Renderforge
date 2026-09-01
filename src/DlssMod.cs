@@ -63,6 +63,7 @@ namespace DlssMod
             {
                 DlssDriver.Instance?.Apply(DlssMode.Off, DebugView.None);
                 if (DlssDriver.Instance != null) UnityEngine.Object.Destroy(DlssDriver.Instance.gameObject);
+                Overlay.Destroy();
                 if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
                 if (InitCode == Native.DLSS_OK) Native.Dlss_Shutdown();
             }
@@ -83,10 +84,54 @@ namespace DlssMod
             AttachAndApply();
         }
 
+        /// <summary>ModManager.SaveModConfig (ModManager.cs:120): the same path the mod-manager screen uses (UIStateModManagment.cs:137).</summary>
+        public static void SaveConfig()
+        {
+            try { ModManager.GetInstance().SaveModConfig(); }
+            catch (Exception ex) { Instance?.Logger.LogError("DLSS config save failed: " + ex.Message); }
+        }
+
+        // ---- hotkey handlers (also the PPCLI keypress substitute: {"op":"invoke","type":"DlssMod.DlssMod","assembly":"DLSS","member":"Toggle"})
+        private static DlssMode lastOn = DlssMode.Auto;   // ponytail: not persisted; after a restart in Off, F11 restores Auto
+
+        public static string Toggle()
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            if (m.Cfg.Mode == DlssMode.Off) m.Cfg.Mode = lastOn;
+            else { lastOn = m.Cfg.Mode; m.Cfg.Mode = DlssMode.Off; }
+            m.Logger.LogInfo("DLSS hotkey: mode = " + m.Cfg.Mode);
+            m.AttachAndApply();
+            SaveConfig();
+            return GetStatus();
+        }
+
+        public static string ToggleOverlay()
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.ShowOverlay = !m.Cfg.ShowOverlay;
+            Overlay.Apply(m.Cfg);
+            SaveConfig();
+            return "overlay=" + m.Cfg.ShowOverlay + " at " + m.Cfg.OverlayPosition;
+        }
+
+        public static string SetOverlay(string corner)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.OverlayPosition = (OverlayCorner)Enum.Parse(typeof(OverlayCorner), corner, true);
+            m.Cfg.ShowOverlay = true;
+            Overlay.Apply(m.Cfg);
+            return "overlay=" + m.Cfg.ShowOverlay + " at " + m.Cfg.OverlayPosition;
+        }
+
         private void AttachAndApply()
         {
             var d = DlssDriver.Instance;
             if (d == null) return;
+            if (Cfg.Mode != DlssMode.Off) lastOn = Cfg.Mode;
+            Overlay.Apply(Cfg);
             var cam = GameUtl.GameComponent<CameraManager>()?.Camera;
             if (cam == null) return;          // main menu without CameraManager: wait for the next level
             d.Attach(cam);
