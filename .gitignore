@@ -6,3 +6,4 @@ build/
 DlssNative.dll
 nvngx_dlss.dll
 *.pdb
+Console.log
