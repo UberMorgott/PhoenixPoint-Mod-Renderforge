@@ -209,10 +209,10 @@ is wrong before we ever touch the game.
     TextAndSlider prefab as VideoPanel's rows) right under the DLSS picker, label "SHARPNESS" /
     "РЕЗКОСТЬ", whole 0..100 + readout, immediate apply + `SaveConfig()` like the picker; greyed
     (CanvasGroup 0.35 + non-interactable) when the picker is Off, re-evaluated on every picker change.
-  - Verified live (DLAA 1280×720, Instance2, `build\shots\6-sharp-{0,50,100}.png`, `Status` says
+  - Verified live (DLAA 1280×720, Instance2, `build\shots\7-nis-{0,50,100}.png`, `Status` says
     `sharpen=NIS`): mean |luma gradient| over the scene 10.95 → 12.45 → 13.72 (the earlier RCAS run on
-    another camera: 7.22 → 8.29 → 11.02); 100 visibly crisper on texture/edges, no ringing halos at
-    50 (crops `crop-6-sharp*.png`). Frame-time delta read off the overlay's 0.5 s average is
+    another camera, `6-sharp-*.png`: 7.22 → 8.29 → 11.02); 100 visibly crisper on texture/edges, no
+    ringing halos at 50 (crop `crop-7-nis.png`). Frame-time delta read off the overlay's 0.5 s average is
     noise-level (≤0.5 ms at 1280×720). Panel: `6-panel-sharp.png` / `6-panel-sharp-off.png`.
     Persisted in `ModConfig.json` (`"Sharpness": 100` after the run).
 - **Benchmark overlay** (`src\Overlay.cs`, `ShowOverlay=false`, `OverlayPosition=TopCenter` of
