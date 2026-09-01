@@ -42,7 +42,7 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
 $out  = Join-Path $root "bin\$Configuration\DLSS"
 $dest = Join-Path $PPRoot 'Mods\DLSS'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-foreach ($file in (Join-Path $out 'DLSS.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll, (Join-Path $root 'LICENSE-NVIDIA.txt')) {
+foreach ($file in (Join-Path $out 'DLSS.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll, (Join-Path $root 'LICENSE-NVIDIA.txt'), (Join-Path $root 'LICENSE-NIS.txt')) {
     Copy-Item $file $dest -Force
 }
 

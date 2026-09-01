@@ -113,7 +113,7 @@ namespace DlssMod
                      + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " screen=" + Screen.width + "x" + Screen.height
                      + " q=" + quality + " passthrough=" + passthrough + " frames=" + frames + " resets=" + resets + " fov=" + (cam ? cam.fieldOfView.ToString("F3") : "-") + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
                      + " init=" + init + " create=0x" + c.ToString("X") + "(" + Native.Dlss_ResultString(c) + ") eval=0x" + e.ToString("X") + "(" + Native.Dlss_ResultString(e) + ")"
-                     + " feature=" + alive + " lastError=" + Native.Dlss_LastError()
+                     + " feature=" + alive + " lastError=" + Native.Dlss_LastError() + " sharpen=" + Native.SharpenerName(Native.Dlss_Sharpener())
                      + " cam=" + (cam ? cam.name : "null") + " target=" + (cam && cam.targetTexture ? cam.targetTexture.name : "null")
                      + " depthMode=" + (cam ? cam.depthTextureMode.ToString() : "-") + " aa=" + (layer ? layer.antialiasingMode.ToString() : "-")
                      + " colorSpace=" + QualitySettings.activeColorSpace + " reversedZ=" + SystemInfo.usesReversedZBuffer

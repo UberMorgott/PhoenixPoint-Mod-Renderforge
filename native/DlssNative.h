@@ -26,6 +26,9 @@ enum { DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3 };
 // Dlss_LastError codes that are not NVSDK_NGX_Result values.
 enum { DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3 };
 
+// Dlss_Sharpener: which sharpen shader is active. 0 = not compiled yet (first non-zero sharpness compiles it).
+enum { DLSS_SHARPEN_NONE = 0, DLSS_SHARPEN_NIS = 1, DLSS_SHARPEN_RCAS = 2, DLSS_SHARPEN_FAILED = -1 };
+
 // Main thread. anyD3D11Resource = ID3D11Resource* (Unity GetNativeTexturePtr). Idempotent.
 DLSS_API int __cdecl Dlss_Init(void* anyD3D11Resource, const wchar_t* dllDir, const wchar_t* logDir);
 // Main thread. Optimal render res + dynamic range for the mode. Returns NVSDK_NGX_Result (0x1 = success).
@@ -38,8 +41,9 @@ DLSS_API void __cdecl Dlss_SetCreateParams(unsigned w, unsigned h, unsigned outW
 // Dlss_SetFrame and pass the same pointer as the `data` of DLSS_EV_EVALUATE (AndData callback).
 DLSS_API void* __cdecl Dlss_GetFrameSlot(void);
 // Main thread. Fills `slot` (from Dlss_GetFrameSlot). All resources = ID3D11Resource*.
-// sharpness 0..1 = our RCAS compute pass on `output` after NGX (0 = skipped); NGX's own InSharpness is deprecated and stays 0.
-// A failed RCAS setup sets Dlss_LastError() = DLSS_ERR_SHARPEN and disables the pass; the DLSS frame is unaffected.
+// sharpness 0..1 = our sharpen compute pass on `output` after NGX (NIS sharpen-only, RCAS if NIS fails to compile; 0 = skipped);
+// NGX's own InSharpness is deprecated and stays 0. A failed setup sets Dlss_LastError() = DLSS_ERR_SHARPEN and disables the
+// pass; the DLSS frame is unaffected.
 DLSS_API void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void* output,
                                     float jitterX, float jitterY, float mvScaleX, float mvScaleY,
                                     int reset, float dtMs, unsigned renderW, unsigned renderH,
@@ -52,6 +56,8 @@ DLSS_API void* __cdecl Dlss_GetRenderEventAndDataFunc(void);
 DLSS_API int __cdecl Dlss_Passthrough(int on);
 // Last failure: an NVSDK_NGX_Result, or one of the DLSS_ERR_* negatives above. 0 = none.
 DLSS_API int __cdecl Dlss_LastError(void);
+// Active sharpen shader: DLSS_SHARPEN_* (NIS / RCAS fallback / FAILED / NONE = not needed yet).
+DLSS_API int __cdecl Dlss_Sharpener(void);
 // Returns Dlss_Init code; fills last NGX results (as NVSDK_NGX_Result ints) and feature liveness.
 DLSS_API int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* featureAlive);
 // NVSDK_NGX_Result -> narrow string (static buffer, not thread-safe).

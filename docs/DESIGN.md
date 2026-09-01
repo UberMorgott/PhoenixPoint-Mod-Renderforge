@@ -183,28 +183,38 @@ is wrong before we ever touch the game.
   `[[deprecated("Sharpness is not supported")]]` (`nvsdk_ngx_defs.h:60,:296`) and the eval helper
   still copies `InSharpness` into the parameter block, but nothing consumes it (sharpening was removed
   in DLSS 3.x). The shim keeps `InSharpness = 0`.
-  - Our pass: AMD FidelityFX **RCAS** (FSR1 companion sharpener, MIT, written from the public formula,
-    `native\DlssNative.cpp kRcasHlsl`) as a `cs_5_0` compute shader compiled at runtime with
-    `D3DCompile` (`d3dcompiler_47.dll`, link `d3dcompiler.lib`), cached. Runs inside event 2 right
-    after a successful `NGX_D3D11_EVALUATE_DLSS_EXT`, in place on the output UAV, reading from an SRV
-    scratch copy (`CopyResource(scratch, output)`; in-place read+write is a hazard). Denominators are
-    epsilon-guarded (no rcp→inf/NaN reliance), FSR denoise term on, alpha passes through. Mapping
-    = the FSR1 sample's: slider/100 = s, attenuation stops = 2·(1−s), `con = exp2(-stops)`; s=0 skips
-    the pass. Views are dropped on event 3 (before the driver frees RTs); a failed setup sets
-    `Dlss_LastError() = DLSS_ERR_SHARPEN` (−3) and disables the pass, never the DLSS frame. ABI
-    unchanged: the existing `sharpness` arg of `Dlss_SetFrame` now feeds RCAS. Probe evaluates with
-    0.5 and asserts `lastError == 0`. Not applied in Passthrough (no release event there).
+  - Our pass: NVIDIA **NIS** (NVIDIA Image Scaling SDK 1.0.3, MIT, `LICENSE-NIS.txt` shipped) in
+    **sharpen-only** mode — what the DLSS programming guide recommends in place of the removed NGX
+    sharpening. `native\nis\NIS_Scaler.h` (HLSL) is vendored and embedded by CMake as a byte array
+    (`nis_scaler_hlsl.h`); at runtime the shim prepends the `NIS_Main.hlsl` bindings
+    (`NIS_SCALER 0`, `NIS_HDR_MODE 0`, cbuffer `b0`, `samplerLinearClamp s0`, `in_texture t0`,
+    `out_texture u0`) and an `NVSharpen` entry, compiles `cs_5_0` with `D3DCompile`
+    (`d3dcompiler_47.dll`), cached. Block/group = `NISOptimizer(isUpscaling=false, NVIDIA_Generic)`
+    from `native\nis\NIS_Config.h`: 32×32 px per block, 128 threads → dispatch ⌈w/32⌉×⌈h/32⌉.
+    Constants = `NISConfig` filled by `NVSharpenUpdateConfig(cfg, s, 0,0,w,h, w,h, 0,0)`
+    (256 B, aligned), slider/100 passed straight in (NIS' own 0..1 slider). Runs inside event 2
+    right after a successful `NGX_D3D11_EVALUATE_DLSS_EXT`, in place on the output UAV, reading an
+    SRV scratch copy (`CopyResource(scratch, output)`; in-place read+write is a hazard). Views are
+    dropped on event 3 (before the driver frees RTs).
+  - Fallback: AMD FidelityFX **RCAS** (`kRcasHlsl`, from the public formula, epsilon-guarded, denoise
+    on; mapping `con = exp2(-2·(1−s))`) only if the NIS source fails to compile on this machine.
+    `Dlss_Sharpener()` → 1 NIS / 2 RCAS / −1 failed, shown as `sharpen=` in `DlssDriver.Status`.
+    A failed setup sets `Dlss_LastError() = DLSS_ERR_SHARPEN` (−3) and disables the pass, never the
+    DLSS frame. ABI otherwise unchanged: the existing `sharpness` arg of `Dlss_SetFrame` feeds it;
+    s=0 skips the pass. Probe evaluates with 0.5 and asserts `lastError == 0` AND sharpener == NIS.
+    Not applied in Passthrough (no release event there).
   - Managed: `DlssConfig.Sharpness = 40` (0..100, localized "Sharpness"/"Резкость"), read by the
     driver EVERY frame (no re-create). `DlssMod.SetSharpness(int)` = PPCLI/keypress substitute.
   - Slider: `GraphicsPanel.BuildSlider` clones the panel's own ShadowDistance row (same
     TextAndSlider prefab as VideoPanel's rows) right under the DLSS picker, label "SHARPNESS" /
     "РЕЗКОСТЬ", whole 0..100 + readout, immediate apply + `SaveConfig()` like the picker; greyed
     (CanvasGroup 0.35 + non-interactable) when the picker is Off, re-evaluated on every picker change.
-  - Verified live (DLAA 1280×720, Instance2, `build\shots\6-sharp-{0,50,100}.png`): mean |luma
-    gradient| over the scene 7.22 → 8.29 → 11.02; 100 visibly crisper on rock/vehicle texture, no
-    ringing halos at 50 (8× crops `crop-6-sharp*.png`). Frame time 4.6 ms (0) vs 5.1 ms (100) read off
-    the overlay's 0.5 s average — noise-level, ≤0.5 ms. Panel: `6-panel-sharp.png` /
-    `6-panel-sharp-off.png`. Persisted in `ModConfig.json` (`"Sharpness": 100` after the run).
+  - Verified live (DLAA 1280×720, Instance2, `build\shots\6-sharp-{0,50,100}.png`, `Status` says
+    `sharpen=NIS`): mean |luma gradient| over the scene 10.95 → 12.45 → 13.72 (the earlier RCAS run on
+    another camera: 7.22 → 8.29 → 11.02); 100 visibly crisper on texture/edges, no ringing halos at
+    50 (crops `crop-6-sharp*.png`). Frame-time delta read off the overlay's 0.5 s average is
+    noise-level (≤0.5 ms at 1280×720). Panel: `6-panel-sharp.png` / `6-panel-sharp-off.png`.
+    Persisted in `ModConfig.json` (`"Sharpness": 100` after the run).
 - **Benchmark overlay** (`src\Overlay.cs`, `ShowOverlay=false`, `OverlayPosition=TopCenter` of
   `TopLeft|TopCenter|TopRight|BottomCenter`): one ScreenSpaceOverlay canvas, sortingOrder 30000,
   no GraphicRaycaster, `raycastTarget=false`, HUD font (first `Text` found) else Arial, size

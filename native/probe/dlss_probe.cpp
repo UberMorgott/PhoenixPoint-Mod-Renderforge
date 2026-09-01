@@ -76,8 +76,8 @@ int wmain(int argc, wchar_t** argv)
         Report(name, e);
     }
     ctx->Flush();
-    printf("RCAS sharpen   lastError=%d (expect 0; %d = shader/view setup failed)\n", Dlss_LastError(), DLSS_ERR_SHARPEN);
-    if (Dlss_LastError() != 0) g_failed = 1;
+    printf("Sharpen        shader=%d (1=NIS 2=RCAS fallback, expect 1) lastError=%d (expect 0; %d = setup failed)\n", Dlss_Sharpener(), Dlss_LastError(), DLSS_ERR_SHARPEN);
+    if (Dlss_LastError() != 0 || Dlss_Sharpener() != DLSS_SHARPEN_NIS) g_failed = 1;
 
     // Passthrough: same-size copy, no NGX. out2 = render-res UAV target.
     ID3D11Texture2D* out2 = MakeTex(dev, RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS);

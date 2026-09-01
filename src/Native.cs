@@ -59,6 +59,12 @@ namespace DlssMod
         [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_LastError();
 
+        /// <summary>1 = NIS sharpen, 2 = RCAS fallback, -1 = failed, 0 = not compiled yet (first non-zero sharpness compiles it).</summary>
+        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_Sharpener();
+
+        public static string SharpenerName(int s) => s == 1 ? "NIS" : s == 2 ? "RCAS" : s < 0 ? "failed" : "none";
+
         [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Status(out int lastCreateResult, out int lastEvalResult, out int featureAlive);
 
