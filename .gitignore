@@ -3,7 +3,7 @@ obj/
 build/
 *.user
 .vs/
-DlssNative.dll
+RenderforgeNative.dll
 nvngx_dlss.dll
 *.pdb
 Console.log

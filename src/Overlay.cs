@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.Rendering.PostProcessing;
 using UnityEngine.UI;
 
-namespace DlssMod
+namespace Renderforge
 {
     /// <summary>Benchmark overlay: one ScreenSpaceOverlay canvas (sortingOrder 30000, no raycaster, nothing is a raycast
     /// target) with a translucent box and four lines refreshed 4x/s. Font = the first HUD Text's font, else Arial.</summary>
@@ -69,7 +69,7 @@ namespace DlssMod
             inst.text.verticalOverflow = VerticalWrapMode.Overflow;
             inst.text.font = HudFont();
 
-            if (upscaler == null) upscaler = "DLSS SR (nvngx " + NativeFileVersion(Path.Combine(DlssMod.ModDir, "nvngx_dlss.dll")) + ")";
+            if (upscaler == null) upscaler = "DLSS SR (nvngx " + NativeFileVersion(Path.Combine(RenderforgeMod.ModDir, "nvngx_dlss.dll")) + ")";
         }
 
         // Mono's FileVersionInfo returns an empty FileVersion for a native DLL (seen live), so read VERSIONINFO via version.dll.
@@ -130,7 +130,7 @@ namespace DlssMod
             if (live)
             {
                 bool sameRes = d.RenderW == d.OutW && d.RenderH == d.OutH;   // DLAA: no upscale, show one resolution
-                mode = d.LiveMode + (d.LiveMode == DlssMode.Auto ? "/" + QualityName(d.Quality) : "")
+                mode = d.LiveMode + (d.LiveMode == RenderforgeMode.Auto ? "/" + QualityName(d.Quality) : "")
                      + " (" + (sameRes ? "" : d.RenderW + "x" + d.RenderH + " -> ") + d.OutW + "x" + d.OutH + ")";
                 aa = "DLSS";
             }

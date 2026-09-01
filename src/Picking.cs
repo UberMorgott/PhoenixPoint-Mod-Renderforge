@@ -7,7 +7,7 @@ using PhoenixPoint.Tactical.View.ViewStates;
 using SlimUI.ConsoleCursors;
 using UnityEngine;
 
-namespace DlssMod
+namespace Renderforge
 {
     /// <summary>Screen-space seams. While DLSS is live the scene camera renders into colorRT, so its pixelWidth/Height are
     /// the RENDER res while Input.mousePosition, Screen.* and the overlay HUD stay at SCREEN res. Unity's dynamic

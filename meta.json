@@ -1,15 +1,15 @@
 {
-  "ID": "com.morgott.DLSS",
-  "AssemblyName": "DLSS.dll",
-  "Version": "0.1.0",
+  "ID": "com.morgott.Renderforge",
+  "AssemblyName": "Renderforge.dll",
+  "Version": "1.0.0",
   "Author": [
     { "Key": "English", "Value": "Morgott" }
   ],
   "Name": [
-    { "Key": "English", "Value": "DLSS" }
+    { "Key": "English", "Value": "Renderforge" }
   ],
   "Description": [
-    { "Key": "English", "Value": "NVIDIA DLSS Super Resolution and DLAA. RTX GPU required." }
+    { "Key": "English", "Value": "NVIDIA DLSS Super Resolution / DLAA, NIS sharpening, frame-rate limit and a benchmark overlay for Phoenix Point. RTX GPU required." }
   ],
   "Dependencies": []
 }

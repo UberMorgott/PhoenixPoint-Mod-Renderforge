@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using PhoenixPoint.Modding;
 using UnityEngine;
 
-namespace DlssMod
+namespace Renderforge
 {
     /// <summary>Passthrough = native CopyResource instead of NGX (pipeline proof); Depth/MotionVectors = the present
     /// camera shows depthRT/mvRT (stretched, raw values) instead of the DLSS output.</summary>
@@ -16,7 +16,7 @@ namespace DlssMod
     public class DlssConfig : ModConfig
     {
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance")]
-        public DlssMode Mode = DlssMode.Auto;
+        public RenderforgeMode Mode = RenderforgeMode.Auto;
         [ConfigField("Sharpness", "0 = off … 100. RCAS pass after DLSS; also a slider in Options → Graphics.")]
         public int Sharpness = 40;                      // 0..100 -> RCAS 0..1, applied every frame, live
         [ConfigField("Show DLSS in Graphics options")]

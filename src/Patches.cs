@@ -4,7 +4,7 @@ using HarmonyLib;
 using PhoenixPoint.Common.Core;
 using UnityEngine.Rendering.PostProcessing;
 
-namespace DlssMod
+namespace Renderforge
 {
     /// <summary>PPv2's own OnPreCull resets projectionMatrix and re-assigns nonJitteredProjectionMatrix every frame
     /// (PostProcessLayer.cs:326-328 decompiled), so the jitter must be applied AFTER it - a postfix, not a sibling message.</summary>
@@ -38,6 +38,6 @@ namespace DlssMod
     [HarmonyPatch(typeof(OptionsManager), "InitVideoOptions")]
     internal static class OptionsManager_InitVideoOptions_Patch
     {
-        static void Postfix() => DlssMod.ApplyFrameRate();
+        static void Postfix() => RenderforgeMod.ApplyFrameRate();
     }
 }

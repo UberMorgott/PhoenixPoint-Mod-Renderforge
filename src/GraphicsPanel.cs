@@ -6,7 +6,7 @@ using PhoenixPoint.Geoscape.View.ViewControllers;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace DlssMod
+namespace Renderforge
 {
     /// <summary>Native "DLSS" picker in the game's Graphics options panel: a clone of the TextureQuality
     /// ArrowPickerController (UIModuleGraphicsOptionsPanel.cs:25), rebuilt/re-synced by the panel's own
@@ -26,11 +26,11 @@ namespace DlssMod
         {
             try
             {
-                var mod = DlssMod.Instance;
+                var mod = RenderforgeMod.Instance;
                 var src = __instance.TextureQualityPicker;
                 if (mod == null || src == null) return;
                 var existing = src.transform.parent.Find(Name);
-                if (!DlssMod.Available || !mod.Cfg.ShowInGraphicsOptions)
+                if (!RenderforgeMod.Available || !mod.Cfg.ShowInGraphicsOptions)
                 {
                     if (existing != null) existing.gameObject.SetActive(false);
                     var row = src.transform.parent.Find(SliderName);
@@ -56,7 +56,7 @@ namespace DlssMod
             }
             catch (Exception ex)
             {
-                if (!loggedError) DlssMod.Instance?.Logger.LogError("DLSS graphics-panel picker failed: " + ex);
+                if (!loggedError) RenderforgeMod.Instance?.Logger.LogError("Renderforge graphics-panel picker failed: " + ex);
                 loggedError = true;
             }
         }
@@ -66,15 +66,15 @@ namespace DlssMod
             try
             {
                 SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[i]);
-                var mod = DlssMod.Instance;
+                var mod = RenderforgeMod.Instance;
                 if (mod == null) return;
-                DlssMod.SetMode(((DlssMode)i).ToString(), mod.Cfg.DebugView.ToString());
-                DlssMod.SaveConfig();
-                SetSliderEnabled(i != (int)DlssMode.Off);
+                RenderforgeMod.SetMode(((RenderforgeMode)i).ToString(), mod.Cfg.DebugView.ToString());
+                RenderforgeMod.SaveConfig();
+                SetSliderEnabled(i != (int)RenderforgeMode.Off);
             }
             catch (Exception ex)
             {
-                if (!loggedError) DlssMod.Instance?.Logger.LogError("DLSS picker change failed: " + ex);
+                if (!loggedError) RenderforgeMod.Instance?.Logger.LogError("Renderforge picker change failed: " + ex);
                 loggedError = true;
             }
         }
@@ -109,22 +109,22 @@ namespace DlssMod
             ShowSharp((int)sharp.value);
             sharp.onValueChanged.RemoveAllListeners();
             sharp.onValueChanged.AddListener(OnSharp);
-            SetSliderEnabled(cfg.Mode != DlssMode.Off);
+            SetSliderEnabled(cfg.Mode != RenderforgeMode.Off);
         }
 
         private static void OnSharp(float v)
         {
             try
             {
-                var mod = DlssMod.Instance;
+                var mod = RenderforgeMod.Instance;
                 if (mod == null) return;
                 mod.Cfg.Sharpness = (int)v;      // the driver reads it every frame: live
                 ShowSharp((int)v);
-                DlssMod.SaveConfig();
+                RenderforgeMod.SaveConfig();
             }
             catch (Exception ex)
             {
-                if (!loggedError) DlssMod.Instance?.Logger.LogError("DLSS sharpness change failed: " + ex);
+                if (!loggedError) RenderforgeMod.Instance?.Logger.LogError("Renderforge sharpness change failed: " + ex);
                 loggedError = true;
             }
         }

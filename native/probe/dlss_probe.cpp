@@ -1,9 +1,9 @@
-// dlss_probe.cpp - offline check of DlssNative.dll: init -> optimal -> create -> 3x evaluate -> release.
+// dlss_probe.cpp - offline check of RenderforgeNative.dll: init -> optimal -> create -> 3x evaluate -> release.
 // Usage: dlss_probe.exe <dir containing nvngx_dlss.dll>. Exit 0 only if every NGX result succeeded.
 #include <d3d11.h>
 #include <stdio.h>
 #include <wchar.h>
-#include "DlssNative.h"
+#include "RenderforgeNative.h"
 
 #define NGX_OK(r) ((((unsigned)(r)) & 0xFFF00000u) != 0xBAD00000u)
 

@@ -1,6 +1,6 @@
-// DlssNative.cpp - NGX D3D11 DLSS shim. Plain C style, one static state block, no threads, no exceptions.
+// RenderforgeNative.cpp - NGX D3D11 DLSS shim. Plain C style, one static state block, no threads, no exceptions.
 #define DLSSNATIVE_EXPORTS
-#include "DlssNative.h"
+#include "RenderforgeNative.h"
 
 #include <d3d11.h>
 #include <d3dcompiler.h>

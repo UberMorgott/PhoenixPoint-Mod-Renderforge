@@ -6,12 +6,12 @@ using HarmonyLib;
 using PhoenixPoint.Modding;
 using UnityEngine;
 
-namespace DlssMod
+namespace Renderforge
 {
-    public class DlssMod : ModMain
+    public class RenderforgeMod : ModMain
     {
         // `new`: hides ModMain.Instance (the loader's ModInstance), which we reach via base.Instance.
-        public static new DlssMod Instance { get; private set; }
+        public static new RenderforgeMod Instance { get; private set; }
         public static bool Available { get; private set; }
         public static int InitCode { get; private set; } = -1;
         /// <summary>ModEntry.Directory (ModEntry.cs:13). The loader uses Assembly.Load(byte[]) (ModSDKContext.cs:63),
@@ -34,7 +34,7 @@ namespace DlssMod
                 if (!Native.Load(ModDir))
                 {
                     InitCode = Native.DLSS_ERR_INIT_FAILED;
-                    Logger.LogInfo("DLSS unavailable (code " + InitCode + "): DlssNative.dll failed to load from " + ModDir);
+                    Logger.LogInfo("DLSS unavailable (code " + InitCode + "): RenderforgeNative.dll failed to load from " + ModDir);
                     return;
                 }
                 probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
@@ -44,31 +44,31 @@ namespace DlssMod
             catch (Exception ex)
             {
                 InitCode = Native.DLSS_ERR_INIT_FAILED;
-                Logger.LogError("DLSS init THREW " + ex.Message);
+                Logger.LogError("Renderforge init THREW " + ex.Message);
             }
             Logger.LogInfo(Available ? "DLSS available" : "DLSS unavailable (code " + InitCode + "): " + Reason(InitCode));
             if (!Available) return;
             try
             {
                 DlssDriver.Create();
-                ((Harmony)HarmonyInstance).PatchAll(typeof(DlssMod).Assembly);
+                ((Harmony)HarmonyInstance).PatchAll(typeof(RenderforgeMod).Assembly);
                 patched = true;
                 AttachAndApply();
             }
-            catch (Exception ex) { Logger.LogError("DLSS enable THREW " + ex); }
+            catch (Exception ex) { Logger.LogError("Renderforge enable THREW " + ex); }
         }
 
         public override void OnModDisabled()
         {
             try
             {
-                DlssDriver.Instance?.Apply(DlssMode.Off, DebugView.None);
+                DlssDriver.Instance?.Apply(RenderforgeMode.Off, DebugView.None);
                 if (DlssDriver.Instance != null) UnityEngine.Object.Destroy(DlssDriver.Instance.gameObject);
                 Overlay.Destroy();
                 if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
                 if (InitCode == Native.DLSS_OK) Native.Dlss_Shutdown();
             }
-            catch (Exception ex) { Logger.LogError("DLSS disable THREW " + ex); }
+            catch (Exception ex) { Logger.LogError("Renderforge disable THREW " + ex); }
             Application.targetFrameRate = 60;   // the game's own value (OptionsManager.cs:505)
             Available = false;
             InitCode = -1;
@@ -78,7 +78,7 @@ namespace DlssMod
         public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); }   // Reapply covers a level that starts with the generation still live
 
         /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
-        public override void OnLevelEnd(Level level) => DlssDriver.Instance?.Apply(DlssMode.Off, Cfg.DebugView);
+        public override void OnLevelEnd(Level level) => DlssDriver.Instance?.Apply(RenderforgeMode.Off, Cfg.DebugView);
 
         public override void OnConfigChanged()
         {
@@ -99,18 +99,18 @@ namespace DlssMod
         public static void SaveConfig()
         {
             try { ModManager.GetInstance().SaveModConfig(); }
-            catch (Exception ex) { Instance?.Logger.LogError("DLSS config save failed: " + ex.Message); }
+            catch (Exception ex) { Instance?.Logger.LogError("Renderforge config save failed: " + ex.Message); }
         }
 
-        // ---- hotkey handlers (also the PPCLI keypress substitute: {"op":"invoke","type":"DlssMod.DlssMod","assembly":"DLSS","member":"Toggle"})
-        private static DlssMode lastOn = DlssMode.Auto;   // ponytail: not persisted; after a restart in Off, F11 restores Auto
+        // ---- hotkey handlers (also the PPCLI keypress substitute: {"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"Toggle"})
+        private static RenderforgeMode lastOn = RenderforgeMode.Auto;   // ponytail: not persisted; after a restart in Off, F11 restores Auto
 
         public static string Toggle()
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            if (m.Cfg.Mode == DlssMode.Off) m.Cfg.Mode = lastOn;
-            else { lastOn = m.Cfg.Mode; m.Cfg.Mode = DlssMode.Off; }
+            if (m.Cfg.Mode == RenderforgeMode.Off) m.Cfg.Mode = lastOn;
+            else { lastOn = m.Cfg.Mode; m.Cfg.Mode = RenderforgeMode.Off; }
             m.Logger.LogInfo("DLSS hotkey: mode = " + m.Cfg.Mode);
             m.AttachAndApply();
             SaveConfig();
@@ -141,7 +141,7 @@ namespace DlssMod
         {
             var d = DlssDriver.Instance;
             if (d == null) return;
-            if (Cfg.Mode != DlssMode.Off) lastOn = Cfg.Mode;
+            if (Cfg.Mode != RenderforgeMode.Off) lastOn = Cfg.Mode;
             Overlay.Apply(Cfg);
             var cam = GameUtl.GameComponent<CameraManager>()?.Camera;
             if (cam == null) return;          // main menu without CameraManager: wait for the next level
@@ -149,12 +149,12 @@ namespace DlssMod
             d.Apply(Cfg.Mode, Cfg.DebugView);
         }
 
-        // ---- PPCLI `connect call` surface: {"op":"invoke","type":"DlssMod.DlssMod","assembly":"DLSS","member":"SetMode","args":["DLAA","None"]}
+        // ---- PPCLI `connect call` surface: {"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetMode","args":["DLAA","None"]}
         public static string SetMode(string mode, string view)
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.Mode = (DlssMode)Enum.Parse(typeof(DlssMode), mode, true);
+            m.Cfg.Mode = (RenderforgeMode)Enum.Parse(typeof(RenderforgeMode), mode, true);
             m.Cfg.DebugView = (DebugView)Enum.Parse(typeof(DebugView), view, true);
             m.AttachAndApply();
             return GetStatus();

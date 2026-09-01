@@ -2,14 +2,14 @@ using System;
 using System.Diagnostics;
 using UnityEngine;
 
-namespace DlssMod
+namespace Renderforge
 {
     /// <summary>Texture LOD bias under upscaling: Unity 2019.4 has no global mip bias, so every mipmapped Texture2D
     /// gets `mipMapBias = log2(renderW/outW)` (DLSS programming guide) while a reduced-res generation is live, and 0 again on Off.
     /// Vanilla assets ship with 0 (sampled + logged before the first sweep), so "restore" = write 0 back.</summary>
     public static class MipBias
     {
-        /// <summary>PPCLI switch: {"op":"invoke","type":"DlssMod.MipBias","assembly":"DLSS","member":"SetEnabled","args":[false]}.</summary>
+        /// <summary>PPCLI switch: {"op":"invoke","type":"Renderforge.MipBias","assembly":"Renderforge","member":"SetEnabled","args":[false]}.</summary>
         public static bool Enabled = true;
         private static float wanted, current;
         private static bool sampled;
@@ -33,7 +33,7 @@ namespace DlssMod
 
         private static void Sweep(float bias)
         {
-            var log = DlssMod.Instance?.Logger;
+            var log = RenderforgeMod.Instance?.Logger;
             try
             {
                 var sw = Stopwatch.StartNew();

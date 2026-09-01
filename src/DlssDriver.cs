@@ -3,9 +3,9 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.PostProcessing;
 
-namespace DlssMod
+namespace Renderforge
 {
-    /// <summary>Rendering driver (docs/DESIGN.md "DLSS.dll"). Lives on a persistent GameObject and drives the scene camera
+    /// <summary>Rendering driver (docs/DESIGN.md "Renderforge.dll"). Lives on a persistent GameObject and drives the scene camera
     /// it was attached to: scene camera -> colorRT (render res) -> [CB BeforeImageEffects: copy MV + depth] -> PPv2 ->
     /// [CB AfterEverything: native event 2 -> outRT] -> present camera [CB: Blit outRT -> backbuffer] -> HUD.</summary>
     public class DlssDriver : MonoBehaviour
@@ -22,11 +22,11 @@ namespace DlssMod
         private Camera present;
         private IntPtr evFn, evDataFn;
 
-        private DlssMode wantMode = DlssMode.Off;
+        private RenderforgeMode wantMode = RenderforgeMode.Off;
         private DebugView wantView = DebugView.None;
         private Gen gen = Gen.Idle;
         private int genFrames;
-        private DlssMode liveMode;
+        private RenderforgeMode liveMode;
         private DebugView liveView;
         private bool passthrough;
         private int renderW, renderH, outW, outH, quality;
@@ -52,7 +52,7 @@ namespace DlssMod
         public bool Passthrough => passthrough;
         public Camera SceneCamera => cam;
         public PostProcessLayer Layer => layer;
-        public DlssMode LiveMode => liveMode;
+        public RenderforgeMode LiveMode => liveMode;
         public int Quality => quality;
         public int RenderW => renderW;
         public int RenderH => renderH;
@@ -91,7 +91,7 @@ namespace DlssMod
             layer = cam.GetComponent<PostProcessLayer>();
         }
 
-        public void Apply(DlssMode mode, DebugView view)
+        public void Apply(RenderforgeMode mode, DebugView view)
         {
             wantMode = mode;
             wantView = view;
@@ -126,12 +126,12 @@ namespace DlssMod
 
         private void Update()
         {
-            var cfg = DlssMod.Instance?.Cfg;
+            var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg != null && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
                             && (Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt)))
             {
-                if (Input.GetKeyDown(cfg.ToggleHotkey)) DlssMod.Toggle();
-                if (Input.GetKeyDown(cfg.OverlayHotkey)) DlssMod.ToggleOverlay();
+                if (Input.GetKeyDown(cfg.ToggleHotkey)) RenderforgeMod.Toggle();
+                if (Input.GetKeyDown(cfg.OverlayHotkey)) RenderforgeMod.ToggleOverlay();
             }
             if (broken) return;
             try { Step(); }
@@ -143,7 +143,7 @@ namespace DlssMod
             switch (gen)
             {
                 case Gen.Idle:
-                    if (wantMode != DlssMode.Off && cam != null && cam.isActiveAndEnabled) StartGeneration();
+                    if (wantMode != RenderforgeMode.Off && cam != null && cam.isActiveAndEnabled) StartGeneration();
                     break;
                 case Gen.Creating:
                     if (++genFrames < 2) break;
@@ -162,7 +162,7 @@ namespace DlssMod
                     if (cam == null) { Fail("scene camera destroyed while live"); break; }
                     // Bound camera deactivated (CameraManager swapped to another one): a present camera left on would
                     // blit a stale outRT over whatever renders now. Release; Idle re-creates on the rebound camera.
-                    if (!cam.isActiveAndEnabled || wantMode == DlssMode.Off || wantMode != liveMode || !SameSizeClass(liveView, wantView)
+                    if (!cam.isActiveAndEnabled || wantMode == RenderforgeMode.Off || wantMode != liveMode || !SameSizeClass(liveView, wantView)
                         || Screen.width != outW || Screen.height != outH)
                     {
                         BeginRelease();
@@ -187,8 +187,8 @@ namespace DlssMod
         private void Fail(string why)
         {
             lastFail = why;
-            DlssMod.Instance?.Logger.LogError("DLSS off: " + why);
-            wantMode = DlssMode.Off;
+            RenderforgeMod.Instance?.Logger.LogError("DLSS off: " + why);
+            wantMode = RenderforgeMode.Off;
             if (gen == Gen.Live || gen == Gen.Creating) BeginRelease();
             if (why.StartsWith("Update threw") || why.StartsWith("callback threw")) broken = true;
         }
@@ -245,7 +245,7 @@ namespace DlssMod
                 GL.IssuePluginEvent(evFn, Native.DLSS_EV_CREATE);
             }
             gen = Gen.Creating; genFrames = 0; frames = 0;
-            DlssMod.Instance?.Logger.LogInfo("DLSS generation: mode=" + liveMode + " view=" + liveView + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " q=" + quality + " phases=" + phaseCount);
+            RenderforgeMod.Instance?.Logger.LogInfo("DLSS generation: mode=" + liveMode + " view=" + liveView + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " q=" + quality + " phases=" + phaseCount);
         }
 
         private static RenderTexture Make(string name, int w, int h, RenderTextureFormat fmt, bool uav)
@@ -350,7 +350,7 @@ namespace DlssMod
                 // MV: Unity's texture is (current - previous) in UV space (PPv2 TAA fetches history at uv - mv); DLSS wants
                 // current -> previous in pixels, hence InMVScale = (-renderW, -renderH).
                 // Sharpness = our RCAS pass in the shim (NGX InSharpness is deprecated in SDK 310), read live: slider/100.
-                float sharp = passthrough ? 0f : Mathf.Clamp01((DlssMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
+                float sharp = passthrough ? 0f : Mathf.Clamp01((RenderforgeMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
                 IntPtr slot = Native.Dlss_GetFrameSlot();
                 Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, -jx, -jy, -renderW, -renderH,
                     reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp);
@@ -378,15 +378,15 @@ namespace DlssMod
 
         // ---------------------------------------------------------------- helpers
 
-        private static int QualityFor(DlssMode mode, int outH)
+        private static int QualityFor(RenderforgeMode mode, int outH)
         {
             switch (mode)
             {
-                case DlssMode.Auto: return outH <= 1200 ? Native.DLSS_Q_DLAA : outH <= 1600 ? Native.DLSS_Q_QUALITY : Native.DLSS_Q_PERFORMANCE;
-                case DlssMode.Quality: return Native.DLSS_Q_QUALITY;
-                case DlssMode.Balanced: return Native.DLSS_Q_BALANCED;
-                case DlssMode.Performance: return Native.DLSS_Q_PERFORMANCE;
-                case DlssMode.UltraPerformance: return Native.DLSS_Q_ULTRA_PERFORMANCE;
+                case RenderforgeMode.Auto: return outH <= 1200 ? Native.DLSS_Q_DLAA : outH <= 1600 ? Native.DLSS_Q_QUALITY : Native.DLSS_Q_PERFORMANCE;
+                case RenderforgeMode.Quality: return Native.DLSS_Q_QUALITY;
+                case RenderforgeMode.Balanced: return Native.DLSS_Q_BALANCED;
+                case RenderforgeMode.Performance: return Native.DLSS_Q_PERFORMANCE;
+                case RenderforgeMode.UltraPerformance: return Native.DLSS_Q_ULTRA_PERFORMANCE;
                 default: return Native.DLSS_Q_DLAA;
             }
         }

@@ -2,10 +2,10 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace DlssMod
+namespace Renderforge
 {
-    /// <summary>P/Invoke surface of native\DlssNative.h. Call <see cref="Load"/> first: it pins the DLL from the
-    /// mod folder so "DlssNative" resolves against the already-loaded module, not the game's Plugins folder.</summary>
+    /// <summary>P/Invoke surface of native\RenderforgeNative.h. Call <see cref="Load"/> first: it pins the DLL from the
+    /// mod folder so "RenderforgeNative" resolves against the already-loaded module, not the game's Plugins folder.</summary>
     public static class Native
     {
         public const int DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4;
@@ -23,60 +23,60 @@ namespace DlssMod
         public static bool Load(string modDir)
         {
             if (Handle != IntPtr.Zero) return true;
-            Handle = LoadLibraryW(Path.Combine(modDir, "DlssNative.dll"));
+            Handle = LoadLibraryW(Path.Combine(modDir, "RenderforgeNative.dll"));
             return Handle != IntPtr.Zero;
         }
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         public static extern int Dlss_Init(IntPtr anyD3D11Resource, [MarshalAs(UnmanagedType.LPWStr)] string dllDir, [MarshalAs(UnmanagedType.LPWStr)] string logDir);
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_GetOptimal(uint outW, uint outH, int quality,
             out uint renderW, out uint renderH, out uint minW, out uint minH, out uint maxW, out uint maxH);
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_SetCreateParams(uint w, uint h, uint outW, uint outH, int quality, int flags);
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetFrameSlot();
 
         /// <summary>sharpness 0..1 = the shim's RCAS pass on `output` after NGX (0 = skipped). ABI unchanged since 0.1.</summary>
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_SetFrame(IntPtr slot, IntPtr color, IntPtr depth, IntPtr mv, IntPtr output,
             float jitterX, float jitterY, float mvScaleX, float mvScaleY,
             int reset, float dtMs, uint renderW, uint renderH,
             float preExposure, float sharpness);
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetRenderEventFunc();
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetRenderEventAndDataFunc();
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Passthrough(int on);
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_LastError();
 
         /// <summary>1 = NIS sharpen, 2 = RCAS fallback, -1 = failed, 0 = not compiled yet (first non-zero sharpness compiles it).</summary>
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Sharpener();
 
         public static string SharpenerName(int s) => s == 1 ? "NIS" : s == 2 ? "RCAS" : s < 0 ? "failed" : "none";
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Status(out int lastCreateResult, out int lastEvalResult, out int featureAlive);
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Dlss_ResultString")]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Dlss_ResultString")]
         private static extern IntPtr Dlss_ResultStringPtr(int ngxResult);
 
         public static string Dlss_ResultString(int ngxResult) => Marshal.PtrToStringAnsi(Dlss_ResultStringPtr(ngxResult)) ?? "";
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_ReleaseNow();
 
-        [DllImport("DlssNative", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_Shutdown();
 
         /// <summary>Dlss_Init behind a try: a missing/unloadable DLL is a code, not an exception in the game's frame.</summary>

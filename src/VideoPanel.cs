@@ -5,7 +5,7 @@ using PhoenixPoint.Common.View.ViewModules;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace DlssMod
+namespace Renderforge
 {
     /// <summary>"Frame rate limit" toggle + "Max FPS" slider in the game's Screen (video) options panel. Both rows are
     /// clones of the VSync row (prefab OptionsVSync_TextAndToggle: a row with a Toggle AND an inactive Slider child,
@@ -31,7 +31,7 @@ namespace DlssMod
         {
             try
             {
-                var mod = DlssMod.Instance;
+                var mod = RenderforgeMod.Instance;
                 vsync = __instance.VerticalSyncToggle;
                 if (mod == null || vsync == null) return;
                 var cfg = mod.Cfg;
@@ -77,7 +77,7 @@ namespace DlssMod
             }
             catch (Exception ex)
             {
-                if (!loggedError) DlssMod.Instance?.Logger.LogError("DLSS video-panel rows failed: " + ex);
+                if (!loggedError) RenderforgeMod.Instance?.Logger.LogError("Renderforge video-panel rows failed: " + ex);
                 loggedError = true;
             }
         }
@@ -85,20 +85,20 @@ namespace DlssMod
         [HarmonyPostfix, HarmonyPatch("HasChanges")]
         static void HasChanges(ref bool __result)
         {
-            var cfg = DlssMod.Instance?.Cfg;
+            var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg != null && limit != null) __result |= pendingLimit != cfg.LimitFrameRate || pendingFps != cfg.FrameRateLimit;
         }
 
         [HarmonyPostfix, HarmonyPatch("Apply")]
         static void Apply()
         {
-            var cfg = DlssMod.Instance?.Cfg;
+            var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg == null || limit == null) return;
             if (pendingLimit == cfg.LimitFrameRate && pendingFps == cfg.FrameRateLimit) return;
             cfg.LimitFrameRate = pendingLimit;
             cfg.FrameRateLimit = pendingFps;
-            DlssMod.ApplyFrameRate();
-            DlssMod.SaveConfig();
+            RenderforgeMod.ApplyFrameRate();
+            RenderforgeMod.SaveConfig();
         }
 
         private static Transform Clone(Transform row, string name, int index)

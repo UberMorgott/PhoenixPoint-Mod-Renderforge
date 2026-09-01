@@ -1,22 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <AssemblyName>DLSS</AssemblyName>
-    <RootNamespace>DlssMod</RootNamespace>
+    <AssemblyName>Renderforge</AssemblyName>
+    <RootNamespace>Renderforge</RootNamespace>
     <TargetFramework>net472</TargetFramework>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>0.1.0.0</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.1.0.0</FileVersion>
-    <Product>DLSS</Product>
+    <Version>1.0.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>Renderforge</Product>
     <Authors>Morgott</Authors>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>portable</DebugType>
     <Deterministic>true</Deterministic>
     <!-- PPModLoader loads "<FolderName>\<FolderName>.dll": output folder name == assembly name. -->
-    <OutputPath>bin\$(Configuration)\DLSS\</OutputPath>
+    <OutputPath>bin\$(Configuration)\Renderforge\</OutputPath>
   </PropertyGroup>
 
   <PropertyGroup>

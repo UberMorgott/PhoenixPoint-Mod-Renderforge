@@ -32,22 +32,23 @@ if (-not $SkipNative) {
     & $native
     if ($LASTEXITCODE -ne 0) { throw "build-native.ps1 failed (exit $LASTEXITCODE)." }
 }
-$nativeDll = Join-Path $root 'build\out\DlssNative.dll'
+$nativeDll = Join-Path $root 'build\out\RenderforgeNative.dll'
 $ngxDll    = Join-Path $root 'build\out\nvngx_dlss.dll'
 foreach ($f in $nativeDll, $ngxDll) { if (-not (Test-Path $f)) { throw "missing $f - run build-native.ps1" } }
 
-dotnet build (Join-Path $root 'DLSS.csproj') -c $Configuration /p:PPRoot="$PPRoot"
+dotnet build (Join-Path $root 'Renderforge.csproj') -c $Configuration /p:PPRoot="$PPRoot"
 if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
 
-$out  = Join-Path $root "bin\$Configuration\DLSS"
-$dest = Join-Path $PPRoot 'Mods\DLSS'
+$out  = Join-Path $root "bin\$Configuration\Renderforge"
+$dest = Join-Path $PPRoot 'Mods\Renderforge'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-foreach ($file in (Join-Path $out 'DLSS.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll, (Join-Path $root 'LICENSE-NVIDIA.txt'), (Join-Path $root 'LICENSE-NIS.txt')) {
+foreach ($file in (Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll,
+                  (Join-Path $root 'LICENSE-NVIDIA.txt'), (Join-Path $root 'LICENSE-NIS.txt'), (Join-Path $root 'LICENSE'), (Join-Path $root 'README.md')) {
     Copy-Item $file $dest -Force
 }
 
-Write-Host "Deployed DLSS to $dest"
+Write-Host "Deployed Renderforge to $dest"
 Get-ChildItem $dest -File | ForEach-Object { Write-Host ("  {0,-20} {1,12:N0} bytes" -f $_.Name, $_.Length) }
-Write-Host "Activation is separate: 'com.morgott.DLSS' must be in MOD_ACTIVATED of the profile's Options.jopt"
+Write-Host "Activation is separate: 'com.morgott.Renderforge' must be in MOD_ACTIVATED of the profile's Options.jopt"
 Write-Host "  (%USERPROFILE%\AppData\LocalLow\Snapshot Games Inc\Phoenix Point\Steam\<SteamID64>\Options.jopt)."
-Write-Host "  Launch $PPRoot once with -mods, enable DLSS in the in-game mod manager, quit. This script never edits that file."
+Write-Host "  Launch $PPRoot once with -mods, enable Renderforge in the in-game mod manager, quit. This script never edits that file."

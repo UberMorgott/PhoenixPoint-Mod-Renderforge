@@ -1,4 +1,4 @@
-// DlssNative.h - flat C ABI of the NGX D3D11 shim consumed by the managed mod via P/Invoke.
+// RenderforgeNative.h - flat C ABI of the NGX D3D11 shim consumed by the managed mod via P/Invoke.
 #pragma once
 
 #ifdef __cplusplus

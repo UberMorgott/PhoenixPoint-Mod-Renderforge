@@ -1,6 +1,7 @@
-# DLSS for Phoenix Point — design (2026-09-01)
+# Renderforge for Phoenix Point — design (2026-09-01)
 
-Mod id `com.morgott.DLSS`, folder `Mods\DLSS`. Adds NVIDIA DLSS Super Resolution + DLAA to
+Renderforge (working name `DLSS` until the rename on 2026-09-02). Mod id `com.morgott.Renderforge`,
+folder `Mods\Renderforge`, DLLs `Renderforge.dll` + `RenderforgeNative.dll`. Adds NVIDIA DLSS Super Resolution + DLAA to
 Phoenix Point (Unity 2019.4.31f1, built-in pipeline, D3D11, PostProcessing v2) as a plain
 Workshop mod. Zero game-file writes. Subscribe → enable → play; DLSS on by default (Auto),
 switchable in the game's own Graphics options panel without restart.
@@ -39,14 +40,14 @@ Ray Reconstruction. (Mip bias was pulled into v1 — see "Texture mip bias" belo
 ## Architecture — two DLLs, one mod folder
 
 ```
-Mods\DLSS\
-  DLSS.dll          managed mod (Harmony + MonoBehaviour driver)      ← src\
-  DlssNative.dll    C++ shim: NGX D3D11 init/create/evaluate          ← native\
+Mods\Renderforge\
+  Renderforge.dll          managed mod (Harmony + MonoBehaviour driver)      ← src\
+  RenderforgeNative.dll    C++ shim: NGX D3D11 init/create/evaluate          ← native\
   nvngx_dlss.dll    NVIDIA runtime, verbatim from SDK (rel)
   meta.json, LICENSE-NVIDIA.txt, README.md
 ```
 
-### DlssNative.dll (C++, ~400 LOC, VS2022 Build Tools + CMake)
+### RenderforgeNative.dll (C++, ~400 LOC, VS2022 Build Tools + CMake)
 
 Flat C exports, all state in one static struct; no classes, no threads of its own.
 
@@ -62,21 +63,21 @@ Flat C exports, all state in one static struct; no classes, no threads of its ow
 
 Immediate context comes from `device->GetImmediateContext()` inside the render event (Unity's
 D3D11 render thread owns it; `IssuePluginEventAndData` runs there). The plugin is loaded with
-`LoadLibraryW(<modFolder>\DlssNative.dll)` by the managed side before the first P/Invoke, so
-`[DllImport("DlssNative")]` resolves without touching the game's `Plugins` folder.
+`LoadLibraryW(<modFolder>\RenderforgeNative.dll)` by the managed side before the first P/Invoke, so
+`[DllImport("RenderforgeNative")]` resolves without touching the game's `Plugins` folder.
 
 Offline check: `native\probe\dlss_probe.exe` — creates a bare D3D11 device, runs Init → Create
 (1920×1080→3840×2160, Quality) → Release, prints NGX status. Fails loudly if SDK/link/driver
 is wrong before we ever touch the game.
 
-### DLSS.dll (C#, ~700 LOC)
+### Renderforge.dll (C#, ~700 LOC)
 
-- `DlssMod : ModMain` — `OnModEnabled`: probe NVIDIA (native init on a 1×1 `Texture2D`), if
+- `RenderforgeMod : ModMain` — `OnModEnabled`: probe NVIDIA (native init on a 1×1 `Texture2D`), if
   unavailable log + stay dormant (`Available=false`). Otherwise Harmony patch + attach driver when
   `CameraManager.Camera` exists (level start hook `OnLevelStart`, plus lazy attach in a Harmony
   postfix on `CameraManager` camera assignment). `OnConfigChanged` → `DlssDriver.Apply(config)`.
 - `DlssConfig : ModConfig` — public fields (this is also the mod-manager settings UI):
-  `DlssMode Mode = Auto` (`Off, Auto, DLAA, Quality, Balanced, Performance, UltraPerformance`),
+  `RenderforgeMode Mode = Auto` (`Off, Auto, DLAA, Quality, Balanced, Performance, UltraPerformance`),
   `bool ShowInGraphicsOptions = true`. Nothing else in v1.
 - `DlssDriver : MonoBehaviour` on the scene camera (revised after the Codex review, 2026-09-01).
   Gate: `SystemInfo.graphicsDeviceType == Direct3D11`, else dormant.
@@ -176,9 +177,9 @@ is wrong before we ever touch the game.
   replaced by Ctrl+Alt+U. Free letters: `b h j k l o p u` (`b` left to ContentTool's fit bench).
   A hotkey press is only a `wantMode` change; the driver's Idle→Creating→Live→Releasing machine
   serialises create/release with the render thread, so a press mid-generation cannot wedge it.
-  `DlssMod.SaveConfig()` = `ModManager.GetInstance().SaveModConfig()` (`ModManager.cs:120`), used
+  `RenderforgeMod.SaveConfig()` = `ModManager.GetInstance().SaveModConfig()` (`ModManager.cs:120`), used
   by the hotkeys and the graphics-panel picker. PPCLI substitutes for a keypress:
-  `call DlssMod.DlssMod.Toggle / ToggleOverlay / SetOverlay("TopLeft")`.
+  `call Renderforge.RenderforgeMod.Toggle / ToggleOverlay / SetOverlay("TopLeft")`.
 - **Sharpness** (2026-09-02). NOT NGX's: SDK 310 marks `NVSDK_NGX_DLSS_Feature_Flags_DoSharpening`
   `[[deprecated("Sharpness is not supported")]]` (`nvsdk_ngx_defs.h:60,:296`) and the eval helper
   still copies `InSharpness` into the parameter block, but nothing consumes it (sharpening was removed
@@ -204,7 +205,7 @@ is wrong before we ever touch the game.
     s=0 skips the pass. Probe evaluates with 0.5 and asserts `lastError == 0` AND sharpener == NIS.
     Not applied in Passthrough (no release event there).
   - Managed: `DlssConfig.Sharpness = 40` (0..100, localized "Sharpness"/"Резкость"), read by the
-    driver EVERY frame (no re-create). `DlssMod.SetSharpness(int)` = PPCLI/keypress substitute.
+    driver EVERY frame (no re-create). `RenderforgeMod.SetSharpness(int)` = PPCLI/keypress substitute.
   - Slider: `GraphicsPanel.BuildSlider` clones the panel's own ShadowDistance row (same
     TextAndSlider prefab as VideoPanel's rows) right under the DLSS picker, label "SHARPNESS" /
     "РЕЗКОСТЬ", whole 0..100 + readout, immediate apply + `SaveConfig()` like the picker; greyed
@@ -223,7 +224,7 @@ is wrong before we ever touch the game.
   `lut|noise|dither|ramp|gradient` (PPv2 LUT, Amplify blue noise). Idempotent (sweeps only when the
   effective bias changes); no dictionary of originals — the first sweep samples 20 textures and
   logs `originals max|bias|`, live = 0.000, vanilla ships 0. PPCLI switch
-  `call DlssMod.MipBias.SetEnabled(false)`. Measured live (Performance 640×360→1280×720, Instance2):
+  `call Renderforge.MipBias.SetEnabled(false)`. Measured live (Performance 640×360→1280×720, Instance2):
   1813 textures set, 753 skipped, 9–15 ms per sweep; `build\shots\8-mip-{off,on}.png`: mean |luma
   gradient| over two rock regions 2.93 → 3.25, rock grain visible in the 4× crops
   `crop-8-mip-{off,on}.png`, HUD/overlay text identical (ScreenSpaceOverlay, sprites have no mips).
@@ -296,13 +297,13 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 ## Future scope (user, 2026-09-01)
 
 DLSS first; later FSR and XeSS through the same driver (the native shim's ABI is upscaler-shaped:
-init / optimal / create / set-frame / event / release). Folder and mod name `DLSS` are
-provisional and get renamed to something vendor-neutral before publishing. Publish sequence:
+init / optimal / create / set-frame / event / release). Folder and mod name `DLSS` were
+provisional; renamed to the vendor-neutral `Renderforge` on 2026-09-02. Publish sequence:
 in-game success → GitHub repo → Steam Workshop → Nexus.
 
 ## Repo
 
-`E:\DEV\PhoenixPoint\DLSS\` = own inner repo (`UberMorgott/PhoenixPoint-Mod-DLSS`, branch
+`E:\DEV\PhoenixPoint\Renderforge\` = own inner repo (`UberMorgott/PhoenixPoint-Mod-Renderforge`, branch
 `main`, ignored by the outer `.gitignore`). Layout: `src\` (C#), `native\` (C++, CMake),
-`native\probe\`, `DLSS.csproj`, `deploy.ps1` (builds both, copies bundle to `<PPRoot>\Mods\DLSS`),
+`native\probe\`, `Renderforge.csproj`, `deploy.ps1` (builds both, copies bundle to `<PPRoot>\Mods\Renderforge`),
 `docs\`. `refs\DLSS-sdk` stays in the outer workspace (not committed; deploy copies the DLL from it).

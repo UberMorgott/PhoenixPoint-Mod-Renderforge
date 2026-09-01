@@ -1,4 +1,4 @@
-# build-native.ps1 - configure + build DlssNative.dll and dlss_probe.exe (Release x64), stage into build\out, run the probe.
+# build-native.ps1 - configure + build RenderforgeNative.dll and dlss_probe.exe (Release x64), stage into build\out, run the probe.
 # Exit code != 0 on any failure.
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
 & $cmake --build $buildDir --config Release
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
 
-Copy-Item (Join-Path $buildDir 'Release\DlssNative.dll') $outDir -Force
+Copy-Item (Join-Path $buildDir 'Release\RenderforgeNative.dll') $outDir -Force
 Copy-Item (Join-Path $buildDir 'Release\dlss_probe.exe') $outDir -Force
 Copy-Item $ngxDll $outDir -Force
 

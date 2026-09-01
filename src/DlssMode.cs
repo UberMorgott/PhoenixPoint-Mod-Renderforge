@@ -1,4 +1,4 @@
-namespace DlssMod
+namespace Renderforge
 {
-    public enum DlssMode { Off, Auto, DLAA, Quality, Balanced, Performance, UltraPerformance }
+    public enum RenderforgeMode { Off, Auto, DLAA, Quality, Balanced, Performance, UltraPerformance }
 }
