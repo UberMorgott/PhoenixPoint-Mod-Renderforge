@@ -158,5 +158,39 @@ namespace Renderforge
             }
             if (text != null) text.text = value;
         }
+
+        /// <summary>Same grey as SetSliderEnabled: interactable alone shows nothing on these prefabs, a CanvasGroup does.</summary>
+        internal static void Grey(GameObject go, bool grey)
+        {
+            if (go == null) return;
+            var cg = go.GetComponent<CanvasGroup>() ?? go.AddComponent<CanvasGroup>();
+            cg.alpha = grey ? 0.35f : 1f;
+        }
+
+        /// <summary>The game's OWN tooltip (UITooltipText.cs:7, IPointerEnterHandler at :99) - it clones the
+        /// game's "Interface/UI_Prefabs/UI_Tooltip" prefab (:52). Attach it to something that receives pointer
+        /// events (a picker's CentralButton). tip == null/empty disables it.</summary>
+        internal static void Tip(GameObject go, string tip)
+        {
+            if (go == null) return;
+            var t = go.GetComponent<UITooltipText>();
+            if (string.IsNullOrEmpty(tip))
+            {
+                if (t != null) t.Enabled = false;
+                return;
+            }
+            if (t == null)
+            {
+                t = go.AddComponent<UITooltipText>();
+                t.Position = UITooltip.Position.RightMiddle;
+                t.MaxWidth = 300;
+                t.AppearTime = 0.3f;
+                t.FadeInTime = 8f;
+                t.FadeOutTime = 8f;
+            }
+            t.Enabled = true;
+            t.TipText = tip;
+            t.UpdateText(tip);
+        }
     }
 }
