@@ -462,6 +462,88 @@ databases and ship the newest NVIDIA-signed build, never the SDK copy blindly.
 - Under D3D12 the mod stays fully active (pickers, overlay, PPv2 fix) but the NGX init is skipped; the
   overlay says `Upscaler: off (DLSS on D3D12 comes in Phase 2)`.
 
+## Frame generation (Phase 5, 2026-09-02) — D3D12 only
+
+Three providers behind one seam (`native\Fg.h` `IFgProvider`): `FgFsr.cpp` (FidelityFX FG, analytical
+3.1.6 pinned via `ffxOverrideVersion`, FG-swapchain 3.1.7, 2x), `FgXess.cpp` (XeSS-FG 1.3.1 + mandatory
+XeLL 1.3.2, `InitFromSwapChainDesc`, `BACKBUFFER_HUDLESS`, 2x on non-Intel), `FgStreamline.cpp` (DLSS-G/MFG
+via Streamline 2.12 manual hooking, `nvngx_dlssg.dll` 310.7.129, Reflex `eLowLatency` + 6 PCL markers,
+proxy device/queue/factory, per-frame token FIFO, CPU-wait copy fence, 2x-4x on RTX 50). Auto picks
+DLSS-G on NVIDIA, FSR-FG elsewhere; `RenderforgeMod.SetFgProvider` forces one for testing.
+
+### Child-HWND contract
+
+- **HWND chain on Unity's window = `E_ACCESSDENIED` (`0x80070005`)** — DXGI refuses a second flip-model
+  chain on a window that already owns one (measured on Instance3, every retry).
+- **Composition chain works only with Unity's Present forwarded** — without it, `GetCurrentBackBufferIndex()`
+  freezes, debug layer `id=907` -> device removal (measured).
+- **Shipped design = child HWND** (`FgWnd.cpp`): subclassed Unity WndProc (once, never restored),
+  `HTTRANSPARENT` child (`WS_CHILD|WS_VISIBLE`, `CS_OWNDC`, `WS_EX_NOPARENTNOTIFY`), parent gets
+  `WS_CLIPCHILDREN`. Each vendor SDK creates its own swapchain on this child.
+- Exactly one Unity Present per frame (hook always forwards, sync 0, `ALLOW_TEARING` only).
+- `RENDERFORGE_FG_CHAIN=composition` falls back to DComp visual + manual-dispatch FSR.
+
+### Per-vendor summary
+
+| Provider | SDK versions | Swapchain | Latency | Caps | Notes |
+|---|---|---|---|---|---|
+| FSR-FG | FG-swapchain 3.1.7 / model 3.1.6 | SDK proxy on child HWND (manual dispatch fallback for composition) | none | 2x | Paced by SDK's present thread |
+| XeSS-FG | `libxess_fg.dll` 1.3.1 + `libxell.dll` 1.3.2 | `InitFromSwapChainDesc` on child, `pApplicationSwapChain=NULL` | XeLL mandatory, 6 markers | 2x off Intel Arc | `maxSupportedInterpolations=1` on non-Intel |
+| DLSS-G | Streamline 2.12 + `nvngx_dlssg.dll` 310.7.129 | proxy factory `CreateSwapChainForHwnd` on child + proxy device queue | Reflex `eLowLatency` + 6 PCL markers | 2x-4x on RTX 50 (`numFramesToGenerateMax=5`) | NVIDIA focus gate: unfocused -> real only, no error |
+
+### Per-frame sequence
+
+1. Main thread: `FrameGen.Apply` -> `Fg_Init` (once) -> `Fg_SetFrame` (Unity RTs retained, jitter, camera, dt).
+2. Render thread, `DLSS_EV_FG_PREPARE` (`CameraEvent.AfterEverything`): `FgHostPrepare` -> `provider.Prepare`
+   on a recording command list submitted through `ExecuteCommandList` with state arrays. Providers read the
+   shim-owned twins (`FgOwned12()`, all resting in COMMON), never the Unity RTs.
+3. Render thread, Present hook: `FgHostOnPresent` copies Unity backbuffer (PRESENT -> COPY_SOURCE -> PRESENT)
+   into shadow chain -> `provider.Generate` (FSR manual path only) -> `provider.BeforePresent` (DLSS: markers
+   after copy fence wait) -> shadow `Present` (vendor paces internally) -> `provider.AfterPresent` (XeSS/DLSS:
+   end markers) -> Unity's original `Present` (sync 0, ALLOW_TEARING).
+
+### HUD
+
+The present path gives every SDK what it needs for free: `outRT` = upscaled scene WITHOUT the HUD, backbuffer =
+same frame WITH it. FidelityFX's `HUDLessColor`, XeSS's UI mode 4 (`BACKBUFFER_HUDLESS`) and DLSS-G's
+`kBufferTypeHUDLessColor` + `enableUserInterfaceRecomposition`. No UI render target is built.
+
+### Overlay
+
+Real fps counted in `Update`; presented fps counted in the Present hook (`FgPresentedFps()`). Overlay shows
+`FPS: 62 / 118 (16.1 ms)` and a `FG:` line naming provider and multiplier.
+
+### Lifecycle / teardown
+
+- Init (main thread, render idle): `FgHostInit` -> `FgWndCreate` (child on parent thread via `WM_APP+0x51`)
+  -> provider `Create` -> `FgHostSetEnabled(1)`.
+- Teardown triggers: `ResizeBuffers` hook, shadow Present failure, `SetFullscreenState` (exclusive fullscreen
+  -> FG torn down), `WM_NCDESTROY`, display change, manual `SetFrameGen(Off)`.
+- Mission loads: `BeginRelease` -> `FgHostSetEnabled(0)` -> teardown; `FrameGen.Retry()` rebuilds once the
+  new camera is live. Verified across 3 consecutive loads.
+- Per-vendor destroy: FSR `Configure(enabled=false)` + `WAIT_FOR_PRESENTS` + context destroy; XeSS
+  `xefgSwapChainDestroy` (host releases shadow ref first) + `xellDestroyContext`; DLSS `eOff` before
+  chain release, `slInit` stays for the process.
+- `SRWLOCK` guards state; render thread pins/unpins around Prepare/OnPresent; teardown waits for unpin.
+
+### Picker / availability
+
+- Greyed rows stay visible with native tooltip reasons (`UITooltipText`).
+- 3x/4x grey with "Not supported by this GPU" from `Fg_Caps()` when the provider's caps lack them.
+- Missing DLLs -> "DLL missing: <name> -- install the <Vendor> pack" (EN/RU).
+- `Availability.Reason(Feature.FrameGen)`: requires D3D12, requires an upscaler on.
+- Env knobs: `RENDERFORGE_FG_CHAIN=composition`, `RENDERFORGE_FSR_JITTER_SIGN`,
+  `RENDERFORGE_XESS_JITTER_SIGN`, `RENDERFORGE_D3D12_DEBUG`.
+
+### Known limits
+
+- Windowed/borderless only; exclusive fullscreen -> FG torn down.
+- NVIDIA focus gate: unfocused window -> real frames only, no error, no log. Production plugin requires
+  the window in the foreground — the normal state when a player plays.
+- Frame-pacing metric (CoV of `MsBetweenDisplayChange` via PresentMon) unmeasured.
+- Debug layer: 0 mismatches on our lists/resources; remaining `id=527/538/1315` are Unity's own.
+- Full contract note: `E:\DEV\PhoenixPoint\docs\research\framegen-d3d12-contract.md`.
+
 ## Packaging (Phase 6, 2026-09-02)
 
 - `build\release.ps1` is the only packaging path. It reads the version from `meta.json`, walks an

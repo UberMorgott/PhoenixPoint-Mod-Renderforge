@@ -102,12 +102,10 @@ interface for plugins loaded from there — which is why that one restart is nee
 | NVIDIA Image Scaling sharpening | yes | yes | Core |
 | Texture mip bias | yes | yes | Core |
 | Frame-rate limit, uncapped FPS, overlay | yes | yes | Core |
-| DLSS Frame Generation (Streamline) | no | planned | NVIDIA |
-| FSR Frame Generation | no | planned | AMD |
-| XeSS Frame Generation | no | planned | Intel |
+| DLSS Frame Generation / MFG (Streamline) | no | yes (2x RTX 40; 2x-4x RTX 50) | NVIDIA |
+| FSR Frame Generation (FidelityFX) | no | yes (2x) | AMD |
+| XeSS Frame Generation (+ XeLL) | no | yes (2x; more on Intel Arc) | Intel |
 | Ray Reconstruction | no | no | — |
-
-"planned" = the FRAME GENERATION row is present but greyed with `Not implemented yet`.
 
 ## Settings
 
@@ -155,6 +153,37 @@ switching quality mode does not.
 | Overlay position | Mods → Renderforge | Top Center |
 | Overlay scale | Mods → Renderforge | 1.0 |
 | Debug view | Mods → Renderforge | None |
+
+### Frame generation (DirectX 12 only, experimental)
+
+Options -> Graphics -> **FRAME GENERATION**: `Off / 2x / 3x / 4x`.
+
+| Provider | Used on | Multipliers |
+|---|---|---|
+| DLSS-G / MFG (NVIDIA Streamline) | NVIDIA RTX | 2x on RTX 40, up to 4x on RTX 50 |
+| FSR Frame Generation (AMD FidelityFX) | any DirectX 12 GPU | 2x |
+| XeSS-FG (Intel, needs XeLL) | any DirectX 12 GPU | 2x (more on Intel Arc) |
+
+The mod picks the provider automatically: DLSS-G on NVIDIA, FSR-FG elsewhere. Frame generation needs the
+DirectX 12 renderer and an upscaler switched on; the row is greyed with the reason when it cannot run.
+Multipliers above what the GPU supports are greyed individually. The benchmark overlay then shows
+`FPS: 62 / 118` -- really rendered frames, then frames actually presented.
+
+Frame generation adds latency and can show artefacts on fast camera moves. It is off by default.
+Windowed and borderless only -- switching to exclusive fullscreen tears the FG chain down cleanly.
+
+**NVIDIA focus note.** DLSS-G generates frames only while the game window is in the foreground. If you
+Alt-Tab away, you see only real frames (no error, no crash); bring the window back and generation resumes.
+
+**Vendor files.** The vendor zips carry redistributable, vendor-signed runtime DLLs:
+
+- **AMD**: `amd_fidelityfx_framegeneration_dx12.dll` (in addition to the upscaler DLLs)
+- **Intel**: `libxess_fg.dll`, `libxell.dll` (in addition to `libxess.dll`)
+- **NVIDIA**: `sl.interposer.dll`, `sl.common.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`,
+  `nvngx_dlssg.dll` 310.7.129 (in addition to `nvngx_dlss.dll`)
+
+Install only the vendor pack for your GPU if you prefer; anything missing simply greys the corresponding
+option.
 
 The Sharpness control is disabled when the upscaler is Off. A value of 0 skips sharpening.
 
