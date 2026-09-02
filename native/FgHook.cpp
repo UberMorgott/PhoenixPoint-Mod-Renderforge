@@ -14,6 +14,7 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <share.h>
 
 namespace {
 
@@ -205,7 +206,7 @@ void FgLogInit(const wchar_t* logDir)
     if (g_log || !logDir) return;
     wchar_t path[MAX_PATH];
     _snwprintf_s(path, MAX_PATH, _TRUNCATE, L"%s\\renderforge_fg.log", logDir);
-    _wfopen_s(&g_log, path, L"w");
+    g_log = _wfsopen(path, L"w", _SH_DENYNO);   // readable while the game holds it open (same as D3D12Debug.cpp)
 }
 
 void FgLog(const char* fmt, ...)

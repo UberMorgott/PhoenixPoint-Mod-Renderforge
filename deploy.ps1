@@ -43,7 +43,9 @@ $xessDll     = Join-Path $root 'build\out\libxess.dll'
 # Intel XeSS-FG + XeLL runtimes: frame generation on the child HWND (FgXess.cpp), both delay-loaded by the shim.
 $xessFgDll   = Join-Path $root 'build\out\libxess_fg.dll'
 $xellDll     = Join-Path $root 'build\out\libxell.dll'
-foreach ($f in $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) { if (-not (Test-Path $f)) { throw "missing $f - run build-native.ps1" } }
+# NVIDIA Streamline 2.12 (DLSS-G / MFG + Reflex + PCL, FgStreamline.cpp): interposer + plugins + the DLSS-G NGX model.
+$slDlls      = @('sl.interposer.dll', 'sl.common.dll', 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll', 'nvngx_dlssg.dll') | ForEach-Object { Join-Path $root "build\out\$_" }
+foreach ($f in @($nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) + $slDlls) { if (-not (Test-Path $f)) { throw "missing $f - run build-native.ps1" } }
 
 dotnet build (Join-Path $root 'Renderforge.csproj') -c $Configuration /p:PPRoot="$PPRoot"
 if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
@@ -51,9 +53,9 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
 $out  = Join-Path $root "bin\$Configuration\Renderforge"
 $dest = Join-Path $PPRoot 'Mods\Renderforge'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-foreach ($file in (Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll,
-                  (Join-Path $root 'LICENSE-NVIDIA.txt'), (Join-Path $root 'LICENSE-NIS.txt'), (Join-Path $root 'LICENSE-AMD.txt'), (Join-Path $root 'LICENSE-INTEL.txt'),
-                  (Join-Path $root 'LICENSE'), (Join-Path $root 'README.md')) {
+foreach ($file in @((Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) + $slDlls +
+                  @((Join-Path $root 'LICENSE-NVIDIA.txt'), (Join-Path $root 'LICENSE-NIS.txt'), (Join-Path $root 'LICENSE-AMD.txt'), (Join-Path $root 'LICENSE-INTEL.txt'),
+                  (Join-Path $root 'LICENSE'), (Join-Path $root 'README.md'))) {
     Copy-Item $file $dest -Force
 }
 

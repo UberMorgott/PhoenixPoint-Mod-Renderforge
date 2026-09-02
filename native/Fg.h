@@ -103,6 +103,9 @@ struct IFgProvider
     // Render thread, right after the host presented `shadow` (hr = that Present's result). XeSS-FG's present markers
     // and present status live here; the default is a no-op.
     virtual void     AfterPresent(HRESULT) {}
+    // The queue the provider's chain presents on when it is NOT Unity's (DLSS-G: a queue from the Streamline proxy
+    // device). The host then runs its back-buffer copy on it after a fence wait on Unity's queue. NULL = Unity's queue.
+    virtual ID3D12CommandQueue* PresentQueue() { return NULL; }
     virtual void     SetEnabled(bool on) = 0;
     virtual void     Destroy(void) = 0;
 };
@@ -114,7 +117,7 @@ const OwnedSet12* FgOwned12(void);
 IFgProvider* MakeFgProviderNone(void);
 IFgProvider* MakeFgProviderFsr(void);
 IFgProvider* MakeFgProviderXess(void);      // XeSS-FG + XeLL on the child HWND (FgXess.cpp)
-IFgProvider* MakeFgProviderStreamline(void);
+IFgProvider* MakeFgProviderStreamline(void); // DLSS-G / MFG via Streamline 2.12 manual hooking on the child HWND (FgStreamline.cpp)
 
 // ---------------------------------------------------------------- our own HWND (FgWnd.cpp)
 

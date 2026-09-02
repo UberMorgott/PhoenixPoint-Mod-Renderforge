@@ -39,6 +39,14 @@ if(NOT EXISTS "${XESS_FG_LIB}" OR NOT EXISTS "${XELL_LIB}")
     message(FATAL_ERROR "libxess_fg.lib / libxell.lib not found under ${XESS_SDK}/lib")
 endif()
 
+# NVIDIA Streamline 2.12.0 (FgStreamline.cpp, DLSS-G / MFG): HEADERS ONLY. sl.interposer.dll is LoadLibraryW'd from the
+# mod folder and every entry point GetProcAddress'd, so nothing is linked and the shim loads without the NVIDIA FG DLLs.
+set(SL_SDK "${CMAKE_SOURCE_DIR}/../../refs/Streamline" CACHE PATH "NVIDIA Streamline SDK root")
+get_filename_component(SL_SDK "${SL_SDK}" ABSOLUTE)
+if(NOT EXISTS "${SL_SDK}/include/sl_dlss_g.h")
+    message(FATAL_ERROR "Streamline headers not found at ${SL_SDK}/include (SL_SDK=${SL_SDK})")
+endif()
+
 # NIS_Scaler.h (NVIDIA Image Scaling SDK, MIT, vendored in nis/) is HLSL compiled at runtime: embed it as a byte array.
 set(NIS_HLSL "${CMAKE_CURRENT_SOURCE_DIR}/nis/NIS_Scaler.h")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NIS_HLSL}")
@@ -69,12 +77,13 @@ add_library(RenderforgeNative SHARED
     FgWnd.cpp
     FgFsr.cpp
     FgXess.cpp
+    FgStreamline.cpp
     unity/IUnityInterface.h
     unity/IUnityGraphics.h
     unity/IUnityGraphicsD3D12.h)
 target_include_directories(RenderforgeNative
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
-    PRIVATE "${DLSS_SDK}/include" "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}" "${FFX_FG_INC}" "${XESS_SDK}/inc" "${CMAKE_CURRENT_BINARY_DIR}")
+    PRIVATE "${DLSS_SDK}/include" "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}" "${FFX_FG_INC}" "${XESS_SDK}/inc" "${SL_SDK}/include" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" "${XESS_LIB}" "${XESS_FG_LIB}" "${XELL_LIB}" d3d11 d3d12 dxgi dcomp d3dcompiler delayimp)
 target_link_options(RenderforgeNative PRIVATE "/DELAYLOAD:libxess.dll" "/DELAYLOAD:libxess_fg.dll" "/DELAYLOAD:libxell.dll")
 # _WINDOWS is what ffx_api_loader.h:38 tests to compile ffxLoadFunctions; without it every pointer stays NULL.

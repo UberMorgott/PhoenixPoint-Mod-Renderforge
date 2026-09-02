@@ -46,11 +46,13 @@ struct Chain
     IDCompositionVisual*  visual;
     D3D12Ring             prep;         // DLSS_EV_FG_PREPARE, via Unity
     D3D12Ring             copy;         // backbuffer copy, direct
+    ID3D12Fence*          xfence;       // Unity queue -> provider present queue handoff (its own fence: values on
+    UINT64                xval;         // one fence from two queues retire out of order and would free a live slot)
     unsigned              scFlags;      // DXGI_SWAP_CHAIN_FLAG_* the shadow chain was created with
     int                   chainKind;    // 0 none, 1 child HWND, 2 composition
     HWND                  child;        // our own WS_CHILD window (chainKind 1)
     Chain() : prov(NULL), app(NULL), shadow(NULL), factory(NULL), dcomp(NULL), target(NULL), visual(NULL),
-              scFlags(0), chainKind(0), child(NULL) {}
+              xfence(NULL), xval(0), scFlags(0), chainKind(0), child(NULL) {}
 };
 
 struct Host
@@ -84,8 +86,14 @@ struct Locked
 };
 
 // Barrier src PRESENT->COPY_SOURCE and dst PRESENT->COPY_DEST, CopyResource, barrier back, execute on the queue.
+// A provider with its own presenting queue (DLSS-G) gets the copy on THAT queue: it first waits for everything Unity's
+// queue submitted for this frame (xfence), and Unity's queue then waits for the copy (ring fence) before it may render
+// into that back buffer again - DLSS-G holds its presenting queue while it paces, so the copy can run frames later
+// (measured: debug layer id=1047 races on Unity's back buffers, then id=541 + DEVICE_REMOVED, without the second wait).
 bool CopyBackBuffer(Chain& c, ID3D12Resource* src, ID3D12Resource* dst)
 {
+    ID3D12CommandQueue* q = c.prov->PresentQueue();
+    if (!q || !c.xfence) q = H.queue;
     ID3D12GraphicsCommandList* l = c.copy.Begin();
     if (!l) return false;
 
@@ -109,7 +117,13 @@ bool CopyBackBuffer(Chain& c, ID3D12Resource* src, ID3D12Resource* dst)
     }
     l->ResourceBarrier(2, b);
 
-    return c.copy.EndDirect(H.queue);
+    if (q != H.queue) {
+        H.queue->Signal(c.xfence, ++c.xval);
+        q->Wait(c.xfence, c.xval);
+    }
+    bool ok = c.copy.EndDirect(q);
+    if (ok && q != H.queue && c.copy.fence) H.queue->Wait(c.copy.fence, c.copy.fenceVal);
+    return ok;
 }
 
 // No lock held. GPU objects of a chain whose provider is already gone (or never came up).
@@ -117,6 +131,8 @@ void ReleaseGpu(Chain& c)
 {
     c.prep.Release();
     c.copy.Release();
+    SafeRelease(c.xfence);
+    c.xval = 0;
     if (c.visual) c.visual->SetContent(NULL);
     if (c.dcomp)  c.dcomp->Commit();
     SafeRelease(c.visual);
@@ -238,8 +254,6 @@ ProviderNone g_none;
 } // namespace
 
 IFgProvider* MakeFgProviderNone(void) { return &g_none; }
-// The Streamline provider lands in Task 5; until then that id falls back to the pass-through chain.
-IFgProvider* MakeFgProviderStreamline(void) { return NULL; }
 
 // Composition swapchain + DirectComposition target on s.hwnd (topmost, above Unity's own chain).
 // Tearing: asked for when the factory reports DXGI_FEATURE_PRESENT_ALLOW_TEARING, dropped if the
@@ -409,6 +423,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     c.app = app; app->AddRef();
     c.prep.Attach(H.device);
     c.copy.Attach(H.device);
+    if (p->PresentQueue()) H.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&c.xfence));
     H.lastError = FG_OK;
     H.reason = NULL;
     H.lastPresentHr = 0;
