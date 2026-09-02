@@ -32,7 +32,9 @@ const ffxFunctions* FfxLoad(const wchar_t* dir)
     if (g_loaded == -1) return NULL;
     g_loaded = -1;
 
-    // Order matters: the effect DLL first, so the loader's own bare-name lookup finds this module.
+    // Order matters: the effect DLL first, so the loader's own bare-name lookup finds this module. This pre-binding
+    // only wins while no other module with that base name is loaded yet - LoadLibrary("amd_fidelityfx_upscaler_dx12.dll")
+    // returns whichever copy is already in the process, so an earlier-loaded copy (another mod, an overlay) wins.
     g_upscaler = LoadFrom(dir, L"amd_fidelityfx_upscaler_dx12.dll");
     if (!g_upscaler) return NULL;
     g_loader = LoadFrom(dir, L"amd_fidelityfx_loader_dx12.dll");
