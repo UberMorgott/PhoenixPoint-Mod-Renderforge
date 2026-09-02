@@ -54,10 +54,20 @@ namespace Renderforge
                 string a = argv[i];
                 if (string.Equals(a, Flag11, StringComparison.OrdinalIgnoreCase)) continue;
                 if (string.Equals(a, Flag12, StringComparison.OrdinalIgnoreCase)) continue;
-                kept.Add(a.IndexOf(' ') >= 0 ? "\"" + a + "\"" : a);
+                kept.Add(Quote(a));
             }
             if (want12) kept.Add(Flag12);
             return string.Join(" ", kept.ToArray());
+        }
+
+        /// <summary>MSVC argv rules: quote on whitespace/quotes, embedded " becomes \", a trailing backslash
+        /// is doubled so it cannot escape the closing quote.</summary>
+        private static string Quote(string a)
+        {
+            if (a.IndexOf(' ') < 0 && a.IndexOf('"') < 0) return a;
+            string s = a.Replace("\"", "\\\"");
+            if (s.EndsWith("\\")) s += "\\";
+            return "\"" + s + "\"";
         }
 
         /// <summary>PPCLI check without restarting anything:
