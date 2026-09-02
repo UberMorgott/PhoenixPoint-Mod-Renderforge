@@ -56,6 +56,9 @@ namespace Renderforge
                                               "Нет файла: amd_fidelityfx_upscaler_dx12.dll");
                     if (Upscalers.Running == UpscalerKind.FSR && !RenderforgeMod.Available)
                         return DlssConfig.Loc("FSR init failed — see the log", "Не удалось инициализировать FSR — смотрите лог");
+                    // Another provider is latched for this session: the choice is saved, the next launch runs FSR.
+                    if (Upscalers.Running != UpscalerKind.Off && Upscalers.Running != UpscalerKind.FSR)
+                        return DlssConfig.Loc("FSR selected — restart the game", "FSR выбран — перезапустите игру");
                     return null;
                 case Feature.Xess:
                 case Feature.FrameGen:
