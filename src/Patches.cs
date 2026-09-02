@@ -19,7 +19,11 @@ namespace Renderforge
     [HarmonyPatch(typeof(LightingManager), "ApplyPostProcessOptions")]
     internal static class LightingManager_ApplyPostProcessOptions_Patch
     {
-        static void Postfix() => DlssDriver.Instance?.AfterApplyPostProcessOptions();
+        static void Postfix()
+        {
+            DlssDriver.Instance?.AfterApplyPostProcessOptions();
+            D3D12Fix.Apply();          // AO + lut3DBaker repair; no-op unless the process runs D3D12
+        }
     }
 
     /// <summary>CameraManager.Camera SWAPS after OnLevelStart: the level's Loaded->Playing transition queues
