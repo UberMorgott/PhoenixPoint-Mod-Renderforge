@@ -19,6 +19,7 @@ namespace Renderforge
         private const string SliderName = "DlssSharpness";
         private static readonly string[] Labels = { "Off", "Auto", "DLAA", "Quality", "Balanced", "Performance", "Ultra Performance" };
         private static bool loggedError;
+        private static ArrowPickerController picker;
         private static Slider sharp;
         private static Transform sharpValue;
 
@@ -30,29 +31,31 @@ namespace Renderforge
                 var src = __instance.TextureQualityPicker;
                 if (mod == null || src == null) return;
                 var existing = src.transform.parent.Find(Name);
-                if (!RenderforgeMod.Available || !mod.Cfg.ShowInGraphicsOptions)
+                if (!mod.Cfg.ShowInGraphicsOptions)
                 {
+                    Pickers.Hide(src.transform.parent);
                     if (existing != null) existing.gameObject.SetActive(false);
-                    var row = src.transform.parent.Find(SliderName);
-                    if (row != null) row.gameObject.SetActive(false);
+                    var hidden = src.transform.parent.Find(SliderName);
+                    if (hidden != null) hidden.gameObject.SetActive(false);
                     return;
                 }
-                ArrowPickerController picker;
+                // RENDERER / UPSCALER / FRAME GENERATION first; our quality row goes after the last of them.
+                Transform after = Pickers.Build(__instance);
                 if (existing != null) picker = existing.GetComponent<ArrowPickerController>();
                 else
                 {
                     var go = UnityEngine.Object.Instantiate(src.gameObject, src.transform.parent);
                     go.name = Name;
-                    go.transform.SetSiblingIndex(src.transform.GetSiblingIndex() + 1);
                     picker = go.GetComponent<ArrowPickerController>();
-                    SetRaw(picker.Title, null, "DLSS");
+                    SetRaw(picker.Title, null, DlssConfig.Loc("DLSS quality", "Качество DLSS").ToUpperInvariant());
                 }
+                picker.transform.SetSiblingIndex(after.GetSiblingIndex() + 1);
                 picker.gameObject.SetActive(true);
                 int idx = (int)mod.Cfg.Mode;
                 if (idx < 0 || idx >= Labels.Length) idx = 0;
                 picker.Init(Labels.Length, idx, i => OnChanged(picker, i));
-                SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[idx]);
                 BuildSlider(__instance, picker.transform, mod.Cfg);
+                SyncQuality();
             }
             catch (Exception ex)
             {
@@ -61,16 +64,37 @@ namespace Renderforge
             }
         }
 
-        private static void OnChanged(ArrowPickerController picker, int i)
+        /// <summary>Repaints the quality row's label + grey from the config and Availability. Called after our own
+        /// changes and by Pickers when the UPSCALER row moves.</summary>
+        internal static void SyncQuality()
+        {
+            var mod = RenderforgeMod.Instance;
+            if (picker == null || mod == null) return;
+            int idx = (int)mod.Cfg.Mode;
+            if (idx < 0 || idx >= Labels.Length) idx = 0;
+            string reason = Availability.Reason(Feature.Dlss);
+            SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[idx]);
+            Grey(picker.CurrentItem.gameObject, reason != null);
+            Tip(picker.CentralButton.gameObject, reason);
+            SetSliderEnabled(reason == null && idx != (int)RenderforgeMode.Off);
+        }
+
+        private static void OnChanged(ArrowPickerController target, int i)
         {
             try
             {
-                SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[i]);
                 var mod = RenderforgeMod.Instance;
                 if (mod == null) return;
+                if (Availability.Reason(Feature.Dlss) != null)
+                {
+                    // Not usable on this API/GPU: show the choice greyed, write nothing.
+                    SetRaw(target.CurrentItem, target.CurrentItemText, Labels[i]);
+                    Grey(target.CurrentItem.gameObject, true);
+                    return;
+                }
                 RenderforgeMod.SetMode(((RenderforgeMode)i).ToString(), mod.Cfg.DebugView.ToString());
                 RenderforgeMod.SaveConfig();
-                SetSliderEnabled(i != (int)RenderforgeMode.Off);
+                SyncQuality();
             }
             catch (Exception ex)
             {
