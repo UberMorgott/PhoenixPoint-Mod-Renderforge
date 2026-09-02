@@ -82,7 +82,7 @@
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\meta.json`
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj:12-14`
 
-- [ ] **Step 1: Prove that `build\release.ps1` would be ignored today**
+- [x] **Step 1: Prove that `build\release.ps1` would be ignored today**
 
 Run:
 
@@ -93,7 +93,7 @@ git check-ignore -v build/release.ps1
 
 Expected: `.gitignore:3:build/	build/release.ps1` (exit 0 — the file IS ignored).
 
-- [ ] **Step 2: Replace the blanket `build/` ignore**
+- [x] **Step 2: Replace the blanket `build/` ignore**
 
 In `E:\DEV\PhoenixPoint\Renderforge\.gitignore`, replace the single line
 
@@ -124,7 +124,7 @@ Console.log
 .serena/
 ```
 
-- [ ] **Step 3: Verify the negation works and binaries stay ignored**
+- [x] **Step 3: Verify the negation works and binaries stay ignored**
 
 Run:
 
@@ -137,7 +137,7 @@ git check-ignore -v build/release/Renderforge-Core-1.1.0.zip
 
 Expected: the first prints nothing and `exit=1` (no longer ignored); the second prints `.gitignore:8:nvngx_dlss.dll	build/out/nvngx_dlss.dll`; the third prints `.gitignore:3:build/*	build/release/Renderforge-Core-1.1.0.zip`.
 
-- [ ] **Step 4: Create `LICENSE-INTEL.txt` from the XeSS SDK**
+- [x] **Step 4: Create `LICENSE-INTEL.txt` from the XeSS SDK** — SKIPPED: file already tracked (Phase 4, commit d67510c, 4194 B)
 
 Run:
 
@@ -164,7 +164,7 @@ Set-Content -Path 'LICENSE-INTEL.txt' -Value ($parts -join '') -Encoding utf8NoB
 
 Expected: a byte count printed, greater than 1000.
 
-- [ ] **Step 5: Bump the version in `meta.json`**
+- [x] **Step 5: Bump the version in `meta.json`**
 
 Replace the `"Version"` line in `E:\DEV\PhoenixPoint\Renderforge\meta.json` so the file reads:
 
@@ -186,7 +186,7 @@ Replace the `"Version"` line in `E:\DEV\PhoenixPoint\Renderforge\meta.json` so t
 }
 ```
 
-- [ ] **Step 6: Bump the assembly version**
+- [x] **Step 6: Bump the assembly version**
 
 In `E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj`, replace the three version lines
 
@@ -204,7 +204,7 @@ with
     <FileVersion>1.1.0.0</FileVersion>
 ```
 
-- [ ] **Step 7: Verify the version is readable the way `release.ps1` will read it**
+- [x] **Step 7: Verify the version is readable the way `release.ps1` will read it**
 
 Run:
 
@@ -216,7 +216,7 @@ Select-String -Path Renderforge.csproj -Pattern '<FileVersion>'
 
 Expected: `1.1.0`, then `    <FileVersion>1.1.0.0</FileVersion>`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\Renderforge
@@ -231,7 +231,7 @@ git commit -m "chore(release): bump to 1.1.0, add LICENSE-INTEL.txt, track build
 **Files:**
 - Create: `E:\DEV\PhoenixPoint\Renderforge\build\release.ps1`
 
-- [ ] **Step 1: Write the script (validation complete, packing added in Task 3)**
+- [x] **Step 1: Write the script (validation complete, packing added in Task 3)**
 
 Create `E:\DEV\PhoenixPoint\Renderforge\build\release.ps1` with exactly this content:
 
@@ -376,7 +376,7 @@ Write-Host "validate: OK"
 if ($ValidateOnly) { return }
 ```
 
-- [ ] **Step 2: Run the validation half and confirm it passes without frame generation**
+- [x] **Step 2: Run the validation half and confirm it passes without frame generation**
 
 Run:
 
@@ -393,7 +393,7 @@ If it fails on `bin\Release\Renderforge\Renderforge.dll` or `build\out\Renderfor
 .\deploy.ps1 -PPRoot 'D:\PP-Instance2' -AllowRunning
 ```
 
-- [ ] **Step 3: Run the validation half WITH frame generation**
+- [x] **Step 3: Run the validation half WITH frame generation**
 
 Run:
 
@@ -404,7 +404,7 @@ cd E:\DEV\PhoenixPoint\Renderforge
 
 Expected: additionally `nvngx_dlssg.dll 310.7.129.0`, six `sl.*.dll 2.12.0.0`, `amd_fidelityfx_framegeneration_dx12.dll 4.0.1.2740`, `libxess_fg.dll 1.3.1.78`, `libxell.dll 1.3.2.10`; still `validate: OK`, still no warnings.
 
-- [ ] **Step 4: Prove the stale-NVIDIA guard actually fires**
+- [x] **Step 4: Prove the stale-NVIDIA guard actually fires**
 
 Run (temporarily pins a version nothing on disk has):
 
@@ -418,7 +418,7 @@ Set-Content build\release.ps1 $s -Encoding utf8NoBOM
 
 Expected: `WARNING: nvngx_dlss.dll is 310.7.129.0; newest known is 999.0.0.0. ...` followed by `validate: OK` (a warning, not a failure). The last line restores the file — confirm with `git diff --stat build/release.ps1` printing nothing.
 
-- [ ] **Step 5: Prove the Authenticode assertion actually fires**
+- [x] **Step 5: Prove the Authenticode assertion actually fires**
 
 Run (feeds an unsigned file through the same check):
 
@@ -437,7 +437,7 @@ pwsh -NoProfile -Command {
 
 Expected: `CAUGHT: Authenticode: ...\RenderforgeNative.dll is not Valid (status NotSigned). Refusing to ship it.`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\Renderforge
@@ -452,7 +452,7 @@ git commit -m "build(release): validate release sources - Authenticode + NGX ver
 **Files:**
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\build\release.ps1` (append after `if ($ValidateOnly) { return }`)
 
-- [ ] **Step 1: Append the packing half**
+- [x] **Step 1: Append the packing half**
 
 Append this to the end of `E:\DEV\PhoenixPoint\Renderforge\build\release.ps1`:
 
@@ -521,7 +521,7 @@ Write-Host "wrote $sums"
 Write-Host "release: OK - $relDir"
 ```
 
-- [ ] **Step 2: Produce the release set**
+- [x] **Step 2: Produce the release set**
 
 Run:
 
@@ -542,7 +542,7 @@ wrote E:\DEV\PhoenixPoint\Renderforge\build\release\SHA256SUMS.txt
 release: OK - E:\DEV\PhoenixPoint\Renderforge\build\release
 ```
 
-- [ ] **Step 3: Verify every zip has exactly one top-level `Renderforge/` folder**
+- [x] **Step 3: Verify every zip has exactly one top-level `Renderforge/` folder**
 
 Run:
 
@@ -559,7 +559,7 @@ foreach ($z in Get-ChildItem *-1.1.0.zip) {
 Expected: five lines, every one `roots=[Renderforge]`. Entry counts: Core 7, NVIDIA 3, AMD 4, Intel 3, Full 14 (each = its files + its own `manifest-<pack>.json`; the
 folder itself is not an entry).
 
-- [ ] **Step 4: Verify the overlay actually merges into one folder**
+- [x] **Step 4: Verify the overlay actually merges into one folder**
 
 Run:
 
@@ -577,7 +577,7 @@ Get-ChildItem "$t\Renderforge" -File | Select-Object Name
 
 Expected: exactly one directory, `Renderforge`, containing `LICENSE`, `LICENSE-AMD.txt`, `LICENSE-INTEL.txt`, `LICENSE-NIS.txt`, `LICENSE-NVIDIA.txt`, `README.md`, `Renderforge.dll`, `RenderforgeNative.dll`, `amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll`, `libxess.dll`, `manifest-amd.json`, `manifest-core.json`, `manifest-intel.json`, `manifest-nvidia.json`, `meta.json`, `nvngx_dlss.dll` — 17 files.
 
-- [ ] **Step 5: Verify a manifest and the checksums**
+- [x] **Step 5: Verify a manifest and the checksums**
 
 Run:
 
@@ -590,7 +590,7 @@ Get-Content SHA256SUMS.txt
 
 Expected: the NVIDIA manifest lists `nvngx_dlss.dll` with `"fileVersion": "310.7.129.0"`, `"signer": "NVIDIA Corporation"`, `"licence": "LICENSE-NVIDIA.txt"` and a 64-hex `sha256`; `SHA256SUMS.txt` has five `<hash>  <zipname>` lines; the printed Core hash matches its line.
 
-- [ ] **Step 6: Clean up the scratch extraction**
+- [x] **Step 6: Clean up the scratch extraction**
 
 Run:
 
@@ -600,7 +600,7 @@ Remove-Item "C:\Temp\claude\rf-overlay" -Recurse -Force
 
 Expected: no output.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\Renderforge
@@ -616,7 +616,7 @@ git commit -m "build(release): per-vendor zips, manifests and SHA256SUMS"
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\src\Upscaler.cs:81-97`
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\src\Availability.cs:40-65`
 
-- [ ] **Step 1: Add the two missing DLL-presence probes**
+- [x] **Step 1: Add the two missing DLL-presence probes**
 
 In `E:\DEV\PhoenixPoint\Renderforge\src\Upscaler.cs`, replace lines 81-97 (the `FsrDllsPresent` property and the `fsrDlls` field) with:
 
@@ -664,7 +664,7 @@ In `E:\DEV\PhoenixPoint\Renderforge\src\Upscaler.cs`, replace lines 81-97 (the `
         private static int xessDll;
 ```
 
-- [ ] **Step 2: Name the pack in every missing-DLL reason**
+- [x] **Step 2: Name the pack in every missing-DLL reason**
 
 In `E:\DEV\PhoenixPoint\Renderforge\src\Availability.cs`, replace the whole `switch (feature)` body (lines 38-68) with:
 
@@ -712,7 +712,7 @@ In `E:\DEV\PhoenixPoint\Renderforge\src\Availability.cs`, replace the whole `swi
             }
 ```
 
-- [ ] **Step 3: Build the managed mod**
+- [x] **Step 3: Build the managed mod**
 
 Run:
 
@@ -723,7 +723,7 @@ dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance2"
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 4: Verify the strings in the compiled assembly**
+- [x] **Step 4: Verify the strings in the compiled assembly**
 
 Run:
 
@@ -739,7 +739,7 @@ foreach ($needle in 'install the NVIDIA pack', 'install the AMD pack', 'install 
 
 Expected: all six lines end in `True`.
 
-- [ ] **Step 5: Verify in-game that a missing pack greys the row with the right tooltip**
+- [ ] **Step 5: Verify in-game that a missing pack greys the row with the right tooltip** — NOT RUN: Instance2 reserved, deploy forbidden for this pass
 
 Run (Instance2, which has the AMD DLLs deployed — move them aside, launch, look, put them back):
 
@@ -762,7 +762,7 @@ Move-Item "$m\_amd_upscaler.bak" "$m\amd_fidelityfx_upscaler_dx12.dll" -Force
 
 Expected: the screenshot file exists and shows that tooltip; the restore leaves the folder as `deploy.ps1` left it (`Get-ChildItem $m -Filter amd_*` lists both AMD DLLs, no `.bak`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\Renderforge
@@ -777,7 +777,7 @@ git commit -m "feat(availability): missing vendor DLL names the pack to install"
 **Files:**
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\README.md` (full replacement)
 
-- [ ] **Step 1: Replace `README.md` with this content**
+- [x] **Step 1: Replace `README.md` with this content**
 
 ```markdown
 # Renderforge
@@ -1083,7 +1083,7 @@ Renderforge is developed by Morgott.
   sponsored by NVIDIA, AMD, Intel or Snapshot Games.
 ```
 
-- [ ] **Step 2: Verify every licence file the README references exists**
+- [x] **Step 2: Verify every licence file the README references exists**
 
 Run:
 
@@ -1096,7 +1096,7 @@ foreach ($f in 'LICENSE','LICENSE-NIS.txt','LICENSE-NVIDIA.txt','LICENSE-AMD.txt
 
 Expected: the five licence files `True`; `docs\RELEASING.md` is `False` until Task 6 — that is the only permitted `False` here.
 
-- [ ] **Step 3: Repack and confirm the README inside the zips is the new one**
+- [x] **Step 3: Repack and confirm the README inside the zips is the new one**
 
 Run:
 
@@ -1112,7 +1112,7 @@ $r.Dispose(); $a.Dispose()
 
 Expected: `1`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\Renderforge
@@ -1128,7 +1128,7 @@ git commit -m "docs(readme): install matrix, per-feature table, licences and tro
 - Create: `E:\DEV\PhoenixPoint\Renderforge\docs\RELEASING.md`
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\docs\DESIGN.md` (insert a `## Packaging` section before `## Idea backlog`)
 
-- [ ] **Step 1: Create `docs\RELEASING.md`**
+- [x] **Step 1: Create `docs\RELEASING.md`**
 
 ```markdown
 # Releasing Renderforge
@@ -1213,7 +1213,7 @@ under "Packaging".
 Replace every `<x.y.z>` in the file above with nothing — it is a template and the placeholders are
 intentional prose, not plan placeholders.
 
-- [ ] **Step 2: Insert the Packaging section into DESIGN.md**
+- [x] **Step 2: Insert the Packaging section into DESIGN.md**
 
 In `E:\DEV\PhoenixPoint\Renderforge\docs\DESIGN.md`, insert the following **immediately before** the
 line `## Idea backlog (user, not scheduled)`:
@@ -1252,7 +1252,7 @@ line `## Idea backlog (user, not scheduled)`:
   SteamworksPy publisher (`PerkOracle\docs\OPERATIONS.md`), appid 839770, content = the Full pack.
 ```
 
-- [ ] **Step 3: Verify both docs**
+- [x] **Step 3: Verify both docs**
 
 Run:
 
@@ -1265,7 +1265,7 @@ Select-String -Path docs\DESIGN.md -Pattern '^## Packaging|^## Idea backlog' | F
 Expected: `True`, then two lines with the `## Packaging (Phase 6, 2026-09-02)` line number **smaller**
 than the `## Idea backlog` one.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\Renderforge
