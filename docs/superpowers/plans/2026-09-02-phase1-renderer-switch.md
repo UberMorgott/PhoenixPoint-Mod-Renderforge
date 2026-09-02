@@ -1349,7 +1349,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "test(d3d12): tactical mission 
 **Files:**
 - No source changes.
 
-- [ ] **Step 1: If Task 12 step 5 changed the code, relaunch into D3D12**
+- [x] **Step 1: If Task 12 step 5 changed the code, relaunch into D3D12** (relaunched anyway so the gate runs on the final DLL with the restart fix)
 
 ```powershell
 Get-Process PhoenixPointWin64 -ErrorAction SilentlyContinue | Stop-Process
@@ -1359,7 +1359,7 @@ Start-Process 'D:\PP-Instance2\PhoenixPointWin64.exe' -ArgumentList '-mods','-fo
 
 Expected: the game reaches the main menu. (Skip this step if the code did not change.)
 
-- [ ] **Step 2: Load mission 1 and idle 15 minutes in tactical**
+- [x] **Step 2: Load mission 1 and idle 15 minutes in tactical** (pid 14076, StartTime 10:34:23 before and after)
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -1371,7 +1371,7 @@ Get-Process PhoenixPointWin64 -ErrorAction SilentlyContinue | Select-Object Id, 
 
 Expected: the process is still listed with the same `Id` and its original `StartTime`.
 
-- [ ] **Step 3: Load two more missions**
+- [x] **Step 3: Load two more missions** (seeds 777 / 31337 both `ok:true`, 15.9 s / 18.5 s, pid unchanged)
 
 ```powershell
 .\ppcli.ps1 plan .\plans\start-mission.json '{"scene":"ALN_PLT_Nest_48x48_A","seed":777}'
@@ -1381,7 +1381,7 @@ Get-Process PhoenixPointWin64 -ErrorAction SilentlyContinue | Select-Object Id, 
 
 Expected: both plans return `ok:true`, and the process id is unchanged from step 2 — three mission loads total, no crash.
 
-- [ ] **Step 4: Final screenshot + error sweep**
+- [x] **Step 4: Final screenshot + error sweep** (`Kernel` 0; unique error lines are all pre-existing and not per-frame: `Mesh can not have more than 65000 vertices`, TFTV `InvalidOperationException`/`NullReferenceException` mirrored by MP, `Ability MachineEntity_ClassProficiencyAbilityDef ... already added to NJ_Armadillo(Clone)` once per load, `Serializing destroyed unity object` once, two `[SmartDestroy ERROR] Target instance is NULL`; nothing from Renderforge)
 
 ```powershell
 .\ppcli.ps1 connect screenshot '{"path":"E:\\DEV\\PhoenixPoint\\Renderforge\\docs\\shots\\p1-10-d3d12-stability.png"}'
@@ -1406,15 +1406,15 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "test(d3d12): stability gate - 
 **Files:**
 - No source changes.
 
-- [ ] **Step 1: From the running D3D12 process, open Options → Graphics**
+- [x] **Step 1: From the running D3D12 process, open Options → Graphics** (tactical: `@view.ToOptionsNewViewState()` → `UIModulePauseScreen.OnOptionsPressed()` → `OptionsSubmenuModule.ShowGraphicsOptionsPanel()`; row read `DirectX 12 (экспериментально)`, no restart suffix)
 
 Press ESC in the game window, open OPTIONS → GRAPHICS. The RENDERER row must read `DirectX 12 (experimental)` with no `(restart pending)` suffix (config and process agree).
 
-- [ ] **Step 2: Select DirectX 11, press APPLY, press YES**
+- [x] **Step 2: Select DirectX 11, press APPLY, press YES** (pid 14076 exited, pid 28484 `-mods` started ~1 s later — the Wait-Process relaunch path)
 
 Expected: the dialog `Restart required to switch renderer. Restart now?` appears; YES exits the process and starts a new one.
 
-- [ ] **Step 3: Verify the new process runs D3D11 with no renderer flag**
+- [x] **Step 3: Verify the new process runs D3D11 with no renderer flag** (`Version: Direct3D 11.0 [level 11.1]`, no `Forcing GfxDevice`)
 
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name='PhoenixPointWin64.exe'" | Select-Object ProcessId, CommandLine
@@ -1423,7 +1423,7 @@ Select-String -Path "$env:USERPROFILE\AppData\LocalLow\Snapshot Games Inc\Phoeni
 
 Expected: the command line contains `-mods` and **no** `-force-d3d12`; the log shows a Direct3D 11 device and no `Forcing GfxDevice: Direct3D 12`.
 
-- [ ] **Step 4: Confirm the overlay and the config agree**
+- [x] **Step 4: Confirm the overlay and the config agree** (`Renderer: D3D11`, `Upscaler: DLSS SR (nvngx 310.7.129.0)`, config `"Renderer": 1`)
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -1433,7 +1433,7 @@ cd E:\DEV\PhoenixPoint\PPCLI
 
 Expected: overlay line 1 reads `Renderer: D3D11`, line 2 reads `Upscaler: off` or the live DLSS string.
 
-- [ ] **Step 5: Verify the startup prompt does NOT fire**
+- [x] **Step 5: Verify the startup prompt does NOT fire** (0 `Renderforge restart` lines, no dialog)
 
 The config now says DirectX 11 and the process runs D3D11, so no dialog may appear at startup. Confirm nothing was logged:
 
@@ -1443,7 +1443,7 @@ Select-String -Path "$env:USERPROFILE\AppData\LocalLow\Snapshot Games Inc\Phoeni
 
 Expected: no output.
 
-- [ ] **Step 6: Verify the startup prompt DOES fire in the mismatch case**
+- [x] **Step 6: Verify the startup prompt DOES fire in the mismatch case** (config `"Renderer": 2` + plain `-mods` launch: dialog up at the main menu, NO → no second dialog 25 s later; config restored to `1` afterwards)
 
 ```powershell
 Get-Process PhoenixPointWin64 -ErrorAction SilentlyContinue | Stop-Process
