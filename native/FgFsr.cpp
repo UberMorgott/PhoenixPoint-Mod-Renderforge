@@ -142,6 +142,9 @@ struct ProviderFsr : IFgProvider
     {
         fn = FfxLoad(s.dllDir);
         if (!fn) { FgLog("fsr: AMD DLLs not loadable from the mod folder"); return FG_ERR_NO_PROVIDER; }
+        // One interpolated frame per rendered frame is all this SDK does (Caps): a 3x/4x chain would silently run 2x
+        // (measured: multiplier=3 live, ratio 1.96-2.04) - refuse like FgXess.cpp so the picker greys 3x/4x.
+        if (s.multiplier > 2) { FgLog("fsr: %ux asked, 2x supported", s.multiplier); return FG_ERR_UNSUPPORTED_MULTIPLIER; }
         device = s.device; queue = s.queue;
         outW = s.desc.Width; outH = s.desc.Height; backFmt = s.desc.Format;
 
