@@ -43,9 +43,24 @@ namespace Renderforge
                     }
                     else
                     {
+                        // The shim latches the provider at Dlss_Init, so the choice is made here, once.
+                        Upscalers.Running = Upscalers.Resolve(Cfg.Upscaler);
+                        Native.SetProvider(Upscalers.ProviderOf(Upscalers.Running));
                         probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
                         InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
+                        // Auto on an NVIDIA card without DLSS (GTX, old driver) under D3D12: fall through to FSR.
+                        // Dlss_Shutdown clears the latch, so a second Init with another provider is allowed.
+                        if (InitCode != Native.DLSS_OK && Cfg.Upscaler == UpscalerKind.Auto && Upscalers.Running == UpscalerKind.DLSS
+                            && Availability.IsD3D12 && Upscalers.FsrDllsPresent)
+                        {
+                            Logger.LogInfo("DLSS init failed (code " + InitCode + "): Auto falls back to FSR");
+                            Native.Dlss_Shutdown();
+                            Upscalers.Running = UpscalerKind.FSR;
+                            Native.SetProvider(Native.PROVIDER_FSR);
+                            InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
+                        }
                         Available = InitCode == Native.DLSS_OK;
+                        if (!Available) Upscalers.Running = UpscalerKind.Off;
                     }
                 }
                 catch (Exception ex)
@@ -53,7 +68,8 @@ namespace Renderforge
                     InitCode = Native.DLSS_ERR_INIT_FAILED;
                     Logger.LogError("Renderforge init THREW " + ex.Message);
                 }
-                Logger.LogInfo((Available ? "DLSS available" : "DLSS unavailable (code " + InitCode + "): " + Reason(InitCode))
+                Logger.LogInfo((Available ? "upscaler available" : "upscaler unavailable (code " + InitCode + "): " + Reason(InitCode))
+                               + " provider=" + Upscalers.Running + " version=" + Native.ProviderVersion()
                                + " api=" + Native.Api() + " unityIface=" + Native.UnityIface() + " renderer=" + Availability.ApiName);
             }
             else
@@ -197,6 +213,8 @@ namespace Renderforge
                 case Native.DLSS_ERR_NOT_AVAILABLE: return "DLSS not supported on this GPU";
                 case Native.DLSS_ERR_NEEDS_DRIVER: return "NVIDIA driver too old for this DLSS";
                 case Native.DLSS_ERR_NO_UNITY_IFACE: return "Unity never handed the plugin its D3D12 interface (UnityPluginLoad did not run)";
+                case Native.DLSS_ERR_NO_PROVIDER_DLL: return "amd_fidelityfx_*_dx12.dll missing from the mod folder";
+                case Native.DLSS_ERR_PROVIDER_UNSUPPORTED: return "this upscaler needs DirectX 12 (or is not implemented yet)";
                 default: return "unknown";
             }
         }

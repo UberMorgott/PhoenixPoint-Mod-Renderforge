@@ -46,6 +46,8 @@ namespace Renderforge
         public DebugView DebugView = DebugView.None;
         [ConfigField("Renderer", "Auto = DirectX 11. DirectX 12 is experimental and needs a restart.")]
         public RendererMode Renderer = RendererMode.Auto;
+        [ConfigField("Upscaler", "Auto picks by GPU: NVIDIA → DLSS, otherwise FSR. FSR/XeSS need DirectX 12. Changing it needs a restart.")]
+        public UpscalerKind Upscaler = UpscalerKind.Auto;
 
         // field ID -> (RU label, RU description); English comes from the attribute above.
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
@@ -62,6 +64,7 @@ namespace Renderforge
             { nameof(FrameRateLimit), new[] { "Макс. FPS", "30 … 300, действует при включённом ограничении" } },
             { nameof(DebugView), new[] { "Отладочный вид", "Для разработчика: Passthrough / Depth / Motion vectors" } },
             { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный, требуется перезапуск." } },
+            { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, иначе FSR. FSR/XeSS требуют DirectX 12. Смена требует перезапуска." } },
         };
 
         /// <summary>True while the game runs in Russian (I2 LocalizationManager.CurrentLanguage, "English"/"Russian"/…).</summary>

@@ -10,10 +10,12 @@ namespace Renderforge
     public static class Native
     {
         public const int DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4, DLSS_ERR_NO_UNITY_IFACE = 5;
+        public const int DLSS_ERR_NO_PROVIDER_DLL = 6, DLSS_ERR_PROVIDER_UNSUPPORTED = 7;
+        public const int PROVIDER_DLSS = 0, PROVIDER_FSR = 1, PROVIDER_XESS = 2;
         public const int DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMANCE = 3, DLSS_Q_ULTRA_PERFORMANCE = 4;
         public const int DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_MV_JITTERED = 8, DLSS_F_AUTO_EXPOSURE = 16;
         public const int DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3;
-        public const int DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3, DLSS_ERR_FENCE_TIMEOUT = -4;
+        public const int DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3, DLSS_ERR_FENCE_TIMEOUT = -4, DLSS_ERR_FFX = -5;
         public const int NGX_SUCCESS = 1;
 
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -161,6 +163,50 @@ namespace Renderforge
         {
             try { return Dlss_Init(anyTex, dllDir, logDir); }
             catch (Exception) { return DLSS_ERR_INIT_FAILED; }
+        }
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Dlss_SetProvider(int provider);
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_Provider();
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int Dlss_ProviderVersion(System.Text.StringBuilder buf, int cap);
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Dlss_SetCamera(float nearZ, float farZ, float fovYRadians);
+
+        /// <summary>Dlss_SetProvider behind a try: a missing export must not take the mod down.</summary>
+        public static void SetProvider(int provider)
+        {
+            try { Dlss_SetProvider(provider); }
+            catch (Exception) { }
+        }
+
+        /// <summary>Provider actually running: PROVIDER_*, or -1 before init / on a missing export.</summary>
+        public static int Provider()
+        {
+            try { return Dlss_Provider(); }
+            catch (Exception) { return -1; }
+        }
+
+        /// <summary>Version string of the live provider ("4.1.1", "3.1.5"), "" when unknown.</summary>
+        public static string ProviderVersion()
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder(64);
+                return Dlss_ProviderVersion(sb, sb.Capacity) > 0 ? sb.ToString() : "";
+            }
+            catch (Exception) { return ""; }
+        }
+
+        /// <summary>Dlss_SetCamera behind a try; called every frame, so it must never throw into the render loop.</summary>
+        public static void SetCamera(float nearZ, float farZ, float fovYRadians)
+        {
+            try { Dlss_SetCamera(nearZ, farZ, fovYRadians); }
+            catch (Exception) { }
         }
     }
 }

@@ -48,6 +48,15 @@ namespace Renderforge
                         ? DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется NVIDIA RTX")
                         : DlssConfig.Loc("DLSS init failed — see the log", "Не удалось инициализировать DLSS — смотрите лог");
                 case Feature.Fsr:
+                    if (!IsD3D12)
+                        return DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
+                    if (NeedsRestart) return RestartReason;
+                    if (!Upscalers.FsrDllsPresent)
+                        return DlssConfig.Loc("DLL missing: amd_fidelityfx_upscaler_dx12.dll",
+                                              "Нет файла: amd_fidelityfx_upscaler_dx12.dll");
+                    if (Upscalers.Running == UpscalerKind.FSR && !RenderforgeMod.Available)
+                        return DlssConfig.Loc("FSR init failed — see the log", "Не удалось инициализировать FSR — смотрите лог");
+                    return null;
                 case Feature.Xess:
                 case Feature.FrameGen:
                     return NeedsRestart ? RestartReason
