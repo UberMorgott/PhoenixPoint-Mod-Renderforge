@@ -11,8 +11,8 @@ namespace Renderforge
     /// RENDERER, UPSCALER, FRAME GENERATION. GraphicsPanel then places its DLSS quality picker + sharpness
     /// slider after the row this returns, so the order is decided in ONE place.
     /// RENDERER is deferred like the panel's own settings (HasChanges lights Apply, Apply commits + asks);
-    /// UPSCALER applies immediately when it is available; an unavailable entry snaps back to the applied value
-    /// and leaves the reason as the row's tooltip, writing nothing.</summary>
+    /// UPSCALER applies immediately when it is available, and an unavailable entry just stays greyed with the
+    /// tooltip and writes nothing.</summary>
     internal static class Pickers
     {
         internal const string RendererName = "RenderforgeRenderer";
@@ -157,27 +157,16 @@ namespace Renderforge
         {
             try
             {
-                var mod = RenderforgeMod.Instance;
-                if (mod == null) return;
-                string reason = index == 0 ? null : Availability.Reason(UpscalerFeature(index));
-                if (reason != null)
-                {
-                    // Refused: snap the row back to the applied value (CurrentIndex is private-set, Init is the
-                    // only way to move it) and leave the reason as the row's tooltip.
-                    pendingUpscaler = mod.Cfg.Mode == RenderforgeMode.Off ? 0 : 1;
-                    upscaler.Init(UpscalerLabels.Length, pendingUpscaler, OnUpscaler);
-                    ShowUpscaler();
-                    GraphicsPanel.Tip(upscaler.CentralButton.gameObject, reason);
-                    return;
-                }
                 pendingUpscaler = index;
                 ShowUpscaler();
+                var mod = RenderforgeMod.Instance;
+                if (mod == null) return;
                 if (index == 0)
                 {
                     RenderforgeMod.SetMode(RenderforgeMode.Off.ToString(), mod.Cfg.DebugView.ToString());
                     RenderforgeMod.SaveConfig();
                 }
-                else if (index == 1 && mod.Cfg.Mode == RenderforgeMode.Off)
+                else if (index == 1 && Availability.Reason(Feature.Dlss) == null && mod.Cfg.Mode == RenderforgeMode.Off)
                 {
                     RenderforgeMod.SetMode(RenderforgeMode.Auto.ToString(), mod.Cfg.DebugView.ToString());
                     RenderforgeMod.SaveConfig();
