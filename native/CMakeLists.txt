@@ -36,6 +36,8 @@ add_library(RenderforgeNative SHARED
     Device11.cpp
     Device12.cpp
     D3D12Ring.h
+    D3D12Debug.h
+    D3D12Debug.cpp
     Fsr12.cpp
     FfxLoader.h
     FfxLoader.cpp

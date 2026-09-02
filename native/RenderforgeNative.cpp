@@ -11,6 +11,7 @@
 #include "unity/IUnityGraphics.h"
 #include <d3d12.h>
 #include "unity/IUnityGraphicsD3D12.h"
+#include "D3D12Debug.h"
 
 const char kProjectId[] = "b7a3f2c4-6d1e-4a8b-9c0f-2e5d7a9b1c3d";
 const char kEngineVersion[] = "2019.4.31";
@@ -34,6 +35,7 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
 
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces* unityInterfaces)
 {
+    RfDbg::EarlyEnable();
     g_unityIfaces = unityInterfaces;
     g_unityLoaded = 1;
     if (!unityInterfaces) return;
@@ -41,6 +43,11 @@ void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces
     if (g_unityGfx) g_unityGfx->RegisterDeviceEventCallback(OnGraphicsDeviceEvent);
     // The device already exists when a plugin is loaded late, so the Initialize event is never delivered.
     OnGraphicsDeviceEvent(kUnityGfxDeviceEventInitialize);
+    // Ordering proof: a non-NULL device here means Unity created it before we were loaded, i.e. EarlyEnable
+    // above was too late and the debug layer must come from Unity's own -force-d3d12-debug switch.
+    RfDbg::Log("UnityPluginLoad: renderer=%d unityD3D12=%p device=%p",
+               g_unityGfx ? (int)g_unityGfx->GetRenderer() : -1, (void*)g_unityD3D12,
+               (void*)(g_unityD3D12 ? g_unityD3D12->GetDevice() : NULL));
 }
 
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload(void)
@@ -161,6 +168,7 @@ void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void*
 static void __stdcall OnRenderEventAndData(int eventId, void* data)
 {
     if (!S.dev) return;
+    if (RfDbg::NoEvents()) return;   // RENDERFORGE_D3D12_NOEVENTS=1: managed side runs, no GPU work of ours
     switch (eventId) {
     case DLSS_EV_CREATE:
         S.dev->Create(S.create);
