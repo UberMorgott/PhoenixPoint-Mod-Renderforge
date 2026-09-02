@@ -11,9 +11,13 @@ namespace Renderforge
     /// (HDR ColorGrading 3D-LUT baker, ColorGradingRenderer.cs:80). Either one throws every frame and
     /// PostProcessLayer aborts, which ALSO drops FogOfWarPostProcess and grading -> washed-out, fully lit scene.
     /// Fix: take AO off the compute path (SAO is a pixel shader, AmbientOcclusion.cs:82-88) or disable it, and
-    /// null PostProcessResources.computeShaders.lut3DBaker so ColorGrading takes the LDR 2D-LUT branch
-    /// (ColorGradingRenderer.cs:33). Resources are reached through PostProcessLayer's private m_Resources
-    /// (PostProcessLayer.cs:55, handed to the context at :624).</summary>
+    /// null PostProcessResources.computeShaders.lut3DBaker so HDR ColorGrading routes to RenderHDRPipeline2D
+    /// (ColorGradingRenderer.cs:33 gate, :44) - still HDR grading, just baked into a 2D LUT by a pixel shader.
+    /// Resources are reached through PostProcessLayer's private m_Resources (PostProcessLayer.cs:55, handed to
+    /// the context at :624).
+    /// ponytail: the profile/resources are mutated in place and NOT restored on OnModDisabled (a mod toggle
+    /// mid-session keeps SAO + the 2D-LUT path until relaunch); upgrade = cache the originals here and put
+    /// them back in OnModDisabled.</summary>
     internal static class D3D12Fix
     {
         /// <summary>false = AO switched to ScalableAmbientObscurance (kept); true = AO disabled entirely.
