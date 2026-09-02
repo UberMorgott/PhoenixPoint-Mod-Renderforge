@@ -7,3 +7,4 @@ RenderforgeNative.dll
 nvngx_dlss.dll
 *.pdb
 Console.log
+.serena/
