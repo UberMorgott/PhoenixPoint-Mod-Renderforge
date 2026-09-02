@@ -1,0 +1,52 @@
+using UnityEngine;
+using UnityEngine.Rendering;
+
+namespace Renderforge
+{
+    /// <summary>Everything the pickers, the tooltips and the overlay can be greyed for.</summary>
+    internal enum Feature { Dlss, Fsr, Xess, FrameGen }
+
+    /// <summary>The single "can this run right now, and if not why" oracle. Reason(f) == null means available.
+    /// Phase 1 knows only the API + vendor gates; Phase 2-5 add "DLL missing" / "SDK init failed" here and
+    /// nowhere else.</summary>
+    internal static class Availability
+    {
+        private const int VendorNvidia = 0x10DE;   // PCI vendor id, SystemInfo.graphicsDeviceVendorID
+
+        internal static GraphicsDeviceType Api { get { return SystemInfo.graphicsDeviceType; } }
+        internal static bool IsD3D11 { get { return Api == GraphicsDeviceType.Direct3D11; } }
+        internal static bool IsD3D12 { get { return Api == GraphicsDeviceType.Direct3D12; } }
+        internal static bool IsNvidia { get { return SystemInfo.graphicsDeviceVendorID == VendorNvidia; } }
+
+        /// <summary>Short name for the overlay: "D3D11" / "D3D12" / whatever Unity reports otherwise.</summary>
+        internal static string ApiName
+        {
+            get { return IsD3D11 ? "D3D11" : IsD3D12 ? "D3D12" : Api.ToString(); }
+        }
+
+        internal static string Reason(Feature feature)
+        {
+            switch (feature)
+            {
+                case Feature.Dlss:
+                    if (!IsD3D11 && !IsD3D12)
+                        return DlssConfig.Loc("Requires DirectX 11 or DirectX 12", "Требуется DirectX 11 или DirectX 12");
+                    if (!IsNvidia)
+                        return DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется видеокарта NVIDIA RTX");
+                    if (IsD3D12)
+                        return DlssConfig.Loc("DLSS on D3D12 comes in Phase 2", "DLSS на D3D12 появится в фазе 2");
+                    return RenderforgeMod.Available
+                        ? null
+                        : DlssConfig.Loc("DLSS init failed — see the log", "Не удалось инициализировать DLSS — смотрите лог");
+                case Feature.Fsr:
+                case Feature.Xess:
+                case Feature.FrameGen:
+                    return IsD3D12
+                        ? DlssConfig.Loc("Not implemented yet", "Пока не реализовано")
+                        : DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
+                default:
+                    return null;
+            }
+        }
+    }
+}
