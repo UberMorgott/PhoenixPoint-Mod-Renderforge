@@ -313,6 +313,18 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
   Native shim needs a D3D12 path: `GetNativeTexturePtr()` returns `ID3D12Resource*`, NGX D3D12
   entry points, resource-state transitions.
 
+## Vendor SDKs on disk (downloaded 2026-09-02, all in gitignored `E:\DEV\PhoenixPoint\refs\`)
+
+| SDK | Tag / date | Folder | Runtime DLLs (FileVersion, Authenticode Valid) |
+|---|---|---|---|
+| AMD FidelityFX SDK | v2.3.0 / 2026-06-24 | `refs\FidelityFX-SDK\` (shallow clone; release zip is samples-only) | `Kits\FidelityFX\signedbin\amd_fidelityfx_loader_dx12.dll` 2.3.0.2740; `amd_fidelityfx_upscaler_dx12.dll` 4.1.1.2740 (27 MB, FSR 4.1.1 + 3.1.5 fallback); `amd_fidelityfx_framegeneration_dx12.dll` 4.0.1.2740 (38 MB). Headers `Kits\FidelityFX\api\include\`, licence `docs\license.md` |
+| Intel XeSS SDK | v3.0.2 / 2026-07-24 | `refs\XeSS-sdk\` | `bin\libxess.dll` 2.0.2.68 (74 MB, D3D12 cross-vendor); `bin\libxess_fg.dll` 1.3.1.78 (22 MB); `bin\libxell.dll` 1.3.2.10. `inc\`, `LICENSE.txt` |
+| NVIDIA Streamline | v2.12.0 / 2026-06-23 | `refs\Streamline\` | `bin\x64\sl.interposer.dll`, `sl.common.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, `sl.dlss.dll` — all 2.12.0.0. **SDK's `nvngx_dlssg.dll` is 310.7.0 = STALE**; ship `refs\Streamline\latest-dll\nvngx_dlssg.dll` 310.7.129.0 (7.5 MB, NVIDIA-signed, from the TechPowerUp FG DLL DB). `include\`, `license.txt` |
+
+`refs\DLSS-sdk` `nvngx_dlss.dll` 310.7.129.0 is still the newest SR DLL. Rule (same trap twice
+now): after any SDK update, compare every `nvngx_*.dll` FileVersion against the TechPowerUp DLL
+databases and ship the newest NVIDIA-signed build, never the SDK copy blindly.
+
 ## Idea backlog (user, not scheduled)
 
 - **Color grading preset / LUT** (2026-09-02, "like Cyberpunk's natural-grey look"): PPv2 already
