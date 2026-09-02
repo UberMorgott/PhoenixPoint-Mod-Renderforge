@@ -145,9 +145,9 @@ struct Xess12 : IDevice
         }
     }
 
-    // Lazily creates the context. The guide wants every xess* call on the thread that initialised XeSS; Create
-    // (render thread) always finds the context ReleaseFeature just destroyed gone and makes a fresh one there, so
-    // only GetOptimal's main-thread context (never xessD3D12Init'ed there) crosses threads - same as NGX/ffx queries.
+    // Lazily creates the live context. XeSS is not thread safe (guide "Thread safety": every call on the thread
+    // that initialised it), and `ctx` is xessD3D12Init'ed / executed on the render thread, so nothing on the main
+    // thread may touch it after Init: GetOptimal uses its own throwaway context instead.
     xess_result_t EnsureContext()
     {
         if (ctx) return XESS_RESULT_SUCCESS;
@@ -217,11 +217,16 @@ struct Xess12 : IDevice
                                 unsigned* maxW, unsigned* maxH) override
     {
         if (!lib || !device) return NVSDK_NGX_Result_FAIL_NotInitialized;
-        xess_result_t r = EnsureContext();
-        if (r != XESS_RESULT_SUCCESS) { lastError = DLSS_ERR_XESS; return Map(r); }
+        // Main thread, while `ctx` may be mid-Create/Execute on the render thread (see EnsureContext): query a
+        // throwaway context. The guide's own order is CreateContext -> xessGetOptimalInputResolution -> xess*Init
+        // ("Fixed Input Resolution" sample), so a never-initialised context answers this; the probe relies on it too.
+        xess_context_handle_t tmp = NULL;
+        xess_result_t r = xessD3D12CreateContext(device, &tmp);
+        if (r != XESS_RESULT_SUCCESS) { lastError = DLSS_ERR_XESS; RfDbg::Log("XeSS: CreateContext failed %d", (int)r); return Map(r); }
         // xessGetInputResolution is deprecated since XeSS 1.2; this one also yields the dynamic range.
         xess_2d_t out = { oW, oH }, opt = {}, mn = {}, mx = {};
-        r = xessGetOptimalInputResolution(ctx, &out, ToXessQuality(quality), &opt, &mn, &mx);
+        r = xessGetOptimalInputResolution(tmp, &out, ToXessQuality(quality), &opt, &mn, &mx);
+        xessDestroyContext(tmp);
         if (r != XESS_RESULT_SUCCESS || !opt.x || !opt.y) { lastError = DLSS_ERR_XESS; return Map(r); }
         if (renderW) *renderW = opt.x; if (renderH) *renderH = opt.y;
         if (minW) *minW = mn.x;        if (minH) *minH = mn.y;
