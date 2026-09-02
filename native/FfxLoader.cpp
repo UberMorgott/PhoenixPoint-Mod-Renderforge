@@ -1,5 +1,4 @@
 // FfxLoader.cpp - see FfxLoader.h.
-#define DLSSNATIVE_EXPORTS
 #include "FfxLoader.h"
 
 #include <windows.h>

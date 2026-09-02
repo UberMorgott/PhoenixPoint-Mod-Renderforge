@@ -1,7 +1,6 @@
 // RenderforgeNative.cpp - the flat C ABI, the frame-slot ring and the Unity render-event dispatch.
 // All D3D lives behind IDevice (Device11.cpp / Device12.cpp). No threads of our own, no exceptions.
-#define DLSSNATIVE_EXPORTS
-#include "RenderforgeNative.h"
+#include "RenderforgeNative.h"    // DLSSNATIVE_EXPORTS comes from CMake (target-wide, every TU sees dllexport)
 #include "Device.h"
 
 #include <string.h>

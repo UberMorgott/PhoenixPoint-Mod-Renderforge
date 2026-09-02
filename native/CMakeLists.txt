@@ -49,7 +49,7 @@ target_include_directories(RenderforgeNative
     PRIVATE "${DLSS_SDK}/include" "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" d3d11 d3d12 dxgi d3dcompiler)
 # _WINDOWS is what ffx_api_loader.h:38 tests to compile ffxLoadFunctions; without it every pointer stays NULL.
-target_compile_definitions(RenderforgeNative PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WINDOWS)
+target_compile_definitions(RenderforgeNative PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WINDOWS DLSSNATIVE_EXPORTS)
 
 add_executable(dlss_probe probe/dlss_probe.cpp)
 target_include_directories(dlss_probe PRIVATE "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}")
