@@ -78,7 +78,8 @@ namespace Renderforge
         private void OnDestroy()
         {
             Camera.onPostRender -= OnCameraPostRender;
-            try { Detach(); TeardownResources(); } catch (Exception) { }
+            // Fg_Shutdown is synchronous: the chain that references outRT/depthRT/mvRT is gone when Release returns.
+            try { FrameGen.Release(); Detach(); TeardownResources(); } catch (Exception) { }
             if (Instance == this) Instance = null;
         }
 
@@ -135,7 +136,7 @@ namespace Renderforge
                 if (Input.GetKeyDown(cfg.OverlayHotkey)) RenderforgeMod.ToggleOverlay();
             }
             if (broken) return;
-            try { Step(); }
+            try { FrameGen.Pump(); Step(); }
             catch (Exception ex) { Fail("Update threw: " + ex); }
         }
 

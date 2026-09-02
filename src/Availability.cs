@@ -83,12 +83,17 @@ namespace Renderforge
                         return DlssConfig.Loc("XeSS selected — restart the game", "XeSS выбран — перезапустите игру");
                     return null;
                 case Feature.FrameGen:
-                    // Phase 5 Task 2: the pass-through chain runs on any D3D12 build; vendor DLL reasons arrive with the providers.
                     if (!IsD3D12)
                         return DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
                     if (NeedsRestart) return RestartReason;
                     if (RenderforgeMod.Instance == null || RenderforgeMod.Instance.Cfg.Mode == RenderforgeMode.Off)
                         return DlssConfig.Loc("Turn an upscaler on first", "Сначала включите апскейлер");
+                    if (!Upscalers.FsrFgDllPresent && !Upscalers.XessFgDllsPresent && !Upscalers.SlDllsPresent)
+                        return DlssConfig.Loc("DLL missing: no frame-generation runtime (AMD / Intel / NVIDIA pack)",
+                                              "Нет файла: ни одного рантайма генерации кадров (пакет AMD / Intel / NVIDIA)");
+                    // Every provider Auto could try failed this session: the shim's own reason (vendor DLLs, SDK init) is the tooltip.
+                    if (FrameGen.Exhausted)
+                        return DlssConfig.Loc("Frame generation failed: ", "Генерация кадров не запустилась: ") + FrameGen.LastReason;
                     return null;
                 default:
                     return null;

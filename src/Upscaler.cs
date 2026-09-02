@@ -143,6 +143,48 @@ namespace Renderforge
             }
         }
 
-        private static int fsrDlls, xessDll, ngxDll;
+        /// <summary>amd_fidelityfx_framegeneration_dx12.dll (FSR-FG) next to the mod?</summary>
+        internal static bool FsrFgDllPresent
+        {
+            get
+            {
+                if (fsrFgDll == 0)
+                    fsrFgDll = FsrDllsPresent && File.Exists(Path.Combine(RenderforgeMod.ModDir ?? ".", "amd_fidelityfx_framegeneration_dx12.dll")) ? 1 : -1;
+                return fsrFgDll == 1;
+            }
+        }
+
+        /// <summary>libxess_fg.dll + libxell.dll (XeSS-FG) next to the mod?</summary>
+        internal static bool XessFgDllsPresent
+        {
+            get
+            {
+                if (xessFgDlls == 0)
+                {
+                    string dir = RenderforgeMod.ModDir ?? ".";
+                    xessFgDlls = File.Exists(Path.Combine(dir, "libxess_fg.dll")) && File.Exists(Path.Combine(dir, "libxell.dll")) ? 1 : -1;
+                }
+                return xessFgDlls == 1;
+            }
+        }
+
+        /// <summary>The Streamline set FgStreamline.cpp loads (DLSS-G): interposer, common, dlss_g, reflex, pcl + nvngx_dlssg.dll.</summary>
+        internal static bool SlDllsPresent
+        {
+            get
+            {
+                if (slDlls == 0)
+                {
+                    string dir = RenderforgeMod.ModDir ?? ".";
+                    bool ok = true;
+                    foreach (string n in new[] { "sl.interposer.dll", "sl.common.dll", "sl.dlss_g.dll", "sl.reflex.dll", "sl.pcl.dll", "nvngx_dlssg.dll" })
+                        ok &= File.Exists(Path.Combine(dir, n));
+                    slDlls = ok ? 1 : -1;
+                }
+                return slDlls == 1;
+            }
+        }
+
+        private static int fsrDlls, xessDll, ngxDll, fsrFgDll, xessFgDlls, slDlls;
     }
 }
