@@ -19,11 +19,16 @@ file(READ "${NIS_HLSL}" NIS_HEX HEX)
 string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," NIS_BYTES "${NIS_HEX}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nis_scaler_hlsl.h" "// generated from nis/NIS_Scaler.h\nstatic const unsigned char kNisScalerHlsl[] = {${NIS_BYTES}0x00};\n")
 
-add_library(RenderforgeNative SHARED RenderforgeNative.cpp RenderforgeNative.h)
+add_library(RenderforgeNative SHARED
+    RenderforgeNative.cpp
+    RenderforgeNative.h
+    unity/IUnityInterface.h
+    unity/IUnityGraphics.h
+    unity/IUnityGraphicsD3D12.h)
 target_include_directories(RenderforgeNative PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" PRIVATE "${DLSS_SDK}/include" "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" d3d11 dxgi d3dcompiler)
+target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" d3d11 d3d12 dxgi d3dcompiler)
 target_compile_definitions(RenderforgeNative PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 add_executable(dlss_probe probe/dlss_probe.cpp)
-target_link_libraries(dlss_probe PRIVATE RenderforgeNative d3d11 dxgi)
+target_link_libraries(dlss_probe PRIVATE RenderforgeNative d3d11 d3d12 dxgi)
 target_compile_definitions(dlss_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
