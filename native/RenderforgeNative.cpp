@@ -61,7 +61,10 @@ static struct {
     unsigned slotIdx;
     FrameParams* lastSlot;
     int passthrough;
-} S = { DLSS_ERR_NO_DEVICE };
+    int provider;                       // DLSS_PROVIDER_*, latched by Dlss_Init
+    int wantProvider;                   // what Dlss_SetProvider asked for
+    float nearZ, farZ, fovY;            // Dlss_SetCamera cache, copied into every slot
+} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0.1f, 1000.0f, 1.0471976f };
 
 NVSDK_NGX_PerfQuality_Value ToNgxQuality(int q)
 {
@@ -91,9 +94,18 @@ int __cdecl Dlss_Init(void* anyNativeResource, const wchar_t* dllDir, const wcha
     if (S.dev && S.initCode == DLSS_OK) return S.initCode;
     if (!anyNativeResource) return S.initCode = DLSS_ERR_NO_DEVICE;
 
-    IDevice* d = MakeDevice11(anyNativeResource);
-    if (!d) d = MakeDevice12(anyNativeResource);
-    if (!d) return S.initCode = DLSS_ERR_NO_DEVICE;
+    IDevice* d = NULL;
+    if (S.wantProvider == DLSS_PROVIDER_FSR) {
+        d = MakeFsr12(anyNativeResource);                  // D3D12 only; NULL on a D3D11 resource
+        if (!d) return S.initCode = DLSS_ERR_PROVIDER_UNSUPPORTED;
+        S.provider = DLSS_PROVIDER_FSR;
+    } else {
+        if (S.wantProvider == DLSS_PROVIDER_XESS) return S.initCode = DLSS_ERR_PROVIDER_UNSUPPORTED;  // Phase 4
+        d = MakeDevice11(anyNativeResource);
+        if (!d) d = MakeDevice12(anyNativeResource);
+        if (!d) return S.initCode = DLSS_ERR_NO_DEVICE;
+        S.provider = DLSS_PROVIDER_DLSS;
+    }
 
     S.dev = d;                       // kept even on failure so Dlss_Api()/Dlss_Status() still answer
     return S.initCode = d->Init(anyNativeResource, dllDir, logDir);
@@ -112,6 +124,7 @@ void __cdecl Dlss_SetCreateParams(unsigned w, unsigned h, unsigned outW, unsigne
     memset(&S.create, 0, sizeof(S.create));
     S.create.w = w; S.create.h = h; S.create.outW = outW; S.create.outH = outH;
     S.create.quality = quality;
+    S.create.rawFlags = flags;
     int f = 0;
     if (flags & DLSS_F_HDR)            f |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
     if (flags & DLSS_F_DEPTH_INVERTED) f |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
@@ -143,6 +156,7 @@ void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void*
     p->renderW = renderW; p->renderH = renderH;
     p->preExposure = preExposure;
     p->sharpness = sharpness < 0 ? 0 : sharpness > 1 ? 1 : sharpness;
+    p->nearZ = S.nearZ; p->farZ = S.farZ; p->fovY = S.fovY;
 }
 
 static void __stdcall OnRenderEventAndData(int eventId, void* data)
@@ -180,6 +194,29 @@ int __cdecl Dlss_UnityIface(void)    { return (g_unityLoaded ? 1 : 0) | (g_unity
 
 // Probe-only hook: honoured only while no real UnityPluginLoad has happened, so inside the game it is a no-op.
 void __cdecl Dlss_TestSetUnityD3D12(void* iface) { if (!g_unityLoaded) g_unityD3D12 = (IUnityGraphicsD3D12v5*)iface; }
+
+void __cdecl Dlss_SetProvider(int provider)
+{
+    if (S.dev) return;                                     // latched at Dlss_Init; a later call is a no-op
+    S.wantProvider = (provider == DLSS_PROVIDER_FSR || provider == DLSS_PROVIDER_XESS) ? provider : DLSS_PROVIDER_DLSS;
+}
+
+int __cdecl Dlss_Provider(void) { return S.dev ? S.provider : -1; }
+
+int __cdecl Dlss_ProviderVersion(char* buf, int cap)
+{
+    if (!buf || cap <= 0) return 0;
+    buf[0] = 0;
+    if (!S.dev) return 0;
+    return S.dev->ProviderVersion(buf, cap);
+}
+
+void __cdecl Dlss_SetCamera(float nearZ, float farZ, float fovYRadians)
+{
+    if (nearZ > 0.0f) S.nearZ = nearZ;
+    if (farZ > 0.0f) S.farZ = farZ;
+    if (fovYRadians > 0.0f) S.fovY = fovYRadians;
+}
 
 int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* featureAlive)
 {

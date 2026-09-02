@@ -13,7 +13,10 @@ extern "C" {
 
 // Dlss_Init return codes.
 enum { DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4,
-       DLSS_ERR_NO_UNITY_IFACE = 5 };
+       DLSS_ERR_NO_UNITY_IFACE = 5, DLSS_ERR_NO_PROVIDER_DLL = 6, DLSS_ERR_PROVIDER_UNSUPPORTED = 7 };
+
+// Upscaler provider chosen by Dlss_SetProvider BEFORE Dlss_Init. 0 = the default (NVIDIA NGX).
+enum { DLSS_PROVIDER_DLSS = 0, DLSS_PROVIDER_FSR = 1, DLSS_PROVIDER_XESS = 2 };
 
 // Quality enum (ours), mapped to NVSDK_NGX_PerfQuality_Value inside.
 enum { DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMANCE = 3, DLSS_Q_ULTRA_PERFORMANCE = 4 };
@@ -26,7 +29,8 @@ enum { DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3 };
 
 // Dlss_LastError codes that are not NVSDK_NGX_Result values.
 enum { DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3,
-       DLSS_ERR_FENCE_TIMEOUT = -4 };   // D3D12: a ring slot's fence never retired (hung GPU / dead Unity fence); frame skipped
+       DLSS_ERR_FENCE_TIMEOUT = -4,     // D3D12: a ring slot's fence never retired (hung GPU / dead Unity fence); frame skipped
+       DLSS_ERR_FFX = -5 };             // FSR: an ffx-api call failed (Dlss_Status's create/eval result carries the mapped code)
 
 // Dlss_Sharpener: which sharpen shader is active. 0 = not compiled yet (first non-zero sharpness compiles it).
 enum { DLSS_SHARPEN_NONE = 0, DLSS_SHARPEN_NIS = 1, DLSS_SHARPEN_RCAS = 2, DLSS_SHARPEN_FAILED = -1 };
@@ -77,6 +81,18 @@ DLSS_API int __cdecl Dlss_UnityIface(void);
 // TEST ONLY (dlss_probe): injects a stand-in IUnityGraphicsD3D12v5 so the D3D12 backend can run without Unity.
 // Never called by the mod.
 DLSS_API void __cdecl Dlss_TestSetUnityD3D12(void* iface);
+
+// Main thread, BEFORE Dlss_Init (ignored afterwards). DLSS_PROVIDER_*; unknown values fall back to DLSS.
+DLSS_API void __cdecl Dlss_SetProvider(int provider);
+// Provider actually in use: DLSS_PROVIDER_*. -1 before Dlss_Init.
+DLSS_API int __cdecl Dlss_Provider(void);
+// Human-readable version of the live provider ("4.1.1" / "3.1.5" for FSR; empty for NGX, whose runtime version the
+// managed side reads off nvngx_dlss.dll), NUL-terminated into `buf` (at most `cap` bytes incl. NUL). Returns the
+// number of bytes written, 0 when unknown.
+DLSS_API int __cdecl Dlss_ProviderVersion(char* buf, int cap);
+// Main thread. Camera parameters FSR/XeSS need and NGX does not; cached and copied into every later frame slot.
+// fovYRadians = vertical field of view in RADIANS. Defaults: 0.1 / 1000 / 60 degrees.
+DLSS_API void __cdecl Dlss_SetCamera(float nearZ, float farZ, float fovYRadians);
 
 #ifdef __cplusplus
 }

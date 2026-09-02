@@ -25,6 +25,7 @@ struct FrameParams
     unsigned renderW, renderH;
     float preExposure;
     float sharpness;      // 0..1, our own post pass; NGX InSharpness stays 0 (deprecated in SDK 310)
+    float nearZ, farZ, fovY;   // camera near/far/vertical FOV (radians) from Dlss_SetCamera; FSR needs them, NGX does not
 };
 
 // Feature-creation parameters, stored by Dlss_SetCreateParams and consumed by DLSS_EV_CREATE.
@@ -33,6 +34,7 @@ struct CreateParams
     unsigned w, h, outW, outH;
     int quality;      // DLSS_Q_*
     int ngxFlags;     // already translated to NVSDK_NGX_DLSS_Feature_Flags
+    int rawFlags;     // the untranslated DLSS_F_* bitmask, for providers that map them differently (FSR, XeSS)
 };
 
 struct IDevice
@@ -58,11 +60,16 @@ struct IDevice
     virtual void ReleaseFeature() = 0;                                  // render thread
     virtual void Shutdown() = 0;                                        // main thread, render idle
     virtual bool FeatureAlive() const = 0;
+    // Writes the provider's version string into buf (NUL-terminated, at most cap bytes). Returns bytes written.
+    // Default: nothing - the NGX backends report their runtime version on the managed side from nvngx_dlss.dll.
+    virtual int ProviderVersion(char* buf, int cap) { (void)buf; (void)cap; return 0; }
 };
 
 // Return the singleton backend if `nativeResource` belongs to that API, else NULL. No allocation.
 IDevice* MakeDevice11(void* nativeResource);
 IDevice* MakeDevice12(void* nativeResource);
+// FSR (FidelityFX ffx-api, D3D12 only). NULL when the resource is not a D3D12 one.
+IDevice* MakeFsr12(void* nativeResource);
 
 // Shared translation helpers (defined in RenderforgeNative.cpp).
 NVSDK_NGX_PerfQuality_Value ToNgxQuality(int quality);

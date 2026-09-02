@@ -26,6 +26,7 @@ add_library(RenderforgeNative SHARED
     Device11.cpp
     Device12.cpp
     D3D12Ring.h
+    Fsr12.cpp
     Sharpen.h
     Sharpen.cpp
     unity/IUnityInterface.h
