@@ -16,9 +16,21 @@ $sig = Get-AuthenticodeSignature $ngxDll
 if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'NVIDIA Corporation') { throw "nvngx_dlss.dll signature invalid: $ngxDll" }
 Write-Host "nvngx_dlss.dll $((Get-Item $ngxDll).VersionInfo.FileVersion) from $ngxDll"
 
+# AMD FidelityFX SDK 2.3 signed binaries: the small loader + the upscaler DLL (FSR 4.1.1 ML + 3.1.5 fallback
+# in one file). Both are Authenticode-signed by AMD; a tampered or repacked DLL must never ship.
+$ffxSdk = Join-Path $root '..\refs\FidelityFX-SDK'
+$amdBin = Join-Path $ffxSdk 'Kits\FidelityFX\signedbin'
+$amdDlls = @('amd_fidelityfx_loader_dx12.dll', 'amd_fidelityfx_upscaler_dx12.dll') | ForEach-Object { Join-Path $amdBin $_ }
+foreach ($dll in $amdDlls) {
+    if (-not (Test-Path $dll)) { throw "AMD FidelityFX DLL not found at $dll" }
+    $s = Get-AuthenticodeSignature $dll
+    if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Advanced Micro Devices') { throw "AMD DLL signature invalid: $dll" }
+    Write-Host ("{0} {1} from {2}" -f (Split-Path $dll -Leaf), (Get-Item $dll).VersionInfo.FileVersion, $dll)
+}
+
 New-Item -ItemType Directory -Force $buildDir, $outDir | Out-Null
 
-& $cmake -S (Join-Path $root 'native') -B $buildDir -G 'Visual Studio 17 2022' -A x64 "-DDLSS_SDK=$((Resolve-Path $sdk).Path)"
+& $cmake -S (Join-Path $root 'native') -B $buildDir -G 'Visual Studio 17 2022' -A x64 "-DDLSS_SDK=$((Resolve-Path $sdk).Path)" "-DFFX_SDK=$((Resolve-Path $ffxSdk).Path)"
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
 & $cmake --build $buildDir --config Release
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
@@ -26,6 +38,7 @@ if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
 Copy-Item (Join-Path $buildDir 'Release\RenderforgeNative.dll') $outDir -Force
 Copy-Item (Join-Path $buildDir 'Release\dlss_probe.exe') $outDir -Force
 Copy-Item $ngxDll $outDir -Force
+foreach ($dll in $amdDlls) { Copy-Item $dll $outDir -Force }
 
 Push-Location $outDir
 try {
@@ -33,7 +46,10 @@ try {
     $rc11 = $LASTEXITCODE
     & (Join-Path $outDir 'dlss_probe.exe') $outDir --d3d12
     $rc12 = $LASTEXITCODE
+    & (Join-Path $outDir 'dlss_probe.exe') $outDir --fsr
+    $rcFsr = $LASTEXITCODE
 } finally { Pop-Location }
 if ($rc11 -ne 0) { throw "dlss_probe (D3D11) failed ($rc11)" }
 if ($rc12 -ne 0) { throw "dlss_probe (D3D12) failed ($rc12)" }
+if ($rcFsr -ne 0) { throw "dlss_probe (FSR) failed ($rcFsr)" }
 Write-Host "build-native: OK"
