@@ -23,6 +23,7 @@
 
 #include <dcomp.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace {
 
@@ -40,6 +41,9 @@ struct Host
     D3D12Ring             copy;         // backbuffer copy, direct
     unsigned              multiplier;
     unsigned              scFlags;      // DXGI_SWAP_CHAIN_FLAG_* the shadow chain was created with
+    int                   chainKind;    // 0 none, 1 child HWND, 2 composition
+    HWND                  child;        // our own WS_CHILD window (chainKind 1)
+    long                  childHr;      // HRESULT of CreateSwapChainForHwnd on the child (last attempt)
     int                   enabled;
     int                   lastError;
     const char*           reason;       // static text explaining lastError == FG_ERR_NO_PROVIDER, else NULL
@@ -103,7 +107,9 @@ void ReleaseGpu()
     SafeRelease(H.dcomp);
     SafeRelease(H.shadow);
     SafeRelease(H.factory);
+    if (H.child) { FgWndDestroy(); H.child = NULL; }
     H.scFlags = 0;
+    H.chainKind = 0;
 }
 
 // Lock held. Provider first (it may still hold the chain), then the GPU objects.
@@ -151,6 +157,38 @@ IFgProvider* MakeFgProviderStreamline(void) { return NULL; }
 // Composition swapchain + DirectComposition target on s.hwnd (topmost, above Unity's own chain).
 // Tearing: asked for when the factory reports DXGI_FEATURE_PRESENT_ALLOW_TEARING, dropped if the
 // composition chain refuses the flag; the flags actually granted are kept in H.scFlags for Present.
+// The child-HWND chain: a window of our own over the game's client area (FgWnd.cpp) with an ordinary
+// CreateSwapChainForHwnd on it - the shape every vendor FG SDK needs. Composition is the fallback.
+// RENDERFORGE_FG_CHAIN=composition skips the child.
+static int CreateChildChain(const FgSetup& s, DXGI_SWAP_CHAIN_DESC1 d, IDXGISwapChain4** out)
+{
+    char env[32] = {};
+    if (GetEnvironmentVariableA("RENDERFORGE_FG_CHAIN", env, sizeof(env)) && _stricmp(env, "composition") == 0) return FG_ERR_NO_SWAPCHAIN;
+    H.child = FgWndCreate(s.hwnd);
+    if (!H.child) { H.childHr = HRESULT_FROM_WIN32(FgWndProbeNow()->createErr); return FG_ERR_NO_SWAPCHAIN; }
+    d.Scaling = DXGI_SCALING_NONE;
+    d.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+    IDXGISwapChain1* sc1 = NULL;
+    HRESULT hr = s.factory->CreateSwapChainForHwnd(s.queue, H.child, &d, NULL, NULL, &sc1);
+    if (FAILED(hr) && d.Flags) {
+        FgLog("host: child CreateSwapChainForHwnd with ALLOW_TEARING 0x%08X - retrying without", (unsigned)hr);
+        d.Flags = 0;
+        hr = s.factory->CreateSwapChainForHwnd(s.queue, H.child, &d, NULL, NULL, &sc1);
+    }
+    H.childHr = (long)hr;
+    if (FAILED(hr) || !sc1) { FgLog("host: child CreateSwapChainForHwnd 0x%08X", (unsigned)hr); FgWndDestroy(); H.child = NULL; return FG_ERR_NO_SWAPCHAIN; }
+    IDXGISwapChain4* sc4 = NULL;
+    hr = sc1->QueryInterface(__uuidof(IDXGISwapChain4), (void**)&sc4);
+    sc1->Release();
+    if (FAILED(hr) || !sc4) { FgLog("host: child chain is not IDXGISwapChain4 0x%08X", (unsigned)hr); FgWndDestroy(); H.child = NULL; return FG_ERR_NO_SWAPCHAIN; }
+    s.factory->MakeWindowAssociation(H.child, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
+    H.scFlags = d.Flags;
+    H.chainKind = 1;
+    FgLog("host: child chain %p on child hwnd %p (parent %p), flags 0x%X", (void*)sc4, (void*)H.child, (void*)s.hwnd, d.Flags);
+    *out = sc4;
+    return FG_OK;
+}
+
 int FgHostCreateShadowSwapChain(const FgSetup& s, IDXGISwapChain4** out)
 {
     *out = NULL;
@@ -165,6 +203,8 @@ int FgHostCreateShadowSwapChain(const FgSetup& s, IDXGISwapChain4** out)
         f5->Release();
     }
     d.Flags = tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+
+    if (CreateChildChain(s, d, out) == FG_OK) return FG_OK;
 
     IDXGISwapChain1* sc1 = NULL;
     HRESULT hr = s.factory->CreateSwapChainForComposition(s.queue, &d, NULL, &sc1);
@@ -192,6 +232,7 @@ int FgHostCreateShadowSwapChain(const FgSetup& s, IDXGISwapChain4** out)
         return FG_ERR_NO_SWAPCHAIN;
     }
     H.scFlags = d.Flags;
+    H.chainKind = 2;
     FgLog("host: composition chain %p on hwnd %p, flags 0x%X (tearing supported %d)", (void*)sc4, (void*)s.hwnd, d.Flags, (int)tearing);
     *out = sc4;
     return FG_OK;
@@ -382,9 +423,15 @@ int FgHostProvider(void) { return H.prov ? H.prov->Id() : FG_PROVIDER_NONE; }
 
 const char* FgHostStatus(void)
 {
+    const FgWndProbe* w = FgWndProbeNow();
+    HWND game = FgAppHwnd();
+    const char* focus = !w->focus ? "none" : w->focus == game ? "game" : w->focus == w->child ? "child" : "other";
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
-        "provider=%s enabled=%d multiplier=%u shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu%s%s",
-        H.prov ? H.prov->Name() : "-", H.enabled, H.multiplier, (void*)H.shadow, H.outW, H.outH, H.scFlags,
+        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu%s%s",
+        H.prov ? H.prov->Name() : "-", H.enabled, H.multiplier,
+        H.chainKind == 1 ? "child" : H.chainKind == 2 ? "comp" : "-", (void*)H.child, (unsigned)H.childHr, w->hit, focus,
+        w->foreground == game ? 1 : 0,
+        (void*)H.shadow, H.outW, H.outH, H.scFlags,
         FgHostCaps(), H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
         (unsigned long long)H.frames[H.frameIdx & 3].frameId, H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;

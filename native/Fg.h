@@ -117,6 +117,20 @@ IFgProvider* MakeFgProviderStreamline(void);
 // Why there is no XeSS provider, one static line for Fg_Status (probes <dllDir>\libxess_fg.dll once for its version).
 const char* FgXessBlockedReason(const wchar_t* dllDir);
 
+// ---------------------------------------------------------------- our own HWND (FgWnd.cpp)
+
+// Subclass `parent` (once, for the process lifetime) and create a WS_CHILD window covering its client area on
+// the parent's thread. Returns NULL on failure. Idempotent while the child exists.
+HWND FgWndCreate(HWND parent);
+void FgWndDestroy(void);                     // any thread: hides now, destroys on the UI thread
+struct FgWndProbe
+{
+    HWND  parent, child, focus, foreground;  // focus/foreground as seen from the UI thread
+    int   hit;                               // WM_NCHITTEST at the client centre (HTTRANSPARENT = -1)
+    unsigned long createErr;                 // GetLastError of the failed CreateWindowExW / subclass, else 0
+};
+const FgWndProbe* FgWndProbeNow(void);       // samples on the UI thread (bounded wait), returns the cache
+
 // ---------------------------------------------------------------- host (FgHost.cpp)
 
 int  FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir);  // main thread
