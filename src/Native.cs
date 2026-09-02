@@ -36,27 +36,33 @@ namespace Renderforge
 
         /// <summary>Copies the mod's shim into Plugins\x86_64 (Unity calls UnityPluginLoad only for modules it resolves
         /// from there; the D3D12 backend needs the IUnityInterfaces that call delivers). Nobody runs deploy.ps1 on a
-        /// Workshop install, so the mod stages the file itself. A loaded (locked) target gets a `.new` marker beside it
-        /// and is replaced on the next run, when the process is fresh and nothing holds it. Never throws.</summary>
+        /// Workshop install, so the mod stages the file itself. Unity loads the Plugins copy at startup, so it is locked in
+        /// every process — a mapped DLL cannot be overwritten but CAN be renamed: move it aside to `.old`, copy the new
+        /// one in, sweep the `.old*` leftovers on the next run. Never throws.</summary>
         public static void EnsureStaged(string modDir, Action<string> log)
         {
             try
             {
-                string src = Path.Combine(modDir, DllName), dst = StagedPath, pending = dst + ".new";
+                string src = Path.Combine(modDir, DllName), dst = StagedPath;
                 if (!File.Exists(src)) return;
-                if (SameFile(src, dst)) { if (File.Exists(pending)) File.Delete(pending); return; }
+                if (Directory.Exists(PluginsDir))
+                    foreach (string old in Directory.GetFiles(PluginsDir, DllName + ".old*"))
+                        try { File.Delete(old); } catch (Exception) { }   // still mapped by this process: next run
+                if (SameFile(src, dst)) return;
                 Directory.CreateDirectory(PluginsDir);
                 try
                 {
                     File.Copy(src, dst, true);
-                    if (File.Exists(pending)) File.Delete(pending);
                     log("[Renderforge] staged native shim into Plugins\\x86_64 (takes effect after restart)");
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
-                    // ponytail: the .new file is a marker, not the replacement source — the next run copies from the mod folder again.
-                    File.Copy(src, pending, true);
-                    log("[Renderforge] Plugins\\x86_64\\" + DllName + " is in use; wrote " + DllName + ".new, replaced on the next start");
+                    // ponytail: `.old` then `.old<ticks>` — the sweep above deletes whatever is no longer mapped.
+                    string aside = dst + ".old";
+                    if (File.Exists(aside)) aside = dst + ".old" + DateTime.UtcNow.Ticks;
+                    File.Move(dst, aside);
+                    File.Copy(src, dst);
+                    log("[Renderforge] updated staged native shim (takes effect after restart)");
                 }
             }
             catch (Exception ex) { log("[Renderforge] native shim staging failed: " + ex.Message); }

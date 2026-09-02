@@ -74,9 +74,10 @@ resolves out of `<install>\PhoenixPointWin64_Data\Plugins\x86_64\`, never for a 
 `LoadLibraryW`s from `Mods\Renderforge\`. So `OnModEnabled`, before `Native.Load`, on every
 graphics API, copies `<modDir>\RenderforgeNative.dll` to `<Application.dataPath>\Plugins\x86_64\`
 when the target is missing or differs (length + last-write time), creating the folder if needed, and
-logs `staged native shim into Plugins\x86_64 (takes effect after restart)`. A locked target (the DLL is
-already loaded — disable/enable in-session) gets `RenderforgeNative.dll.new` beside it as a marker and
-is replaced from the mod folder on the next start. `Native.Load` prefers the Plugins copy only when it
+logs `staged native shim into Plugins\x86_64 (takes effect after restart)`. Unity loads the Plugins copy at
+startup, so it is locked in every process: a mapped DLL cannot be overwritten but can be renamed, so an
+update moves it to `RenderforgeNative.dll.old` (or `.old<ticks>`), copies the new one in, and every run
+sweeps `.old*` leftovers best-effort. `Native.Load` prefers the Plugins copy only when it
 matches the mod copy; a stale one is skipped with a warning. Under D3D12 with `Dlss_UnityIface()==0`
 the Availability reason is "Native plugin staged — restart the game" and the overlay shows
 `Upscaler: off (restart required)`. Not removed on disable (the module is loaded); Steam "verify
