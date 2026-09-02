@@ -33,7 +33,9 @@ Renderforge affects the main tactical and geoscape camera. The interface remains
 
 ## Install
 
-Choose one installation method.
+Choose one installation method. On first launch the mod copies `RenderforgeNative.dll` into
+`PhoenixPointWin64_Data\Plugins\x86_64\` (Unity only wires its D3D12 interface for plugins loaded from
+there) — that is why a one-time restart is needed.
 
 ### Steam Workshop
 

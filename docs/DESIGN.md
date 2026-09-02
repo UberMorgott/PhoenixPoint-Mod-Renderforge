@@ -3,7 +3,8 @@
 Renderforge (working name `DLSS` until the rename on 2026-09-02). Mod id `com.morgott.Renderforge`,
 folder `Mods\Renderforge`, DLLs `Renderforge.dll` + `RenderforgeNative.dll`. Adds NVIDIA DLSS Super Resolution + DLAA to
 Phoenix Point (Unity 2019.4.31f1, built-in pipeline, D3D11, PostProcessing v2) as a plain
-Workshop mod. Zero game-file writes. Subscribe → enable → play; DLSS on by default (Auto),
+Workshop mod. Exactly one game-file write: `RenderforgeNative.dll` is copied into
+`PhoenixPointWin64_Data\Plugins\x86_64\` (see "Native plugin staging"). Subscribe → enable → play; DLSS on by default (Auto),
 switchable in the game's own Graphics options panel without restart.
 
 ## Facts this rests on (verified)
@@ -62,9 +63,24 @@ Flat C exports, all state in one static struct; no classes, no threads of its ow
 | `Dlss_Status()` | main | last NGX result + availability, for logs/UI. |
 
 Immediate context comes from `device->GetImmediateContext()` inside the render event (Unity's
-D3D11 render thread owns it; `IssuePluginEventAndData` runs there). The plugin is loaded with
-`LoadLibraryW(<modFolder>\RenderforgeNative.dll)` by the managed side before the first P/Invoke, so
-`[DllImport("RenderforgeNative")]` resolves without touching the game's `Plugins` folder.
+D3D11 render thread owns it; `IssuePluginEventAndData` runs there). The plugin is pinned with
+`LoadLibraryW` by the managed side before the first P/Invoke, so `[DllImport("RenderforgeNative")]`
+resolves against the already-loaded module.
+
+### Native plugin staging (`Native.EnsureStaged`, `src\Native.cs`)
+
+Unity calls `UnityPluginLoad` — the only way to get `IUnityGraphicsD3D12v5` — solely for modules it
+resolves out of `<install>\PhoenixPointWin64_Data\Plugins\x86_64\`, never for a DLL the mod
+`LoadLibraryW`s from `Mods\Renderforge\`. So `OnModEnabled`, before `Native.Load`, on every
+graphics API, copies `<modDir>\RenderforgeNative.dll` to `<Application.dataPath>\Plugins\x86_64\`
+when the target is missing or differs (length + last-write time), creating the folder if needed, and
+logs `staged native shim into Plugins\x86_64 (takes effect after restart)`. A locked target (the DLL is
+already loaded — disable/enable in-session) gets `RenderforgeNative.dll.new` beside it as a marker and
+is replaced from the mod folder on the next start. `Native.Load` prefers the Plugins copy only when it
+matches the mod copy; a stale one is skipped with a warning. Under D3D12 with `Dlss_UnityIface()==0`
+the Availability reason is "Native plugin staged — restart the game" and the overlay shows
+`Upscaler: off (restart required)`. Not removed on disable (the module is loaded); Steam "verify
+integrity" leaves extra files alone.
 
 Offline check: `native\probe\dlss_probe.exe` — creates a bare D3D11 device, runs Init → Create
 (1920×1080→3840×2160, Quality) → Release, prints NGX status. Fails loudly if SDK/link/driver
