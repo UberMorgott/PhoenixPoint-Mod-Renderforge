@@ -97,6 +97,28 @@ DLSS_API int __cdecl Dlss_ProviderVersion(char* buf, int cap);
 // fovYRadians = vertical field of view in RADIANS. Defaults: 0.1 / 1000 / 60 degrees.
 DLSS_API void __cdecl Dlss_SetCamera(float nearZ, float farZ, float fovYRadians);
 
+// Render event id for the frame-generation prepare/tag pass (records into the shim's own command list,
+// submitted through IUnityGraphicsD3D12v5::ExecuteCommandList exactly like DLSS_EV_EVALUATE).
+enum { DLSS_EV_FG_PREPARE = 4 };
+
+// Fg_Init return codes.
+enum { FG_OK = 0, FG_ERR_NOT_D3D12 = 1, FG_ERR_NO_HOOK = 2, FG_ERR_NO_SWAPCHAIN = 3,
+       FG_ERR_NO_PROVIDER = 4, FG_ERR_PROVIDER_FAILED = 5, FG_ERR_UNSUPPORTED_MULTIPLIER = 6 };
+
+// Fg_Caps bitmask: which multipliers the active provider can do on this GPU.
+enum { FG_CAP_2X = 1, FG_CAP_3X = 2, FG_CAP_4X = 4 };
+
+// Provider ids (Fg_Init / Fg_Provider).
+enum { FG_PROVIDER_NONE = 0, FG_PROVIDER_FSR = 1, FG_PROVIDER_XESS = 2, FG_PROVIDER_DLSS = 3 };
+
+// Main thread. Patches the DXGI swapchain vtable so the shim sees Unity's Present. Idempotent.
+// Requires the D3D12 backend (Dlss_Api() == 12) because the hook needs Unity's command queue.
+DLSS_API int __cdecl Fg_HookInstall(const wchar_t* logDir);
+// Presented frames per second counted in the Present hook (includes generated frames). 0 = no data yet.
+DLSS_API int __cdecl Fg_PresentedFps(void);
+// Spike diagnostics as one flat line (static buffer, main thread only).
+DLSS_API const char* __cdecl Fg_SpikeStatus(void);
+
 #ifdef __cplusplus
 }
 #endif

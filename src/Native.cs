@@ -127,6 +127,23 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Status(out int lastCreateResult, out int lastEvalResult, out int featureAlive);
 
+        public const int FG_OK = 0, FG_ERR_NOT_D3D12 = 1, FG_ERR_NO_HOOK = 2, FG_ERR_NO_SWAPCHAIN = 3,
+                         FG_ERR_NO_PROVIDER = 4, FG_ERR_PROVIDER_FAILED = 5, FG_ERR_UNSUPPORTED_MULTIPLIER = 6;
+        public const int FG_CAP_2X = 1, FG_CAP_3X = 2, FG_CAP_4X = 4;
+        public const int FG_PROVIDER_NONE = 0, FG_PROVIDER_FSR = 1, FG_PROVIDER_XESS = 2, FG_PROVIDER_DLSS = 3;
+        public const int DLSS_EV_FG_PREPARE = 4;
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+        public static extern int Fg_HookInstall([MarshalAs(UnmanagedType.LPWStr)] string logDir);
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_PresentedFps();
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Fg_SpikeStatus")]
+        private static extern IntPtr Fg_SpikeStatusPtr();
+
+        public static string Fg_SpikeStatus() => Marshal.PtrToStringAnsi(Fg_SpikeStatusPtr()) ?? "";
+
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Dlss_ResultString")]
         private static extern IntPtr Dlss_ResultStringPtr(int ngxResult);
 

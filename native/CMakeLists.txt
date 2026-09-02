@@ -56,6 +56,8 @@ add_library(RenderforgeNative SHARED
     Xess12.cpp
     Sharpen.h
     Sharpen.cpp
+    Fg.h
+    FgHook.cpp
     unity/IUnityInterface.h
     unity/IUnityGraphics.h
     unity/IUnityGraphicsD3D12.h)

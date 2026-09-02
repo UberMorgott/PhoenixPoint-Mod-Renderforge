@@ -4,6 +4,7 @@
 #include "Device.h"
 
 #include <string.h>
+#include <stdio.h>
 
 #include "nvsdk_ngx.h"
 #include "nvsdk_ngx_helpers.h"
@@ -12,6 +13,7 @@
 #include <d3d12.h>
 #include "unity/IUnityGraphicsD3D12.h"
 #include "D3D12Debug.h"
+#include "Fg.h"
 
 const char kProjectId[] = "b7a3f2c4-6d1e-4a8b-9c0f-2e5d7a9b1c3d";
 const char kEngineVersion[] = "2019.4.31";
@@ -186,6 +188,9 @@ static void __stdcall OnRenderEventAndData(int eventId, void* data)
     case DLSS_EV_RELEASE:
         S.dev->ReleaseFeature();
         break;
+    case DLSS_EV_FG_PREPARE:
+        FgHookSpike();
+        break;
     default:
         break;
     }
@@ -247,6 +252,31 @@ const char* __cdecl Dlss_ResultString(int ngxResult)
 }
 
 void __cdecl Dlss_ReleaseNow(void) { if (S.dev) S.dev->ReleaseFeature(); }
+
+// ---------------------------------------------------------------- frame generation (Phase 5)
+
+int __cdecl Fg_HookInstall(const wchar_t* logDir)
+{
+    if (!S.dev || S.dev->Api() != 12) return FG_ERR_NOT_D3D12;
+    if (!g_unityD3D12) return FG_ERR_NOT_D3D12;
+    FgLogInit(logDir);
+    return FgHookInstall(g_unityD3D12->GetCommandQueue()) ? FG_OK : FG_ERR_NO_HOOK;
+}
+
+int __cdecl Fg_PresentedFps(void) { return FgPresentedFps(); }
+
+const char* __cdecl Fg_SpikeStatus(void)
+{
+    static char buf[512];
+    const FgSpike* s = FgSpikeResult();
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+        "installed=%d sawPresent=%d presents=%lld fps=%d %ux%u fmt=%u buffers=%u swapEffect=%u flags=0x%X "
+        "windowed=%d flip=%d waitable=%d secondSwapChain=0x%08X composition=0x%08X forwardedPresent=0x%08X",
+        s->installed, s->sawPresent, FgPresentCount(), FgPresentedFps(), s->width, s->height, s->format,
+        s->bufferCount, s->swapEffect, s->scFlags, s->windowed, s->flipModel, s->waitable,
+        (unsigned)s->secondSwapChainHr, (unsigned)s->compositionHr, (unsigned)s->forwardedPresentHr);
+    return buf;
+}
 
 void __cdecl Dlss_Shutdown(void)
 {
