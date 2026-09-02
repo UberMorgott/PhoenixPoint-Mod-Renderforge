@@ -1531,6 +1531,27 @@ The two failure modes to watch for and their documented answers:
 - **The game hangs on the first FG frame.** Cause: Unity's swapchain was created with `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` (Task 1 reported `waitable=1`) and Unity waits on a latency object that only the original `Present` signals. Fix: in `FgHostOnPresent`, after the shadow `Present`, also call `FgOriginalPresent(app, 0, DXGI_PRESENT_TEST)` — a test present signals the frame-latency waitable without producing a visible frame — and re-run this step.
 - **The window shows Unity's frames, not ours** (the overlay shows FG live but the picture never comes from the shadow chain). Cause: DXGI kept the first swapchain as the HWND's presenter. Fix: switch to fallback 4a from Task 1 Step 9 (`CreateSwapChainForComposition` + a DirectComposition visual on `FgAppHwnd()`); `dcomp` is already linked.
 
+> **2026-09-02 run on `D:\PP-Instance3` (HEAD `55dbf41`, `-mods -force-d3d12`, `ALN_PLT_Nest_48x48_A` seed 12345, 1280x720): FAIL — the shadow swapchain never comes up.**
+> `SetMode DLAA/None` + `SetOverlay TopCenter`, then:
+> - before: `… present=on broken=False fail= | fg=off provider=- enabled=0 multiplier=0 shadow=0000000000000000 out=0x0 caps=0x0 lastError=0 presented=0 fps=0 frameId=0`
+> - `SetFrameGen ["X2"]` → `frameGen=X2 off provider=- enabled=0 multiplier=0 shadow=0000000000000000 out=0x0 caps=0x0 lastError=0 presented=0 fps=0 frameId=0`
+> - on, +5 s: `… | fg=off provider=- enabled=0 multiplier=2 shadow=0000000000000000 out=1280x720 caps=0x0 lastError=3 presented=669 fps=119 frameId=0`
+> - on, +10 s: `… | fg=off provider=- enabled=0 multiplier=2 shadow=0000000000000000 out=1280x720 caps=0x0 lastError=3 presented=1292 fps=129 frameId=0`
+> - `SetFrameGen ["Off"]` → `frameGen=Off off provider=- enabled=0 multiplier=2 shadow=0000000000000000 out=1280x720 caps=0x0 lastError=3 presented=6477 fps=115 frameId=0`; status after: `… fg=off … lastError=3 presented=6867 fps=126 frameId=0`
+>
+> Root cause, from `D:\PP-Instance3\Mods\Renderforge\renderforge_fg.log` (repeats once per retry tick):
+> `host: provider 3 not built yet - pass-through chain` / `none: CreateSwapChainForHwnd 0x80070005`
+> `0x80070005` = `E_ACCESSDENIED`: DXGI refuses a **second** swapchain on an HWND that already has Unity's.
+> `lastError=3` = `FG_ERR_NO_SWAPCHAIN`, so `FrameGen` retries forever and FG never goes live.
+> This is exactly the documented failure mode "the window shows Unity's frames, not ours" — **apply fallback 4a**
+> (`CreateSwapChainForComposition` + a DirectComposition visual on `FgAppHwnd()`; `dcomp` is already linked) and re-run.
+>
+> Everything else is clean: no crash, no `DEVICE_REMOVED`, `Player.log` has only `FG init DLSS 2x -> 3`.
+> `docs\shots\fg-null-{before,on,off}.png` are pixel-equivalent in content (same scene, HUD intact, overlay reads `FG: off`
+> in all three, DLSS `Mode: DLAA (1280x720)`, fps 137/128/…); no black frame, no flicker. `presented`/`fps` climb because the
+> hook counts Unity's own presents, not shadow presents (`frameId=0` throughout). A `start-mission` reload after `Off`
+> succeeded (`ok:true`, 58 steps, 19808 ms), so teardown is clean. Not a rendering regression — Step 14 is blocked on 4a.
+
 - [ ] **Step 15: Turn it off again and confirm a clean teardown**
 
 ```powershell
