@@ -64,14 +64,14 @@ struct Device12 : IDevice
     bool End(int n) { return ring.End(n); }
     void WaitIdle() { ring.WaitIdle(); }
 
-    // Unity owns the state of its own RenderTextures and hands them to a plugin in D3D12_RESOURCE_STATE_COMMON;
-    // its own D3D12 plugin sample declares exactly that for every Unity-created resource and does the real
-    // transitions inside the plugin's list. Declaring anything else desynchronises Unity's state tracking and
-    // eventually removes the device with DXGI_ERROR_DEVICE_REMOVED / INVALID_CALL (in-game, 2026-09-02).
-    static void Declare(UnityGraphicsD3D12ResourceState* st, int& n, ID3D12Resource* res)
+    // Declare the state we need a Unity resource to be in; Unity transitions it for us and records `current`.
+    // We never barrier a Unity resource ourselves: `expected = COMMON` is treated by Unity as "nothing to do",
+    // so the RT stays in RENDER_TARGET and our own COMMON -> X barrier is then a before-state mismatch
+    // (301x D3D12 debug-layer id=527 in one run, 2026-09-02). Transitions only on resources we own (ngxOut).
+    static void Declare(UnityGraphicsD3D12ResourceState* st, int& n, ID3D12Resource* res, D3D12_RESOURCE_STATES s)
     {
         st[n].resource = res;
-        st[n].expected = st[n].current = D3D12_RESOURCE_STATE_COMMON;
+        st[n].expected = st[n].current = s;
         ++n;
     }
 
@@ -194,13 +194,9 @@ struct Device12 : IDevice
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = 0;
         if (passthrough) {
-            Declare(st, n, color);
-            Declare(st, n, output);
-            Barrier(cl, color,  D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
-            Barrier(cl, output, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+            Declare(st, n, color,  D3D12_RESOURCE_STATE_COPY_SOURCE);
+            Declare(st, n, output, D3D12_RESOURCE_STATE_COPY_DEST);
             cl->CopyResource(output, color);
-            Barrier(cl, color,  D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
-            Barrier(cl, output, D3D12_RESOURCE_STATE_COPY_DEST,   D3D12_RESOURCE_STATE_COMMON);
             lastEval = NVSDK_NGX_Result_Success;
         } else {
             // With sharpening on, NGX writes our own target and the sharpen pass produces Unity's RT; that keeps
@@ -225,13 +221,9 @@ struct Device12 : IDevice
 
             ID3D12Resource* depth = (ID3D12Resource*)fp.depth;
             ID3D12Resource* mv    = (ID3D12Resource*)fp.mv;
-            Declare(st, n, color); Declare(st, n, depth); Declare(st, n, mv); Declare(st, n, output);
-
             const D3D12_RESOURCE_STATES kIn = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-            Barrier(cl, color, D3D12_RESOURCE_STATE_COMMON, kIn);
-            Barrier(cl, depth, D3D12_RESOURCE_STATE_COMMON, kIn);
-            Barrier(cl, mv,    D3D12_RESOURCE_STATE_COMMON, kIn);
-            Barrier(cl, output, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            Declare(st, n, color, kIn); Declare(st, n, depth, kIn); Declare(st, n, mv, kIn);
+            Declare(st, n, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;

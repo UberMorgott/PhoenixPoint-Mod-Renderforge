@@ -32,7 +32,15 @@ struct D3D12Ring
     ID3D12Device* device;
     ID3D12CommandAllocator* alloc[kRing];
     ID3D12GraphicsCommandList* list[kRing];
-    UINT64 submitted[kRing];      // fence value ExecuteCommandList returned for that slot, 0 = never used
+    UINT64 submitted[kRing];      // our own fence value for that slot's submission, 0 = never used
+    // Our own fence, signalled on Unity's queue right after ExecuteCommandList. The value Unity returns is a
+    // FRAME fence value and retires independently of when the list actually runs, so gating allocator reuse on
+    // it resets allocators mid-execution - the D3D12 debug layer says so outright: "A command allocator is being
+    // reset before previous executions associated with the allocator have completed" (89x in one 200 s tactical
+    // run), followed by "Failed to execute a command list because the command queue fence has not advanced past
+    // previous executions". That is the DXGI_ERROR_DEVICE_REMOVED / INVALID_CALL (2026-09-02).
+    ID3D12Fence* fence;
+    UINT64 fenceVal;
     int ringIdx;
     int recording;                // a list is open; End() must be reached on every path
     HANDLE waitEvent;
@@ -51,6 +59,7 @@ struct D3D12Ring
     {
         device = NULL;
         for (int i = 0; i < kRing; ++i) { alloc[i] = NULL; list[i] = NULL; submitted[i] = 0; }
+        fence = NULL; fenceVal = 0;
         ringIdx = 0; recording = 0; waitEvent = NULL; failCode = 0;
         memset(states, 0, sizeof(states));
     }
@@ -58,15 +67,17 @@ struct D3D12Ring
     // The state array to fill for the submission currently being recorded (kStates entries).
     UnityGraphicsD3D12ResourceState* StateSlot() { return states[ringIdx]; }
 
-    void Attach(ID3D12Device* dev) { device = dev; }
+    void Attach(ID3D12Device* dev)
+    {
+        device = dev;
+        if (device && !fence) device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    }
 
     // WAIT_OBJECT_0 once `value` has retired (0 = never submitted, retired by definition), else the
     // WaitForSingleObject result (WAIT_TIMEOUT / WAIT_FAILED). Callers must not touch the slot otherwise.
     DWORD WaitFence(UINT64 value)
     {
         if (!value) return WAIT_OBJECT_0;
-        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
-        ID3D12Fence* fence = unity ? unity->GetFrameFence() : NULL;
         if (!fence) return WAIT_FAILED;
         if (fence->GetCompletedValue() >= value) return WAIT_OBJECT_0;
         if (!waitEvent) waitEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -118,11 +129,14 @@ struct D3D12Ring
         ringIdx = (ringIdx + 1) % kRing;
         IUnityGraphicsD3D12v5* unity = g_unityD3D12;
         if (FAILED(list[i]->Close()) || !unity) return false;
-        UINT64 v = unity->ExecuteCommandList(list[i], stateCount, stateCount ? states[i] : NULL);
-        // 0 would mark the slot "never used" and let Begin() reset an allocator the GPU may still read.
-        // Unity signals the frame fence with GetNextFrameFenceValue() at the end of this frame, after our
-        // list - waiting on that is the conservative, always-correct choice.
-        submitted[i] = v ? v : unity->GetNextFrameFenceValue();
+        unity->ExecuteCommandList(list[i], stateCount, stateCount ? states[i] : NULL);
+        ID3D12CommandQueue* q = unity->GetCommandQueue();
+        if (q && fence && SUCCEEDED(q->Signal(fence, fenceVal + 1))) { submitted[i] = ++fenceVal; return true; }
+        // No queue or no fence: we have no way to know when this list retires, and resetting its allocator
+        // later would be the very bug above. Drop the pair instead - Begin() builds a fresh one, and a fresh
+        // allocator is always safe to reset.
+        ReleaseSlot(i);
+        submitted[i] = 0;
         return true;
     }
 
@@ -131,6 +145,8 @@ struct D3D12Ring
         WaitIdle();
         for (int i = 0; i < kRing; ++i) { ReleaseSlot(i); submitted[i] = 0; }
         if (waitEvent) { CloseHandle(waitEvent); waitEvent = NULL; }
+        if (fence) { fence->Release(); fence = NULL; }
+        fenceVal = 0;
         ringIdx = 0; recording = 0; device = NULL; failCode = 0;
     }
 };
