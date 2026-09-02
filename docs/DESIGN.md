@@ -103,7 +103,35 @@ feeds the frustum FSR/XeSS need (copied into every frame slot; NGX ignores it).
 | XeSS SR | 2 | D3D12 only | `Xess12` (`libxess.dll`) | XeSS SDK 3.0.2, `libxess.dll` 2.0.2.68 | Native AA (1.0x), Ultra Quality Plus (1.3x), Ultra Quality (1.5x), Quality (1.7x), Balanced (2.0x), Performance (2.3x), Ultra Performance (3.0x) | the shim's own NIS pass (XeSS has no sharpness) |
 
 All three D3D12 providers share `D3D12Ring` (`native\D3D12Ring.h`: 4 command allocators/lists, submitted through
-`IUnityGraphicsD3D12v5::ExecuteCommandList` with a resource-state array, slots recycled on Unity's frame fence).
+`IUnityGraphicsD3D12v5::ExecuteCommandList` with a resource-state array, a slot recycled only after BOTH our own fence
+signalled on Unity's queue and the frame-fence value ExecuteCommandList returned have retired; measured 2026-09-02:
+the returned value == `GetNextFrameFenceValue()`, i.e. the current frame's, never seen unretired when ours was).
+
+**D3D12 resource states — the owned-resource contract (`native\D3D12Owned.h`, 2026-09-02).** Unity 2019.4's D3D12
+state tracker cannot be shared with a vendor SDK: with NGX/FSR/XeSS reading Unity RenderTextures directly, the debug
+layer showed the RT's pre-state varying per frame (RENDER_TARGET, GENERIC_READ, COPY_DEST, DEPTH_WRITE on the same
+RT), so every SDK barrier mismatched (`id=527`, ~400 per run) and the device was removed after 1–5 min. The shim now
+OWNS the four resources the SDKs touch (`OwnedSet12`: colorIn/depthIn/mvIn at render res, out at output res with
+`ALLOW_UNORDERED_ACCESS`, fully typed twins of the Unity formats — `R8G8B8A8_TYPELESS` → `R8G8B8A8_UNORM`,
+`R32_FLOAT`, `R16G16_FLOAT`, created in `COMMON`, named `Renderforge colorIn` etc. so debug-layer messages name them)
+and a Unity RT is only ever the source or destination of a `CopyResource` inside our list. Unity does NOT transition
+an RT to the `expected` state a plugin declares (measured: our copy found every RT in the state Unity's LAST use
+left it in), but that state is deterministic per RT because the driver uses each one the same way every frame —
+`colorRT` (camera target) `RENDER_TARGET` 623/628 frames, `depthRT` (Blit target) `RENDER_TARGET`, `mvRT`
+(CopyTexture target) `COPY_DEST` 614/614, `outRT` (present Blit source) `GENERIC_READ` 617/617 incl. the first
+frame; the 5 `DEPTH_WRITE` outliers are Unity's own illegal barrier on a colour RT (`id=524`). So per frame, in ONE
+ring list: Unity RT `pre-state → COPY_SOURCE` (inputs) / `GENERIC_READ → COPY_DEST` (outRT) `→ pre-state` again, declared
+as `expected == current == pre-state`; owned inputs `COMMON → COPY_DEST` (copy in) `→ NON_PIXEL_SHADER_RESOURCE` (SDK)
+`→ COMMON`; owned out `COMMON → UNORDERED_ACCESS` (SDK + our sharpen pass writes it) `→ COPY_SOURCE` (copy out) `→ COMMON`.
+Every owned resource starts and ends each list in `COMMON`, so nothing depends on another list. Result with
+`-force-d3d12-debug`: zero `id=527/538` on our lists (`Renderforge ring N`) or resources (`Renderforge colorIn` …).
+Two Unity-side shortcuts were measured dead:
+`CommandBuffer.CopyTexture` refuses a `Texture2D.CreateExternalTexture` wrapper under D3D12 (`can only copy between
+same texture format groups (d3d12 base formats: src=27 dst=0)`), and `CreateExternalTexture` views the resource with
+its own format, so a TYPELESS one removes the device (`id=28`). Remaining `id=527/538` under DLSS are Unity's own
+(shadow cubemaps, its depth copies, on its own lists; 0/min with the mod Off, ~1600/min with a generation live —
+they are triggered by the Unity-side setup, not by our list) and do not remove the device (10-min DLAA soak +
+mission loads, see Phase 2 plan Task 8).
 
 The AMD ffx-api is loaded at **runtime** (`FfxLoader.cpp`: `LoadLibraryW` of both DLLs by absolute path from the
 mod folder, then `ffxLoadFunctions`). No AMD import library is linked, so `RenderforgeNative.dll` loads and DLSS
@@ -118,8 +146,8 @@ XeSS (`native\Xess12.cpp`) links `libxess.lib` **delay-loaded** (`/DELAYLOAD:lib
 copy and the shim still loads when it is absent (`DLSS_ERR_NO_PROVIDER_DLL`). `xessD3D12CreateContext` decides
 support (`XESS_RESULT_ERROR_UNSUPPORTED_DEVICE` = no SM 6.4 + DP4a → `DLSS_ERR_NOT_AVAILABLE`,
 `_UNSUPPORTED_DRIVER` → `DLSS_ERR_NEEDS_DRIVER`); `xessD3D12Init` is a blocking CPU call on the render thread (no
-ring slot); `xessD3D12Execute` records into the ring list with the same COMMON declaration + own in/out barriers as
-`Device12`, and the shim's NIS pass (`native\D3D12Sharpen.h`, shared with `Device12`) runs after it because XeSS has
+ring slot); `xessD3D12Execute` records into the ring list on the owned set with the same copy-in/copy-out contract as
+`Device12` (XeSS restores nothing, `OwnedSet12::Leave` transitions back), and the shim's NIS pass (`native\D3D12Sharpen.h`, shared with `Device12`) runs after it because XeSS has
 no sharpness of its own. Execution path: `xessGetIntelXeFXVersion` = `0.0.0` off Intel = cross-vendor DP4a,
 non-zero = Intel XMX; `Dlss_ProviderVersion` reports `2.0.2 DP4a` / `2.0.2 XMX` and the overlay prints
 `Upscaler: XeSS 2.0.2 DP4a`. xess results map onto `NVSDK_NGX_Result` like ffx's (`XESS_RESULT_SUCCESS` is 0, NGX's
