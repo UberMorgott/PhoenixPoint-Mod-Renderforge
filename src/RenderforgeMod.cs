@@ -212,7 +212,9 @@ namespace Renderforge
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.FrameGen = (FrameGenMode)Enum.Parse(typeof(FrameGenMode), mode, true);
+            FrameGenMode fg;
+            if (!Enum.TryParse(mode, true, out fg)) return "bad mode '" + mode + "' (Off / X2 / X3 / X4)";
+            m.Cfg.FrameGen = fg;
             FrameGen.Apply(m.Cfg);
             SaveConfig();
             return "frameGen=" + m.Cfg.FrameGen + " " + FrameGen.Status();

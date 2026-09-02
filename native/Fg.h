@@ -115,7 +115,11 @@ void FgHostSetEnabled(int on);
 void FgHostSetFrame(const FgFrame& f);       // main thread, ring-buffered
 void FgHostPrepare(void);                    // render thread, DLSS_EV_FG_PREPARE
 void FgHostShutdown(void);                   // main thread, render idle
+int  FgHostAlive(void);                      // 1 while a chain exists; 0 after a resize/Present-failure teardown
 unsigned FgHostCaps(void);
+// Composition swapchain on s.hwnd shown through a DirectComposition target (the host owns the DComp objects).
+// Every provider that does not bring its own swapchain builds it from this.
+int  FgHostCreateShadowSwapChain(const FgSetup& s, IDXGISwapChain4** out);
 int  FgHostProvider(void);
 const char* FgHostStatus(void);
 

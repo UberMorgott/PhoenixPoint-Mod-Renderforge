@@ -322,11 +322,13 @@ unsigned __cdecl Fg_Caps(void) { return FgHostCaps(); }
 int __cdecl Fg_Provider(void) { return FgHostProvider(); }
 const char* __cdecl Fg_Status(void) { return FgHostStatus(); }
 void __cdecl Fg_Shutdown(void) { FgHostShutdown(); }
+int __cdecl Fg_Alive(void) { return FgHostAlive(); }
 
+// The vtable patch stays for the process lifetime: Unity keeps presenting after Dlss_Shutdown, and the
+// hook is inert once the host has no provider.
 void __cdecl Dlss_Shutdown(void)
 {
     FgHostShutdown();
-    FgHookRemove();
     if (S.dev) S.dev->Shutdown();
     S.dev = NULL;
     S.lastSlot = NULL;

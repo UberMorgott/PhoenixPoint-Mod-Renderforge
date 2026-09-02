@@ -173,6 +173,9 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Fg_Shutdown();
 
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_Alive();
+
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Dlss_ResultString")]
         private static extern IntPtr Dlss_ResultStringPtr(int ngxResult);
 

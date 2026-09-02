@@ -141,6 +141,9 @@ DLSS_API int __cdecl Fg_Provider(void);
 DLSS_API const char* __cdecl Fg_Status(void);
 // Main thread, render idle. Destroys the chain; the Present hook stays installed and inert.
 DLSS_API void __cdecl Fg_Shutdown(void);
+// 1 while the chain exists. 0 once the shim tore it down itself (ResizeBuffers, shadow Present failure):
+// the managed side must drop `live` and call Fg_Init again.
+DLSS_API int __cdecl Fg_Alive(void);
 
 #ifdef __cplusplus
 }

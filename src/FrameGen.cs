@@ -8,7 +8,7 @@ namespace Renderforge
     /// seen a Present (it cannot build the chain before that), and exposes the status for PPCLI and the overlay.</summary>
     internal static class FrameGen
     {
-        private static int wantProvider, wantMultiplier;
+        private static int wantProvider, wantMultiplier, builtMultiplier;
         private static bool live;
         private static float retryAt;
         private static int lastRc = -1;
@@ -50,14 +50,26 @@ namespace Renderforge
             }
             wantProvider = AutoProvider();
             wantMultiplier = mult;
+            if (live && builtMultiplier != mult) Release();   // the multiplier is baked into the chain
             if (live) { Native.Fg_SetEnabled(1); return; }
             Retry();
+        }
+
+        /// <summary>The shim tears the chain down on its own (ResizeBuffers, shadow Present failure); mirror that.</summary>
+        private static void SyncAlive()
+        {
+            if (!live || Native.Fg_Alive() != 0) return;
+            live = false;
+            lastRc = -1;
+            Overlay.FgFps = 0;
+            RenderforgeMod.Instance?.Logger.LogInfo("FG chain torn down by the shim: " + Native.Fg_Status());
         }
 
         /// <summary>The chain can only be built after the Present hook has seen a frame, so the first attempts
         /// legitimately return FG_ERR_NO_SWAPCHAIN. Retry four times a second, log once per distinct code.</summary>
         internal static void Retry()
         {
+            SyncAlive();
             if (live || wantMultiplier == 0) return;
             if (Time.unscaledTime < retryAt) return;
             retryAt = Time.unscaledTime + 0.25f;
@@ -69,6 +81,7 @@ namespace Renderforge
             }
             if (rc != Native.FG_OK) return;
             live = true;
+            builtMultiplier = wantMultiplier;
             Native.Fg_SetEnabled(1);
             RenderforgeMod.Instance?.Logger.LogInfo("FG live: " + Native.Fg_Status());
         }
