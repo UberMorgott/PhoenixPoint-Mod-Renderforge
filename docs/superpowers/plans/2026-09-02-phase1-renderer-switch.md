@@ -1090,7 +1090,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(overlay): Renderer line +
 **Files:**
 - No source changes. Uses `deploy.ps1`, `PPCLI\ppcli.ps1`.
 
-- [ ] **Step 1: Deploy the managed build to Instance2**
+- [x] **Step 1: Deploy the managed build to Instance2**
 
 Run:
 
@@ -1100,7 +1100,7 @@ E:\DEV\PhoenixPoint\Renderforge\deploy.ps1 -SkipNative
 
 Expected: `Deployed Renderforge to D:\PP-Instance2\Mods\Renderforge` followed by the file table (`Renderforge.dll`, `RenderforgeNative.dll`, `nvngx_dlss.dll`, …). If it prints `REFUSED: ... has Phoenix Point running`, close that process first.
 
-- [ ] **Step 2: Clear the log and launch D3D11**
+- [x] **Step 2: Clear the log and launch D3D11**
 
 ```powershell
 $log = "$env:USERPROFILE\AppData\LocalLow\Snapshot Games Inc\Phoenix Point\Player.log"
@@ -1110,7 +1110,7 @@ Start-Process 'D:\PP-Instance2\PhoenixPointWin64.exe' -ArgumentList '-mods'
 
 Expected: the game window appears. Wait for the main menu.
 
-- [ ] **Step 3: Wait until the bridge answers, then turn the overlay on**
+- [x] **Step 3: Wait until the bridge answers, then turn the overlay on**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -1120,7 +1120,7 @@ cd E:\DEV\PhoenixPoint\PPCLI
 
 Expected: `state` returns a JSON object (do not send anything before it does); the invoke returns `overlay=True at TopCenter`.
 
-- [ ] **Step 4: Screenshot the overlay**
+- [x] **Step 4: Screenshot the overlay** (2026-09-02: shots live in the session scratchpad `p1-A-*.png`, not `docs\shots`)
 
 ```powershell
 .\ppcli.ps1 connect screenshot '{"path":"E:\\DEV\\PhoenixPoint\\Renderforge\\docs\\shots\\p1-1-d3d11-overlay.png"}'
@@ -1128,7 +1128,7 @@ Expected: `state` returns a JSON object (do not send anything before it does); t
 
 Expected: `{ok:true,path:...}`. Open the PNG and confirm the first line reads `Renderer: D3D11` and the FPS line has the form `FPS: <n> (<ms> ms)` with no `/`.
 
-- [ ] **Step 5: Verify the restart command line WITHOUT restarting**
+- [x] **Step 5: Verify the restart command line WITHOUT restarting**
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RendererSwitch","assembly":"Renderforge","member":"Preview","args":[true]}'
@@ -1142,7 +1142,7 @@ Expected: a string ending in `PhoenixPointWin64.exe -mods -force-d3d12` (the `-m
 
 Expected: the same line **without** any `-force-d3d1*` flag.
 
-- [ ] **Step 6: Open Options → Graphics and screenshot the rows**
+- [x] **Step 6: Open Options → Graphics and screenshot the rows** (opened via PPCLI: `HomeScreenView._statesStack.SwitchToState(new UIStateHomeOptions(), PushOnTop)` + `UIModuleOptionsSubmenu.ShowGraphicsOptionsPanel`)
 
 In the game window: main menu → OPTIONS → GRAPHICS. Then:
 
@@ -1152,7 +1152,7 @@ In the game window: main menu → OPTIONS → GRAPHICS. Then:
 
 Expected in the PNG, directly under TEXTURE QUALITY, in this order: `RENDERER  DirectX 11`, `UPSCALER  Off`, `FRAME GENERATION  Off`, `DLSS QUALITY  <mode>`, `SHARPNESS <n>`.
 
-- [ ] **Step 7: Select FSR in the UPSCALER row and confirm it renders greyed**
+- [x] **Step 7: Select FSR in the UPSCALER row and confirm it renders greyed**
 
 Click the UPSCALER row's right arrow twice (Off → DLSS → FSR), then:
 
@@ -1162,7 +1162,7 @@ Click the UPSCALER row's right arrow twice (Off → DLSS → FSR), then:
 
 Expected: the value text `FSR` is visibly dimmed (alpha 0.35) while the row's title stays bright.
 
-- [ ] **Step 8: Hover the greyed row and screenshot the native tooltip**
+- [x] **Step 8: Hover the greyed row and screenshot the native tooltip** (game window was minimized on the test box, so the hover was driven as `UITooltipText.OnPointerEnter(new PointerEventData(EventSystem.current))` on the row's CentralButton — the game's own tooltip rendered)
 
 Move the OS cursor onto the UPSCALER row's value (read the pixel coordinates off the previous screenshot; the game reads the OS cursor through `InputController.GetCursorPosition`), wait out the 0.3 s appear delay, then shoot:
 
@@ -1176,7 +1176,7 @@ cd E:\DEV\PhoenixPoint\PPCLI
 
 Expected: the game's own tooltip box next to the row reading `Requires DirectX 12 — switch Renderer`.
 
-- [ ] **Step 9: Same for FRAME GENERATION**
+- [x] **Step 9: Same for FRAME GENERATION**
 
 Click the FRAME GENERATION row's right arrow once (Off → 2x), hover it the same way and shoot:
 
@@ -1186,7 +1186,7 @@ Click the FRAME GENERATION row's right arrow once (Off → 2x), hover it the sam
 
 Expected: `2x` dimmed, tooltip `Requires DirectX 12 — switch Renderer`.
 
-- [ ] **Step 10: Check the log is clean**
+- [x] **Step 10: Check the log is clean**
 
 ```powershell
 Select-String -Path "$env:USERPROFILE\AppData\LocalLow\Snapshot Games Inc\Phoenix Point\Player.log" -Pattern 'Renderforge' | Select-Object -Last 10
@@ -1208,17 +1208,17 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "test(d3d11): overlay renderer 
 **Files:**
 - No source changes.
 
-- [ ] **Step 1: With the game still on the Graphics panel, set the UPSCALER row back to Off and the FRAME GENERATION row back to Off**
+- [x] **Step 1: With the game still on the Graphics panel, set the UPSCALER row back to Off and the FRAME GENERATION row back to Off** (2026-09-02: UPSCALER was put back to DLSS, its config value — selecting Off DOES write `Mode=Off` to the config, see `Pickers.OnUpscaler`)
 
 Click the left arrows until both read `Off`. (Neither wrote anything to the config; this only tidies the screen.)
 
-- [ ] **Step 2: Set RENDERER to DirectX 12 and press APPLY**
+- [x] **Step 2: Set RENDERER to DirectX 12 and press APPLY**
 
 Click the RENDERER row's right arrow once — the value must read `DirectX 12 (experimental) (restart pending)` and the panel's APPLY button must become active. Press APPLY.
 
 Expected: the game's own dialog appears with `Restart required to switch renderer. Restart now?` and YES / NO buttons.
 
-- [ ] **Step 3: Press NO and screenshot**
+- [x] **Step 3: Press NO and screenshot** (answered through `MessageBoxPromptController.Invoke(MessageBoxResult.No)` — the game's own button path)
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -1227,7 +1227,7 @@ cd E:\DEV\PhoenixPoint\PPCLI
 
 Expected: the dialog is gone and the RENDERER row still reads `DirectX 12 (experimental) (restart pending)`.
 
-- [ ] **Step 4: Confirm the choice was persisted**
+- [x] **Step 4: Confirm the choice was persisted** (file is `%USERPROFILE%\AppData\LocalLow\Snapshot Games Inc\Phoenix Point\Steam\76561197996210592\ModConfig.json`, value is the enum NUMBER: `"Renderer": 2`)
 
 ```powershell
 Get-Content 'D:\PP-Instance2\Mods\Renderforge\ModConfig.json' -ErrorAction SilentlyContinue
@@ -1236,13 +1236,13 @@ Get-ChildItem 'D:\PP-Instance2' -Recurse -Filter 'ModConfig.json' | Select-Objec
 
 Expected: a `ModConfig.json` containing `"Renderer": "DirectX12"` (note its path — later steps read the same file).
 
-- [ ] **Step 5: Press APPLY again, then YES**
+- [x] **Step 5: Press APPLY again, then YES** (2026-09-02: toggling DX11→DX12 alone does NOT light APPLY once the config already says DX12 — it needs DX11 + APPLY, then DX12 + APPLY. First YES FAILED: the relaunched game died on the game's single-instance guard ("Another instance is already running" fatal error) because it started while this process was still shutting down; fixed in `RendererSwitch.Restart` — a hidden `powershell.exe` waits for this pid to exit, then starts the new game)
 
 Reopen the Graphics panel if it closed, toggle RENDERER to DirectX 11 and back to DirectX 12 so APPLY lights up, press APPLY, then press YES in the dialog.
 
 Expected: the running process exits and a new Phoenix Point process starts by itself.
 
-- [ ] **Step 6: Verify the new process really runs D3D12**
+- [x] **Step 6: Verify the new process really runs D3D12**
 
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name='PhoenixPointWin64.exe'" | Select-Object ProcessId, CommandLine
@@ -1251,7 +1251,7 @@ Select-String -Path "$env:USERPROFILE\AppData\LocalLow\Snapshot Games Inc\Phoeni
 
 Expected: the command line contains `-mods -force-d3d12`, and the log contains `Forcing GfxDevice: Direct3D 12` and `Version: Direct3D 12 [level 12.1]`.
 
-- [ ] **Step 7: Confirm the overlay agrees**
+- [x] **Step 7: Confirm the overlay agrees**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -1275,7 +1275,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "test(d3d12): picker -> native 
 **Files:**
 - Possibly modify: `E:\DEV\PhoenixPoint\Renderforge\src\D3D12Fix.cs:22` (`DisableAo` default)
 
-- [ ] **Step 1: Start a tactical mission on the running D3D12 process**
+- [x] **Step 1: Start a tactical mission on the running D3D12 process**
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -1284,7 +1284,7 @@ cd E:\DEV\PhoenixPoint\PPCLI
 
 Expected: an `ok:true` JSON with a per-faction actor census, ~12 s.
 
-- [ ] **Step 2: Screenshot with the default fix (AO = ScalableAmbientObscurance)**
+- [x] **Step 2: Screenshot with the default fix (AO = ScalableAmbientObscurance)** — PASS, dark cave + fog of war like the D3D11 reference
 
 ```powershell
 .\ppcli.ps1 connect screenshot '{"path":"E:\\DEV\\PhoenixPoint\\Renderforge\\docs\\shots\\p1-8-d3d12-sao.png"}'
@@ -1292,7 +1292,7 @@ Expected: an `ok:true` JSON with a per-faction actor census, ~12 s.
 
 Expected: the cave is dark with visible fog of war — the same look as the D3D11 reference, NOT washed out / fully lit.
 
-- [ ] **Step 3: Count the shader errors with SAO**
+- [x] **Step 3: Count the shader errors with SAO** — `Kernel` count 0
 
 ```powershell
 $log = "$env:USERPROFILE\AppData\LocalLow\Snapshot Games Inc\Phoenix Point\Player.log"
@@ -1302,7 +1302,7 @@ $log = "$env:USERPROFILE\AppData\LocalLow\Snapshot Games Inc\Phoenix Point\Playe
 
 Expected for a PASS: `0` and no lines.
 
-- [ ] **Step 4: If step 2 or 3 failed, switch to AO off and re-measure**
+- [x] **Step 4: If step 2 or 3 failed, switch to AO off and re-measure** — not needed, SAO passed
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.D3D12Fix","assembly":"Renderforge","member":"SetAo","args":["off"]}'
@@ -1312,7 +1312,7 @@ Expected for a PASS: `0` and no lines.
 
 Expected: dark cave + fog of war, and no NEW `Kernel` lines after the switch.
 
-- [ ] **Step 5: Lock in whichever mode passed**
+- [x] **Step 5: Lock in whichever mode passed** — SAO kept, `DisableAo` unchanged
 
 If SAO passed, leave `src\D3D12Fix.cs` as it is. If AO-off was needed, change the field declaration in `src\D3D12Fix.cs` from:
 

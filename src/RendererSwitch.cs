@@ -73,9 +73,19 @@ namespace Renderforge
             string args = Args(want12);
             if (RenderforgeMod.Instance != null)
                 RenderforgeMod.Instance.Logger.LogInfo("Renderforge restart: " + exe + " " + args);
-            ProcessStartInfo psi = new ProcessStartInfo(exe, args);
-            psi.WorkingDirectory = Path.GetDirectoryName(exe);
-            psi.UseShellExecute = true;
+            // In-game 2026-09-02: the game is single-instance ("Another instance is already running" fatal
+            // error), so a relaunch started while this process is still shutting down dies at once. A hidden
+            // Windows PowerShell waits for THIS pid to exit, then starts the new game (verified: new process
+            // appears ~1 s after Application.Quit, no console flash with CreateNoWindow).
+            string dir = Path.GetDirectoryName(exe);
+            string start = "Start-Process -FilePath '" + exe + "' -WorkingDirectory '" + dir + "'"
+                         + (args.Length > 0 ? " -ArgumentList '" + args + "'" : "");
+            string script = "Wait-Process -Id " + Process.GetCurrentProcess().Id + " -ErrorAction SilentlyContinue; " + start;
+            ProcessStartInfo psi = new ProcessStartInfo("powershell.exe",
+                "-NoProfile -NonInteractive -WindowStyle Hidden -Command \"" + script + "\"");
+            psi.WorkingDirectory = dir;
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
             Process.Start(psi);
             Application.Quit();
             return exe + " " + args;
