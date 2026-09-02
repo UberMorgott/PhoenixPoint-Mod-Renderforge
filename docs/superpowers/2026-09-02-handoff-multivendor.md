@@ -22,8 +22,8 @@ Read this first in a fresh session. Everything below is committed on `main` of
 | 2 DLSS on D3D12 (IDevice seam, Device12, sharpen PSO, Plugins staging) | DONE. DEVICE_REMOVED fixed by `54af332` (owned resources, see below). Gate passed: DLAA 600 s + 3 loads, debug layer 0 mismatches on our lists |
 | 3 FSR 4.1/3.1.5 via ffx-api | DONE. In-game: FSR Quality 352 s soak + 1 load, `own-fsr.png` OK. Jitter A/B run 2026-09-02: indistinguishable on stills, defaults kept. `RfDbg::Attach` now in `Fsr12::Init` |
 | 4 XeSS 3 (DP4a) | DONE. In-game: XeSS Quality 355 s + 1 load, `own-xess.png` OK. Jitter A/B run 2026-09-02: indistinguishable on stills, defaults kept |
-| 5 Frame generation (FSR-FG, XeSS-FG, DLSS-G/MFG) | DONE. Commits: `55dbf41` (Present hook + spike), `e4915dd` (composition chain), `8a2b8a2` (Unity Present forwarding), `c57f6a0` (child HWND), `28f2013` (FSR-FG manual dispatch), `59e4cd0` (FSR-FG SDK swapchain on child), `fd6423a` (XeSS-FG + XeLL), `fd180d5` (DLSS-G Streamline manual hooking), `05dd6b3` (DLSS-G RCA: focus gate + copy fence + marker order + token FIFO), `aa53ba4` (verification + docs). In-game: FSR 2x / XeSS 2x / DLSS 2x-3x-4x verified on Instance3, 10-min soak clean, debug layer 0 on our lists |
-| 6 Packaging | Tasks 1–6 DONE (`build\release.ps1`, per-vendor zips, README, RELEASING.md). Tasks 7–8 (GitHub release, Workshop) USER-GATED, not run |
+| 5 Frame generation (FSR-FG, XeSS-FG, DLSS-G/MFG) | DONE + hardened. Commits: `55dbf41` (Present hook + spike), `e4915dd` (composition chain), `8a2b8a2` (Unity Present forwarding), `c57f6a0` (child HWND), `28f2013` (FSR-FG manual dispatch), `59e4cd0` (FSR-FG SDK swapchain on child), `fd6423a` (XeSS-FG + XeLL), `fd180d5` (DLSS-G Streamline manual hooking), `05dd6b3` (DLSS-G RCA: focus gate + copy fence + marker order + token FIFO), `aa53ba4` (verification + docs), `1a340d6` (Task 6 verification), `2ec662b`/`f0f003f`/`0397656`/`2c063cb`/`3c5c7df` (hardening round 2: teardown owned by main thread via `FgHostPump`/`Fg_Shutdown` ack, `Detach`/`DestroyDetached`, tearingDown gate, hook chain validation + owned ref + CAS unpatch, fence/ring result checks with `Quarantine`, SL pinned-for-process guard, XeSS DLL pin + markers in BeforePresent, Auto provider order NVIDIA DLSS→FSR→XeSS / Intel XeSS→FSR / else FSR→XeSS with terminal fallback, availability reasons from `Fg_Reason`, DllNotFound guard, FSR-FG 3x/4x refused with FG_ERR_UNSUPPORTED_MULTIPLIER, spike + composition/DComp + FSR manual dispatch + `RENDERFORGE_FG_CHAIN` DELETED, `deploy.ps1 -AllowRunning` rename-aside, `build-native.ps1` 310.7.* warn + non-NVIDIA probe warn). Task 6 results (Instance3, HEAD `aa53ba4` then hardened HEAD): FSR-FG X2 1.96-2.04, XeSS-FG X2 1.96-2.04, DLSS-G 1.00 unfocused (focus gate; 2/3/4x measured with dev plugin + runWhenNoFocus in Task 5 round 2), provider round-trip PASS, SR+FG combos PASS, D3D11 guard PASS, 10-min soak DLSS-Q + FSR-FG X2 with 3 loads PASS, quit path clean (exit ok, WerFault 0), Auto fallback verified with 0-byte `sl.common.dll` → FSR. Debug layer: 0 on our lists. Reviews: Codex thread `01a062e8-cda9-79b3-b4f7-8aa9bf741017`, files `C:\Temp\cx\{6158cf1a…,509f4590…,a44b7875…,8e06edc9…}.out.md` (may be gone); Opus reviews applied. Skipped: Codex "FG smoke probes in build-native" (out of scope) |
+| 6 Packaging | Tasks 1–6 DONE (`build\release.ps1`, per-vendor zips, README, RELEASING.md). Release: `build\release.ps1 -WithFrameGen` → Core 138 KB, NVIDIA 50.6 MB, AMD 47.6 MB, Intel 73.1 MB, Full 171.4 MB, SHA256SUMS written; version still 1.1.0 (bump to 1.2.0 belongs to Phase 6 Task 7, user-gated). Without `-WithFrameGen` FG DLLs are NOT packed. Tasks 7–8 (GitHub release, Workshop) USER-GATED, not run |
 
 ## The D3D12 resource-state problem — SOLVED (`54af332`, `native\D3D12Owned.h`, DESIGN.md contract)
 
@@ -92,12 +92,9 @@ Read this first in a fresh session. Everything below is committed on `main` of
 
 ## Next steps, in order
 
-1. **User manual test**: mouse/keyboard input through the child HWND + DLSS-G with the window focused
-   (production plugin, not development). The HTTRANSPARENT + focus delegation is measured but not
-   exercised by a human player yet.
-2. Phase 6 Tasks 7-8: re-run `build\release.ps1` (with `-WithFrameGen`), GitHub release + Workshop
-   upload — user-gated.
-3. Frame-pacing metric: CoV of `MsBetweenDisplayChange` via PresentMon still unmeasured for all three
-   providers; capture once the user plays a session with FG on.
+1. **User manual test**: mouse/keyboard input through the child HWND, DLSS-G production plugin 2x/3x/4x with the window focused, Alt-Tab/back, window resize, borderless — on Instance2/3.
+2. Frame-pacing metric: CoV of `MsBetweenDisplayChange` via PresentMon still unmeasured for all three providers; capture once the user plays a session with FG on.
+3. Resize under XeSS/DLSS-G not exercised (FSR only).
+4. Phase 6 Tasks 7-8: version bump to 1.2.0, GitHub release + Workshop upload — user-gated, on the user's explicit OK.
 Note: `Player.log` is shared between Instance2 and Instance3 (same LocalLow profile dir?) — when
 ContentTool runs on Instance3 in parallel, prefer the mod's own log for evidence.
