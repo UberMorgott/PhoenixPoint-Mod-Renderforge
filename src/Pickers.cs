@@ -11,8 +11,8 @@ namespace Renderforge
     /// RENDERER, UPSCALER, FRAME GENERATION. GraphicsPanel then places its DLSS quality picker + sharpness
     /// slider after the row this returns, so the order is decided in ONE place.
     /// RENDERER is deferred like the panel's own settings (HasChanges lights Apply, Apply commits + asks);
-    /// UPSCALER applies immediately when it is available, and an unavailable entry just stays greyed with the
-    /// tooltip and writes nothing.</summary>
+    /// UPSCALER switches the provider live (RenderforgeMod.SetUpscaler), and an unavailable entry just stays
+    /// greyed with the tooltip (saved for the next launch under the right renderer, nothing switches now).</summary>
     internal static class Pickers
     {
         internal const string RendererName = "RenderforgeRenderer";
@@ -133,9 +133,6 @@ namespace Renderforge
             string reason = resolved == UpscalerKind.Off ? null : Availability.Reason(Upscalers.FeatureOf(resolved));
             string label = UpscalerLabels[pendingUpscaler];
             if (want == UpscalerKind.Auto && resolved != UpscalerKind.Off) label += " (" + resolved + ")";
-            // The shim latched its provider at startup: a different choice only takes effect on the next launch.
-            if (reason == null && resolved != Upscalers.Running && resolved != UpscalerKind.Off)
-                label += DlssConfig.Loc(" (restart pending)", " (нужен перезапуск)");
             GraphicsPanel.SetRaw(upscaler.CurrentItem, upscaler.CurrentItemText, label);
             GraphicsPanel.Grey(upscaler.CurrentItem.gameObject, reason != null);
             GraphicsPanel.Tip(upscaler.CentralButton.gameObject, reason);
@@ -182,17 +179,9 @@ namespace Renderforge
             try
             {
                 pendingUpscaler = index;
+                if (RenderforgeMod.Instance == null) return;
+                RenderforgeMod.SetUpscaler(UpscalerAt(index).ToString());   // live switch (or refused with the row's reason) + save
                 ShowUpscaler();
-                var mod = RenderforgeMod.Instance;
-                if (mod == null) return;
-                UpscalerKind want = UpscalerAt(index);
-                mod.Cfg.Upscaler = want;
-                // OFF here means "no upscaling at all", so the quality row follows.
-                if (want == UpscalerKind.Off && mod.Cfg.Mode != RenderforgeMode.Off)
-                    RenderforgeMod.SetMode(RenderforgeMode.Off.ToString(), mod.Cfg.DebugView.ToString());
-                else if (want != UpscalerKind.Off && mod.Cfg.Mode == RenderforgeMode.Off)
-                    RenderforgeMod.SetMode(RenderforgeMode.Auto.ToString(), mod.Cfg.DebugView.ToString());
-                RenderforgeMod.SaveConfig();
                 GraphicsPanel.SyncQuality();   // the quality row's labels depend on the provider
             }
             catch (Exception ex) { Log("upscaler picker change failed", ex); }

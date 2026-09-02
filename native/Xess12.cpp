@@ -174,12 +174,13 @@ struct Xess12 : IDevice
 
     void DestroyContext()
     {
-        if (!ctx) return;
+        if (!ctx || !BeginDestroy()) return;
         ring.WaitIdle();                       // xess.h:293 - no pending command list may still use the context
         xessDestroyContext(ctx);
         ctx = NULL;
         initialised = 0;
         owned.Release();                       // idle above; the next execute re-creates the set at its own size
+        EndDestroy();
     }
 
     // ---- IDevice -----------------------------------------------------------

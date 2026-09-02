@@ -7,12 +7,16 @@ namespace Renderforge
 
     /// <summary>Everything that depends on WHICH upscaler is active: the Auto order, the provider id handed to the
     /// shim, the quality labels and the display name. One place, so the pickers, the overlay and the driver agree.
-    /// Switching provider needs a restart: the shim latches it at Dlss_Init, and tearing an NGX/ffx context down
-    /// mid-frame to stand the other up is not worth the risk for a once-per-install setting.</summary>
+    /// Switching provider is live: DlssDriver.SwitchProvider releases the generation, RenderforgeMod.ReinitNative
+    /// does Dlss_Shutdown + SetProvider + Init, and the next generation is created on the new backend.</summary>
     internal static class Upscalers
     {
-        /// <summary>The upscaler the shim was actually initialised with this session; Off before init.</summary>
+        /// <summary>The upscaler the shim is actually initialised with right now; Off before init / after a total failure.</summary>
         internal static UpscalerKind Running = UpscalerKind.Off;
+        /// <summary>The last concrete provider whose Dlss_Init failed (+ its code), Off once one succeeds again: the picker's
+        /// "init failed" reason after a live switch fell back to the previous provider.</summary>
+        internal static UpscalerKind Failed = UpscalerKind.Off;
+        internal static int FailedCode;
 
         internal static UpscalerKind Wanted
         {

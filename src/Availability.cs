@@ -44,12 +44,12 @@ namespace Renderforge
                         return DlssConfig.Loc("Requires DirectX 11 or DirectX 12", "Требуется DirectX 11 или DirectX 12");
                     if (!IsNvidia)
                         return DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется видеокарта NVIDIA RTX");
-                    if (RenderforgeMod.Available) return null;
                     if (NeedsRestart) return RestartReason;
                     if (!Upscalers.NgxDllPresent)
                         return DlssConfig.Loc("DLL missing: nvngx_dlss.dll — install the NVIDIA pack",
                                               "Нет файла: nvngx_dlss.dll — установите пакет NVIDIA");
-                    return RenderforgeMod.InitCode == Native.DLSS_ERR_NOT_AVAILABLE   // NVIDIA without tensor cores (GTX)
+                    if (Upscalers.Failed != UpscalerKind.DLSS) return null;
+                    return Upscalers.FailedCode == Native.DLSS_ERR_NOT_AVAILABLE   // NVIDIA without tensor cores (GTX)
                         ? DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется NVIDIA RTX")
                         : DlssConfig.Loc("DLSS init failed — see the log", "Не удалось инициализировать DLSS — смотрите лог");
                 case Feature.Fsr:
@@ -59,11 +59,8 @@ namespace Renderforge
                     if (!Upscalers.FsrDllsPresent)
                         return DlssConfig.Loc("DLL missing: amd_fidelityfx_upscaler_dx12.dll — install the AMD pack",
                                               "Нет файла: amd_fidelityfx_upscaler_dx12.dll — установите пакет AMD");
-                    if (Upscalers.Running == UpscalerKind.FSR && !RenderforgeMod.Available)
+                    if (Upscalers.Failed == UpscalerKind.FSR)
                         return DlssConfig.Loc("FSR init failed — see the log", "Не удалось инициализировать FSR — смотрите лог");
-                    // Another provider is latched for this session: the choice is saved, the next launch runs FSR.
-                    if (Upscalers.Running != UpscalerKind.Off && Upscalers.Running != UpscalerKind.FSR)
-                        return DlssConfig.Loc("FSR selected — restart the game", "FSR выбран — перезапустите игру");
                     return null;
                 case Feature.Xess:
                     if (!IsD3D12)
@@ -72,15 +69,12 @@ namespace Renderforge
                     if (!Upscalers.XessDllPresent)
                         return DlssConfig.Loc("DLL missing: libxess.dll — install the Intel pack",
                                               "Нет файла: libxess.dll — установите пакет Intel");
-                    if (Upscalers.Running == UpscalerKind.XeSS && !RenderforgeMod.Available)
-                        return RenderforgeMod.InitCode == Native.DLSS_ERR_NOT_AVAILABLE
+                    if (Upscalers.Failed == UpscalerKind.XeSS)
+                        return Upscalers.FailedCode == Native.DLSS_ERR_NOT_AVAILABLE
                             ? DlssConfig.Loc("Not supported by this GPU (needs Shader Model 6.4 + DP4a)", "Не поддерживается этой видеокартой (нужны Shader Model 6.4 и DP4a)")
-                            : RenderforgeMod.InitCode == Native.DLSS_ERR_NEEDS_DRIVER
+                            : Upscalers.FailedCode == Native.DLSS_ERR_NEEDS_DRIVER
                             ? DlssConfig.Loc("Graphics driver too old for XeSS", "Драйвер видеокарты слишком старый для XeSS")
                             : DlssConfig.Loc("XeSS init failed — see the log", "Не удалось инициализировать XeSS — смотрите лог");
-                    // Another provider is latched for this session: the choice is saved, the next launch runs XeSS.
-                    if (Upscalers.Running != UpscalerKind.Off && Upscalers.Running != UpscalerKind.XeSS)
-                        return DlssConfig.Loc("XeSS selected — restart the game", "XeSS выбран — перезапустите игру");
                     return null;
                 case Feature.FrameGen:
                     if (!IsD3D12)

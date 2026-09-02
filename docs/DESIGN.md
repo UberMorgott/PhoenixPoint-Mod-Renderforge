@@ -92,9 +92,23 @@ is wrong before we ever touch the game.
 ### Upscaler providers
 
 The shim carries one `IDevice` implementation per (API, vendor) pair. `Dlss_SetProvider(int)` picks one **before**
-`Dlss_Init`; the choice is latched for the process, so changing the UPSCALER row needs a restart. `Dlss_Provider()`
-reports the latched id, `Dlss_ProviderVersion(char*,int)` the live provider's version string, `Dlss_SetCamera(near,far,fovY)`
-feeds the frustum FSR/XeSS need (copied into every frame slot; NGX ignores it).
+`Dlss_Init`; the choice is latched until `Dlss_Shutdown`. `Dlss_Provider()` reports the latched id,
+`Dlss_ProviderVersion(char*,int)` the live provider's version string, `Dlss_SetCamera(near,far,fovY)` feeds the
+frustum FSR/XeSS need (copied into every frame slot; NGX ignores it).
+
+- **2026-09-03 live provider switch (no restart).** The UPSCALER row / PPCLI `SetUpscaler ["FSR"]` →
+  `RenderforgeMod.SetUpscaler` → `DlssDriver.SwitchProvider(kind)`: `BeginRelease` (FG chain via `FrameGen.Release`,
+  RELEASE event, mip bias), `Releasing` waits its two frames + `TeardownResources`, then `Idle` waits until
+  `Dlss_Status` reports the feature dead (the RELEASE event runs on the render thread; racing it with a main-thread
+  Shutdown double-destroyed the ffx context = access violation) and calls `RenderforgeMod.ReinitNative(kind)` =
+  `Dlss_Shutdown` → `SetProvider` → `Init` on the same probe texture (a failed Init falls back to the previous
+  provider, `Upscalers.Failed`/`FailedCode` keep the row's reason); the normal Idle path re-creates the generation and
+  `FrameGen.Retry` re-arms FG. Belt on the native side: `IDevice::BeginDestroy/EndDestroy` (interlocked) make every
+  backend's feature/context destroy single-entry. Measured on Instance2 D3D12 1280x720: menu DLSS→FSR live in
+  168 ms, →XeSS 331 ms, →DLSS 1424 ms (NGX feature create), same in a tactical mission; 15 back-to-back switches in
+  692 ms without a leak; FG (FSR-FG 2x) back live after each switch, ratio 2.1; D3D11 refuses FSR/XeSS with
+  "Requires DirectX 12 — switch Renderer" and DLSS stays live; debug layer: 0 `D3D12 ERROR` naming our lists/resources
+  across 3 switches, `Application.Quit` exit code 0, no dump. `Availability.NeedsRestart` (first-run staging) stays.
 
 | Provider | id | API | Backend | SDK | Quality modes | Sharpening |
 |---|---|---|---|---|---|---|

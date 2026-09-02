@@ -195,12 +195,13 @@ struct Fsr12 : IDevice
 
     void DestroyContext()
     {
-        if (!context) return;
+        if (!context || !BeginDestroy()) return;
         ring.WaitIdle();                       // no submitted list may still reference the context's resources
         ffx->DestroyContext(&context, NULL);
         context = NULL;
         version[0] = 0;
         owned.Release();                       // idle above; the next Create's first dispatch re-creates the set
+        EndDestroy();
     }
 
     void Create(const CreateParams& cp) override

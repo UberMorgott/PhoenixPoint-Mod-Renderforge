@@ -44,26 +44,8 @@ namespace Renderforge
                     }
                     else
                     {
-                        // The shim latches the provider at Dlss_Init, so the choice is made here, once.
-                        Upscalers.Running = Upscalers.Resolve(Cfg.Upscaler);
-                        Native.SetProvider(Upscalers.ProviderOf(Upscalers.Running));
                         probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-                        InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
-                        // Auto under D3D12: a provider that fails Init (GTX without DLSS, old driver, no DP4a) falls
-                        // through to the next one - FSR, then XeSS (Upscalers.NextFallback). Dlss_Shutdown clears the
-                        // latch, so a second Init with another provider is allowed.
-                        while (InitCode != Native.DLSS_OK && Cfg.Upscaler == UpscalerKind.Auto)
-                        {
-                            UpscalerKind next = Upscalers.NextFallback(Upscalers.Running);
-                            if (next == UpscalerKind.Off) break;
-                            Logger.LogInfo(Upscalers.Running + " init failed (code " + InitCode + "): Auto falls back to " + next);
-                            Native.Dlss_Shutdown();
-                            Upscalers.Running = next;
-                            Native.SetProvider(Upscalers.ProviderOf(next));
-                            InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
-                        }
-                        Available = InitCode == Native.DLSS_OK;
-                        if (!Available) Upscalers.Running = UpscalerKind.Off;
+                        InitNative(Cfg.Upscaler);
                     }
                 }
                 catch (Exception ex)
@@ -71,6 +53,8 @@ namespace Renderforge
                     InitCode = Native.DLSS_ERR_INIT_FAILED;
                     Logger.LogError("Renderforge init THREW " + ex.Message);
                 }
+                if (!Available && Upscalers.Failed == UpscalerKind.Off)   // DLL never loaded / threw: the row still says why
+                { Upscalers.Failed = Upscalers.Resolve(Cfg.Upscaler); Upscalers.FailedCode = InitCode; }
                 Logger.LogInfo((Available ? "upscaler available" : "upscaler unavailable (code " + InitCode + "): " + Reason(InitCode))
                                + " provider=" + Upscalers.Running + " version=" + Native.ProviderVersion()
                                + " api=" + Native.Api() + " unityIface=" + Native.UnityIface() + " renderer=" + Availability.ApiName);
@@ -90,6 +74,52 @@ namespace Renderforge
                 AttachAndApply();
             }
             catch (Exception ex) { Logger.LogError("Renderforge enable THREW " + ex); }
+        }
+
+        /// <summary>Stand the shim up on `want` (SetProvider + Dlss_Init on the probe texture). Auto under D3D12: a provider
+        /// that fails Init (GTX without DLSS, old driver, no DP4a) falls through to the next one - FSR, then XeSS
+        /// (Upscalers.NextFallback); Dlss_Shutdown clears the latch, so a second Init with another provider is allowed.
+        /// Sets Available / InitCode / Upscalers.Running (+ Failed on a miss).</summary>
+        private static bool InitNative(UpscalerKind want)
+        {
+            var m = Instance;
+            Upscalers.Running = Upscalers.Resolve(want);
+            Native.SetProvider(Upscalers.ProviderOf(Upscalers.Running));
+            InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
+            while (InitCode != Native.DLSS_OK && want == UpscalerKind.Auto)
+            {
+                UpscalerKind next = Upscalers.NextFallback(Upscalers.Running);
+                if (next == UpscalerKind.Off) break;
+                m.Logger.LogInfo(Upscalers.Running + " init failed (code " + InitCode + "): Auto falls back to " + next);
+                Native.Dlss_Shutdown();
+                Upscalers.Running = next;
+                Native.SetProvider(Upscalers.ProviderOf(next));
+                InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
+            }
+            Available = InitCode == Native.DLSS_OK;
+            if (Available) Upscalers.Failed = UpscalerKind.Off;
+            else { Upscalers.Failed = Upscalers.Running; Upscalers.FailedCode = InitCode; Upscalers.Running = UpscalerKind.Off; }
+            return Available;
+        }
+
+        /// <summary>Live provider switch, called by DlssDriver once nothing is generating (or directly when there is no
+        /// driver): tear the shim's backend down and stand it up again on `want`. A failed Init falls back to the
+        /// provider that was running (Upscalers.Failed keeps the reason for the picker).</summary>
+        internal static void ReinitNative(UpscalerKind want)
+        {
+            var m = Instance;
+            if (m == null || probeTex == null) return;
+            UpscalerKind prev = Upscalers.Running;
+            Native.Dlss_Shutdown();
+            if (InitNative(want))
+            {
+                m.Logger.LogInfo("upscaler switched to " + Upscalers.Running + " version=" + Native.ProviderVersion());
+                return;
+            }
+            m.Logger.LogWarning(Upscalers.Failed + " init failed (code " + InitCode + "): back to " + prev);
+            UpscalerKind failed = Upscalers.Failed; int code = Upscalers.FailedCode;
+            Native.Dlss_Shutdown();
+            if (prev != UpscalerKind.Off && InitNative(prev)) { Upscalers.Failed = failed; Upscalers.FailedCode = code; }
         }
 
         public override void OnModDisabled()
@@ -118,9 +148,42 @@ namespace Renderforge
 
         public override void OnConfigChanged()
         {
-            Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Cfg.DebugView);
+            Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Cfg.DebugView + " upscaler = " + Cfg.Upscaler);
             ApplyFrameRate();
+            ApplyUpscaler();
             AttachAndApply();
+        }
+
+        /// <summary>Config's Upscaler differs from the running provider and is usable right now -> switch live. Null =
+        /// nothing to do or the switch is under way; otherwise the Availability reason the row is greyed with.</summary>
+        private string ApplyUpscaler()
+        {
+            UpscalerKind kind = Upscalers.Resolve(Cfg.Upscaler);
+            if (kind == UpscalerKind.Off || kind == Upscalers.Running) return null;
+            string reason = Availability.Reason(Upscalers.FeatureOf(kind));
+            if (reason != null) return reason;
+            if (DlssDriver.Instance != null) DlssDriver.Instance.SwitchProvider(kind);
+            else { ReinitNative(kind); if (Available) DlssDriver.Create(); }
+            return null;
+        }
+
+        /// <summary>The UPSCALER row and PPCLI: {"member":"SetUpscaler","args":["FSR"]} - Off / Auto / DLSS / FSR / XeSS.
+        /// Applies live (DlssDriver releases the generation, re-inits the shim, re-creates) and saves. Off means "no
+        /// upscaling at all", so the quality mode follows it; leaving Off turns the mode back to Auto. An unavailable
+        /// choice is saved (the next launch under the right renderer picks it up) but refused now, with the reason.</summary>
+        public static string SetUpscaler(string name)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            UpscalerKind want;
+            if (!Enum.TryParse(name, true, out want)) return "bad upscaler '" + name + "' (Off / Auto / DLSS / FSR / XeSS)";
+            m.Cfg.Upscaler = want;
+            if (want == UpscalerKind.Off) m.Cfg.Mode = RenderforgeMode.Off;
+            else if (m.Cfg.Mode == RenderforgeMode.Off) m.Cfg.Mode = RenderforgeMode.Auto;
+            string refused = m.ApplyUpscaler();
+            m.AttachAndApply();
+            SaveConfig();
+            return (refused != null ? "refused: " + refused : "upscaler=" + want) + " | " + GetStatus();
         }
 
         /// <summary>Also the InitVideoOptions postfix (Patches.cs), which runs on the game's own SetFrameRateLimit(60).</summary>
@@ -240,7 +303,11 @@ namespace Renderforge
             return "fgProvider=" + name + " " + FrameGen.Status();
         }
 
-        public static string GetStatus() => (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
+        /// <summary>PPCLI test knob: {"member":"SetHoldPrepare","args":[true]} - the driver stops feeding FG frames while the chain stays live.</summary>
+        public static string SetHoldPrepare(bool on) { FrameGen.HoldPrepare = on; return "holdPrepare=" + on + " " + FrameGen.Status(); }
+
+        public static string GetStatus() => "provider=" + Upscalers.Running + " "
+                                          + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 
         private static string Reason(int code)

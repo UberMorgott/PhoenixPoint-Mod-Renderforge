@@ -92,6 +92,17 @@ namespace Renderforge
             layer = cam.GetComponent<PostProcessLayer>();
         }
 
+        /// <summary>Live provider switch: release the generation now (FG chain, feature, mip bias, two frames for
+        /// in-flight events), then Idle re-inits the shim on `kind` and the normal path re-creates on it.</summary>
+        public void SwitchProvider(UpscalerKind kind)
+        {
+            switchTo = kind;
+            if (gen == Gen.Live || gen == Gen.Creating) BeginRelease();
+            else if (gen == Gen.Idle) genFrames = 0;
+        }
+
+        private UpscalerKind switchTo = UpscalerKind.Off;   // Off = no switch pending
+
         public void Apply(RenderforgeMode mode, DebugView view)
         {
             wantMode = mode;
@@ -145,7 +156,16 @@ namespace Renderforge
             switch (gen)
             {
                 case Gen.Idle:
-                    if (wantMode != RenderforgeMode.Off && cam != null && cam.isActiveAndEnabled) StartGeneration();
+                    if (switchTo != UpscalerKind.Off)
+                    {
+                        // The RELEASE event destroys the feature/context on the render thread; Shutdown must not race
+                        // it from here (double ffxDestroyContext crashed 2026-09-03), so wait until it reports dead.
+                        int c, e, alive; Native.Dlss_Status(out c, out e, out alive);
+                        if (alive != 0 && ++genFrames < 120) break;
+                        UpscalerKind k = switchTo; switchTo = UpscalerKind.Off;
+                        RenderforgeMod.ReinitNative(k);
+                    }
+                    if (wantMode != RenderforgeMode.Off && cam != null && cam.isActiveAndEnabled && RenderforgeMod.Available) StartGeneration();
                     break;
                 case Gen.Creating:
                     if (++genFrames < 2) break;
@@ -190,7 +210,7 @@ namespace Renderforge
                 case Gen.Releasing:
                     if (++genFrames < 2) break;       // two frames after event 3: no in-flight event touches a dead RT
                     TeardownResources();
-                    gen = Gen.Idle;
+                    gen = Gen.Idle; genFrames = 0;
                     break;
             }
         }

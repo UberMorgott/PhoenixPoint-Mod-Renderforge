@@ -47,9 +47,15 @@ struct IDevice
     int sharpener;      // DLSS_SHARPEN_*
     int sharpenDead;    // sharpen setup failed once -> pass skipped for good
     int initCode;       // DLSS_OK / DLSS_ERR_* of the first NGX init; Init() replays it once NGX is up
+    // Feature/context teardown runs on the render thread (DLSS_EV_RELEASE) AND on the main thread (Shutdown on a
+    // live provider switch, plugin unload). Only one of them may enter the vendor Destroy: a second caller while
+    // the first is inside it returns at once (double ffxDestroyContext = access violation, 2026-09-03).
+    volatile LONG destroying;
 
-    IDevice() : lastCreate((NVSDK_NGX_Result)0), lastEval((NVSDK_NGX_Result)0), lastError(0), sharpener(0), sharpenDead(0), initCode(0) {}
+    IDevice() : lastCreate((NVSDK_NGX_Result)0), lastEval((NVSDK_NGX_Result)0), lastError(0), sharpener(0), sharpenDead(0), initCode(0), destroying(0) {}
     virtual ~IDevice() {}
+    bool BeginDestroy() { return InterlockedCompareExchange(&destroying, 1, 0) == 0; }
+    void EndDestroy()   { InterlockedExchange(&destroying, 0); }
 
     virtual int  Api() const = 0;                       // 11 or 12
     virtual int  Init(void* nativeResource, const wchar_t* dllDir, const wchar_t* logDir) = 0;   // DLSS_OK / DLSS_ERR_*

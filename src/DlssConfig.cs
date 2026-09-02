@@ -50,7 +50,7 @@ namespace Renderforge
         public DebugView DebugView = DebugView.None;
         [ConfigField("Renderer", "Auto = DirectX 11. DirectX 12 is experimental and needs a restart.")]
         public RendererMode Renderer = RendererMode.Auto;
-        [ConfigField("Upscaler", "Auto picks by GPU: NVIDIA → DLSS, Intel → XeSS, otherwise FSR (XeSS if the AMD DLLs are missing). FSR/XeSS need DirectX 12. Changing it needs a restart.")]
+        [ConfigField("Upscaler", "Auto picks by GPU: NVIDIA → DLSS, Intel → XeSS, otherwise FSR (XeSS if the AMD DLLs are missing). FSR/XeSS need DirectX 12. Switches live.")]
         public UpscalerKind Upscaler = UpscalerKind.Auto;
         [ConfigField("Frame generation", "Off / 2x / 3x / 4x. DirectX 12 only. 3x and 4x need DLSS-G on an RTX 50 GPU.")]
         public FrameGenMode FrameGen = FrameGenMode.Off;

@@ -14,7 +14,7 @@ benchmark overlay for Phoenix Point.
 - Quality modes per provider: Off, Auto, DLAA / Native AA, Quality, Balanced, Performance,
   Ultra Performance.
 - Auto picks by output height — 1200p or lower: DLAA; 1201p–1600p: Quality; above 1600p: Performance.
-- Change modes while playing; only the **renderer** and the **upscaler vendor** need a restart.
+- Change modes and upscalers while playing; only the **renderer** needs a restart.
 - Native pickers in **Options → Graphics** (RENDERER, UPSCALER, FRAME GENERATION, QUALITY, SHARPNESS).
 - Anything that cannot run right now is greyed out and says why when you hover it.
 - Automatically disables SMAA while an upscaler is active.
@@ -134,8 +134,7 @@ your `Player.log`.
 
 `Upscaler` is `Auto` / `Off` / `DLSS` / `FSR` / `XeSS`. `Auto` resolves from your hardware: on
 DirectX 11, DLSS on NVIDIA and nothing otherwise; on DirectX 12, DLSS on NVIDIA, else FSR when the AMD
-pack is installed. The shim latches the vendor at start-up, so **changing the upscaler needs a restart**;
-switching quality mode does not.
+pack is installed. Changing the upscaler applies immediately, like the quality mode — no restart.
 
 | Setting | Location | Default |
 |---|---|---:|

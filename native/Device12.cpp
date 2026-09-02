@@ -128,7 +128,7 @@ struct Device12 : IDevice
     void Create(const CreateParams& cp) override
     {
         if (!params || !device || !g_unityD3D12) { lastCreate = NVSDK_NGX_Result_FAIL_NotInitialized; return; }
-        if (feature) { WaitIdle(); NVSDK_NGX_D3D12_ReleaseFeature(feature); feature = NULL; }
+        ReleaseFeature();
         if (!cp.w || !cp.outW) { lastCreate = NVSDK_NGX_Result_FAIL_InvalidParameter; return; }
         SetPresetHints(params);
 
@@ -231,11 +231,12 @@ struct Device12 : IDevice
 
     void ReleaseFeature() override
     {
-        if (!feature) return;
+        if (!feature || !BeginDestroy()) return;
         WaitIdle();                       // guide p.54 5.5: no command list using the feature may still be in flight
         NVSDK_NGX_D3D12_ReleaseFeature(feature);
         feature = NULL;
         owned.Release();                  // idle above; a new generation re-creates the set at its own size
+        EndDestroy();
     }
 
     void Shutdown() override
