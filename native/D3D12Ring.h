@@ -12,6 +12,7 @@
 #pragma once
 
 #include <windows.h>
+#include <string.h>
 #include <d3d12.h>
 #include "RenderforgeNative.h"
 #include "unity/IUnityInterface.h"
@@ -26,6 +27,8 @@ struct D3D12Ring
     static const int kRing = 4;
     static const DWORD kFenceWaitMs = 5000;   // a hung GPU must not deadlock the render thread forever
 
+    static const int kStates = 4;   // colour + depth + motion vectors + output, the widest declaration we make
+
     ID3D12Device* device;
     ID3D12CommandAllocator* alloc[kRing];
     ID3D12GraphicsCommandList* list[kRing];
@@ -35,6 +38,13 @@ struct D3D12Ring
     HANDLE waitEvent;
     int failCode;                 // DLSS_ERR_* of the last Begin() failure, for the caller's lastError
 
+    // The resource states handed to ExecuteCommandList, one array per ring slot. They MUST outlive the call:
+    // Unity executes the list on a worker thread and reads this memory after our render event has returned, so
+    // a stack local here is a use-after-free that shows up as garbage barriers and a DEVICE_REMOVED/INVALID_CALL
+    // seconds later (root cause of the D3D12 crash, 2026-09-02). A slot's array is only rewritten once its
+    // previous submission has retired, which Begin() already waits for.
+    UnityGraphicsD3D12ResourceState states[kRing][kStates];
+
     D3D12Ring() { Zero(); }
 
     void Zero()
@@ -42,7 +52,11 @@ struct D3D12Ring
         device = NULL;
         for (int i = 0; i < kRing; ++i) { alloc[i] = NULL; list[i] = NULL; submitted[i] = 0; }
         ringIdx = 0; recording = 0; waitEvent = NULL; failCode = 0;
+        memset(states, 0, sizeof(states));
     }
+
+    // The state array to fill for the submission currently being recorded (kStates entries).
+    UnityGraphicsD3D12ResourceState* StateSlot() { return states[ringIdx]; }
 
     void Attach(ID3D12Device* dev) { device = dev; }
 
@@ -94,8 +108,9 @@ struct D3D12Ring
         return list[i];
     }
 
-    // Closes the current list and hands it to Unity. `states` may be NULL when stateCount is 0.
-    bool End(int stateCount, UnityGraphicsD3D12ResourceState* states)
+    // Closes the current list and hands it to Unity, together with the first `stateCount` entries of this
+    // slot's StateSlot() array (which stays alive until the slot is reused - see `states` above).
+    bool End(int stateCount)
     {
         if (!recording) return false;
         int i = ringIdx;
@@ -103,7 +118,7 @@ struct D3D12Ring
         ringIdx = (ringIdx + 1) % kRing;
         IUnityGraphicsD3D12v5* unity = g_unityD3D12;
         if (FAILED(list[i]->Close()) || !unity) return false;
-        UINT64 v = unity->ExecuteCommandList(list[i], stateCount, states);
+        UINT64 v = unity->ExecuteCommandList(list[i], stateCount, stateCount ? states[i] : NULL);
         // 0 would mark the slot "never used" and let Begin() reset an allocator the GPU may still read.
         // Unity signals the frame fence with GetNextFrameFenceValue() at the end of this frame, after our
         // list - waiting on that is the conservative, always-correct choice.

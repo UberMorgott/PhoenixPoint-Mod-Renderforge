@@ -248,7 +248,7 @@ struct Fsr12 : IDevice
         ID3D12GraphicsCommandList* cl = ring.Begin();
         if (!cl) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = ring.failCode; return; }
 
-        UnityGraphicsD3D12ResourceState st[4];
+        UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = 0;
         if (passthrough) {
             st[n].resource = color;  st[n].expected = D3D12_RESOURCE_STATE_COPY_SOURCE; st[n].current = D3D12_RESOURCE_STATE_COPY_SOURCE; ++n;
@@ -302,7 +302,7 @@ struct Fsr12 : IDevice
             lastEval = Map(rc);
             if (rc != FFX_API_RETURN_OK) lastError = DLSS_ERR_FFX;
         }
-        if (!ring.End(n, st)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
+        if (!ring.End(n)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
     }
 
     void ReleaseFeature() override { DestroyContext(); }
