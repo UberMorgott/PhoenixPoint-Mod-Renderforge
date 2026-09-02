@@ -4,9 +4,10 @@
 // shadow chain there. Same thread as the parent (created from inside a subclassed WndProc), so WM_NCHITTEST ->
 // HTTRANSPARENT hands every mouse message to Unity and keyboard focus never moves.
 //
-// The subclass stays installed for the process lifetime, like the vtable patch (RenderforgeNative.cpp:329):
-// restoring GWLP_WNDPROC after someone else subclassed on top of us would cut their chain. Destroying the child
-// must happen on the window's thread, so teardown posts a message; the render thread only hides it.
+// The subclass stays installed for the window's lifetime, like the vtable patch (RenderforgeNative.cpp:329):
+// restoring GWLP_WNDPROC after someone else subclassed on top of us would cut their chain; WM_NCDESTROY drops
+// the state so a recreated Unity window is subclassed afresh. Destroying the child must happen on the window's
+// thread, so teardown posts a message; the render thread only hides it.
 #include "Fg.h"
 
 namespace {
@@ -79,6 +80,21 @@ LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
     case WM_WINDOWPOSCHANGED:
         FitChild();
         break;
+    case WM_DISPLAYCHANGE:
+    case WM_DPICHANGED:
+        FgHostTearDown(m == WM_DISPLAYCHANGE ? "WM_DISPLAYCHANGE" : "WM_DPICHANGED");   // the driver rebuilds (Fg_Alive -> 0)
+        break;
+    case WM_NCDESTROY: {
+        // Unity is recreating its HWND: the child died with it (DestroyWindow destroys children first), the
+        // subclass dies here, and the chain built on this window goes with them. Detach only - never wait for
+        // the render thread from the UI thread.
+        WNDPROC orig = g_origProc;
+        FgLog("wnd: parent %p WM_NCDESTROY", (void*)h);
+        g_child = NULL; g_parent = NULL; g_origProc = NULL;
+        FgHostTearDown("parent WM_NCDESTROY");
+        FgHookForgetApp();
+        return CallWindowProcW(orig, h, m, w, l);
+    }
     }
     return CallWindowProcW(g_origProc, h, m, w, l);
 }
@@ -119,6 +135,8 @@ void FgWndDestroy(void)
     ShowWindowAsync(c, SW_HIDE);                            // safe from any thread; the destroy runs on the UI thread
     PostMessageW(g_parent, WM_RF_DESTROY, (WPARAM)c, 0);
 }
+
+HWND FgWndChild(void) { return g_child; }
 
 const FgWndProbe* FgWndProbeNow(void)
 {

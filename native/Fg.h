@@ -14,20 +14,18 @@ void FgLogInit(const wchar_t* logDir);
 
 // ---------------------------------------------------------------- hook (FgHook.cpp)
 
-// Patch IDXGISwapChain::Present/Present1/ResizeBuffers in the shared DXGI vtable. Idempotent.
-// `queue` = Unity's command queue (needed to create the throwaway swapchain the vtable is read from).
-// Returns true when the three slots are patched.
+// Patch IDXGISwapChain::Present/Present1/ResizeBuffers/SetFullscreenState in the shared DXGI vtable. Idempotent;
+// a partial patch is rolled back. `queue` = Unity's command queue (needed to create the throwaway swapchain the
+// vtable is read from). Returns true when every slot is patched.
 bool FgHookInstall(ID3D12CommandQueue* queue);
 void FgHookRemove(void);
 
-// The application's swapchain, discovered on the first hooked Present. NULL until then.
+// The application's swapchain, discovered on the first hooked Present. NULL until then. Observed, not owned:
+// compare it, never dereference it without a reference of your own (FgHostInit AddRefs it for the chain's life).
 IDXGISwapChain3* FgAppSwapChain(void);
 HWND             FgAppHwnd(void);
 const DXGI_SWAP_CHAIN_DESC1* FgAppDesc(void);   // NULL until discovered
-
-// Present the application's swapchain through the saved original vtable entry (never re-enters the hook).
-HRESULT FgOriginalPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags);
-HRESULT FgOriginalResizeBuffers(IDXGISwapChain* sc, UINT count, UINT w, UINT h, DXGI_FORMAT fmt, UINT flags);
+void FgHookForgetApp(void);                     // the app HWND died (WM_NCDESTROY): rediscover on the next Present
 
 // Presented frames per second over a 0.5 s window, counted in the hook (includes generated frames). 0 = no data.
 int  FgPresentedFps(void);
@@ -123,6 +121,7 @@ const char* FgXessBlockedReason(const wchar_t* dllDir);
 // the parent's thread. Returns NULL on failure. Idempotent while the child exists.
 HWND FgWndCreate(HWND parent);
 void FgWndDestroy(void);                     // any thread: hides now, destroys on the UI thread
+HWND FgWndChild(void);                       // the live child, NULL when none (the hook excludes its chain from discovery)
 struct FgWndProbe
 {
     HWND  parent, child, focus, foreground;  // focus/foreground as seen from the UI thread
@@ -135,10 +134,11 @@ const FgWndProbe* FgWndProbeNow(void);       // samples on the UI thread (bounde
 
 int  FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir);  // main thread
 void FgHostSetEnabled(int on);
-void FgHostSetFrame(const FgFrame& f);       // main thread, ring-buffered
+void FgHostSetFrame(const FgFrame& f);       // main thread; single slot, the Unity RTs are retained until overwritten
 void FgHostPrepare(void);                    // render thread, DLSS_EV_FG_PREPARE
-void FgHostShutdown(void);                   // main thread, render idle
-int  FgHostAlive(void);                      // 1 while a chain exists; 0 after a resize/Present-failure teardown
+void FgHostShutdown(void);                   // main thread
+void FgHostTearDown(const char* why);        // any thread: fullscreen, WM_NCDESTROY, display change (Fg_Alive -> 0, driver rebuilds)
+int  FgHostAlive(void);                      // 1 while a chain exists; 0 after a resize/Present-failure/fullscreen teardown
 unsigned FgHostCaps(void);
 // Composition swapchain on s.hwnd shown through a DirectComposition target (the host owns the DComp objects).
 // Every provider that does not bring its own swapchain builds it from this.
@@ -150,10 +150,12 @@ HWND FgHostChildHwnd(const FgSetup& s);
 int  FgHostProvider(void);
 const char* FgHostStatus(void);
 
-// Called from the Present hook. Returns true when the host presented the frame itself - shadow chain plus a
-// sync-0 original Present of Unity's chain, so the hook must NOT call the original again - and writes the
-// HRESULT to *outHr.
-bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags, HRESULT* outHr);
+// Called from the Present hook BEFORE it forwards Unity's Present (the hook is the only place that presents
+// Unity's chain, exactly once per call, on every path). Returns true when the shadow chain carried this frame:
+// the hook then presents Unity's chain with sync 0 and only ALLOW_TEARING/RESTART kept, and reports the result
+// to FgHostAfterUnityPresent. False = the hook forwards the call unchanged. Never presents Unity's chain itself.
+bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags);
+void FgHostAfterUnityPresent(HRESULT hr);    // hook, after the Unity Present of a handled frame (failure/occlusion tears down)
 // Called from the ResizeBuffers hook before the original runs.
 void FgHostOnResize(unsigned w, unsigned h);
 // Add n presented frames to the counter (providers report their generated frames through this).

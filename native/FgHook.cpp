@@ -3,8 +3,13 @@
 // recognises the application swapchain as the first `this` whose OutputWindow is not our dummy window.
 //
 // Vtable indices (IUnknown 0-2, IDXGIObject 3-6, IDXGIDeviceSubObject 7, IDXGISwapChain 8-17,
-// IDXGISwapChain1 18-...): Present = 8, ResizeBuffers = 13, Present1 = 22. Verified against dxgi.h
-// declaration order; asserted at runtime by comparing the saved original against the vtable slot.
+// IDXGISwapChain1 18-...): Present = 8, SetFullscreenState = 10, ResizeBuffers = 13, Present1 = 22. Verified
+// against dxgi.h declaration order; asserted at runtime by comparing the saved original against the vtable slot.
+//
+// Present contract: the hook is the ONLY place that presents Unity's chain, exactly once per hooked call. The host
+// (FgHostOnPresent) only presents the shadow chain and says whether it did; then Unity's chain goes out with sync 0
+// (hidden under ours, it just has to keep its back-buffer index rotating). TEST / DO_NOT_SEQUENCE presents are
+// not frames: straight through, untouched, uncounted.
 #include "Fg.h"
 
 #include <stdio.h>
@@ -15,14 +20,19 @@ namespace {
 typedef HRESULT (STDMETHODCALLTYPE *PfnPresent)(IDXGISwapChain*, UINT, UINT);
 typedef HRESULT (STDMETHODCALLTYPE *PfnPresent1)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
 typedef HRESULT (STDMETHODCALLTYPE *PfnResizeBuffers)(IDXGISwapChain*, UINT, UINT, UINT, DXGI_FORMAT, UINT);
+typedef HRESULT (STDMETHODCALLTYPE *PfnSetFullscreen)(IDXGISwapChain*, BOOL, IDXGIOutput*);
 
-const int kVtPresent = 8, kVtResizeBuffers = 13, kVtPresent1 = 22;
+const int kVtPresent = 8, kVtSetFullscreen = 10, kVtResizeBuffers = 13, kVtPresent1 = 22;
+const UINT kPassThrough = DXGI_PRESENT_TEST | DXGI_PRESENT_DO_NOT_SEQUENCE;
 
 PfnPresent       g_origPresent = NULL;
 PfnPresent1      g_origPresent1 = NULL;
 PfnResizeBuffers g_origResize = NULL;
+PfnSetFullscreen g_origSetFullscreen = NULL;
 
-IDXGISwapChain3* g_app = NULL;              // NOT AddRef'd: Unity owns it, we only observe
+// Observed, not owned: only ever compared against `this`, never dereferenced outside NoteApp (where it IS `this`).
+// The host takes its own AddRef on it for as long as a chain is built on it (FgHost.cpp Chain::app).
+IDXGISwapChain3* g_app = NULL;
 HWND             g_appHwnd = NULL;
 DXGI_SWAP_CHAIN_DESC1 g_appDesc = {};
 int              g_appDescValid = 0;
@@ -56,18 +66,19 @@ void CountPresent()
     }
 }
 
-// Remember the application's swapchain the first time a foreign `this` presents.
+// Remember the application's swapchain the first time a foreign `this` presents. Our own chains (dummy, child)
+// are excluded by their window.
 void NoteApp(IDXGISwapChain* sc)
 {
     if (g_app) return;
     DXGI_SWAP_CHAIN_DESC d = {};
-    if (FAILED(sc->GetDesc(&d)) || d.OutputWindow == NULL || d.OutputWindow == g_dummyHwnd) return;
+    if (FAILED(sc->GetDesc(&d)) || d.OutputWindow == NULL || d.OutputWindow == g_dummyHwnd || d.OutputWindow == FgWndChild()) return;
     IDXGISwapChain3* sc3 = NULL;
     if (FAILED(sc->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&sc3))) {
         FgLog("hook: app swapchain is not IDXGISwapChain3 - FG needs it, giving up on discovery");
         return;
     }
-    sc3->Release();                 // do not hold a reference; Unity owns the object
+    sc3->Release();                 // observation only (see g_app); the host AddRefs while it builds on it
     g_app = sc3;
     g_appHwnd = d.OutputWindow;
     IDXGISwapChain1* sc1 = NULL;
@@ -91,23 +102,30 @@ void NoteApp(IDXGISwapChain* sc)
           g_spike.flipModel, g_spike.waitable);
 }
 
+// Unity's Present flags once the shadow chain carried the frame: sync 0, only ALLOW_TEARING / RESTART kept.
+UINT UnityFlags(UINT flags) { return flags & (DXGI_PRESENT_ALLOW_TEARING | DXGI_PRESENT_RESTART); }
+
 HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flags)
 {
+    if (flags & kPassThrough) return g_origPresent(self, sync, flags);
     NoteApp(self);
-    HRESULT hr = S_OK;
-    if (self == (IDXGISwapChain*)g_app && FgHostOnPresent(self, sync, flags, &hr)) return hr;
-    hr = g_origPresent(self, sync, flags);
-    if (self == (IDXGISwapChain*)g_app) { CountPresent(); g_spike.forwardedPresentHr = (long)hr; }
+    if (self != (IDXGISwapChain*)g_app) return g_origPresent(self, sync, flags);
+    bool fg = FgHostOnPresent(self, sync, flags);
+    HRESULT hr = fg ? g_origPresent(self, 0, UnityFlags(flags)) : g_origPresent(self, sync, flags);
+    g_spike.forwardedPresentHr = (long)hr;
+    if (fg) FgHostAfterUnityPresent(hr); else CountPresent();
     return hr;
 }
 
 HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* self, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* pp)
 {
+    if (flags & kPassThrough) return g_origPresent1(self, sync, flags, pp);
     NoteApp(self);
-    HRESULT hr = S_OK;
-    if ((IDXGISwapChain*)self == (IDXGISwapChain*)g_app && FgHostOnPresent((IDXGISwapChain*)self, sync, flags, &hr)) return hr;
-    hr = g_origPresent1(self, sync, flags, pp);
-    if ((IDXGISwapChain*)self == (IDXGISwapChain*)g_app) { CountPresent(); g_spike.forwardedPresentHr = (long)hr; }
+    if ((IDXGISwapChain*)self != (IDXGISwapChain*)g_app) return g_origPresent1(self, sync, flags, pp);
+    bool fg = FgHostOnPresent((IDXGISwapChain*)self, sync, flags);
+    HRESULT hr = fg ? g_origPresent1(self, 0, UnityFlags(flags), pp) : g_origPresent1(self, sync, flags, pp);
+    g_spike.forwardedPresentHr = (long)hr;
+    if (fg) FgHostAfterUnityPresent(hr); else CountPresent();
     return hr;
 }
 
@@ -121,6 +139,18 @@ HRESULT STDMETHODCALLTYPE HookResizeBuffers(IDXGISwapChain* self, UINT count, UI
     return g_origResize(self, count, w, h, fmt, flags);
 }
 
+// Exclusive fullscreen on Unity's chain: our child window / shadow chain cannot live over it, tear down first
+// (the managed driver retries Init, which refuses while GetFullscreenState says fullscreen). Never our own chains.
+HRESULT STDMETHODCALLTYPE HookSetFullscreenState(IDXGISwapChain* self, BOOL fullscreen, IDXGIOutput* target)
+{
+    if (self == (IDXGISwapChain*)g_app) {
+        FgLog("hook: app SetFullscreenState(%d)", (int)fullscreen);
+        if (fullscreen) FgHostTearDown("SetFullscreenState(TRUE)");
+    }
+    return g_origSetFullscreen(self, fullscreen, target);
+}
+
+// Writes `fn` into vt[idx], returning the previous entry in *outOrig. False (slot untouched) on VirtualProtect failure.
 bool PatchSlot(void** vt, int idx, void* fn, void** outOrig)
 {
     DWORD old = 0;
@@ -130,6 +160,25 @@ bool PatchSlot(void** vt, int idx, void* fn, void** outOrig)
     DWORD tmp = 0;
     VirtualProtect(&vt[idx], sizeof(void*), old, &tmp);
     return true;
+}
+
+struct Slot { int idx; void* fn; void** orig; };
+Slot g_slots[] = {
+    { kVtPresent,       (void*)&HookPresent,            (void**)&g_origPresent },
+    { kVtResizeBuffers, (void*)&HookResizeBuffers,      (void**)&g_origResize },
+    { kVtPresent1,      (void*)&HookPresent1,           (void**)&g_origPresent1 },
+    { kVtSetFullscreen, (void*)&HookSetFullscreenState, (void**)&g_origSetFullscreen },
+};
+const int kSlots = sizeof(g_slots) / sizeof(g_slots[0]);
+
+// Restore the first `n` patched slots (a partial install must never leave the vtable half ours).
+void UnpatchSlots(void** vt, int n)
+{
+    for (int i = n - 1; i >= 0; --i) {
+        void* tmp = NULL;
+        if (*g_slots[i].orig) PatchSlot(vt, g_slots[i].idx, *g_slots[i].orig, &tmp);
+        *g_slots[i].orig = NULL;
+    }
 }
 
 // An 8x8 off-screen window that never becomes visible; the throwaway swapchain hangs off it.
@@ -196,15 +245,19 @@ bool FgHookInstall(ID3D12CommandQueue* queue)
     if (FAILED(hr) || !g_dummy) { FgLog("hook: dummy swapchain 0x%08X", (unsigned)hr); return false; }
 
     void** vt = *(void***)g_dummy;
-    bool ok = PatchSlot(vt, kVtPresent,       (void*)&HookPresent,       (void**)&g_origPresent)
-           && PatchSlot(vt, kVtResizeBuffers, (void*)&HookResizeBuffers, (void**)&g_origResize)
-           && PatchSlot(vt, kVtPresent1,      (void*)&HookPresent1,      (void**)&g_origPresent1);
-    if (!ok) { FgLog("hook: VirtualProtect failed"); return false; }
+    for (int i = 0; i < kSlots; ++i) {
+        if (PatchSlot(vt, g_slots[i].idx, g_slots[i].fn, g_slots[i].orig)) continue;
+        FgLog("hook: VirtualProtect failed on slot %d - rolling back %d patched", g_slots[i].idx, i);
+        UnpatchSlots(vt, i);
+        g_dummy->Release(); g_dummy = NULL;
+        DestroyWindow(g_dummyHwnd); g_dummyHwnd = NULL;
+        return false;
+    }
 
     g_installed = 1;
     g_spike.installed = 1;
-    FgLog("hook: installed (vtable %p, Present %p, Present1 %p, ResizeBuffers %p)",
-          (void*)vt, (void*)g_origPresent, (void*)g_origPresent1, (void*)g_origResize);
+    FgLog("hook: installed (vtable %p, Present %p, Present1 %p, ResizeBuffers %p, SetFullscreenState %p)",
+          (void*)vt, (void*)g_origPresent, (void*)g_origPresent1, (void*)g_origResize, (void*)g_origSetFullscreen);
     return true;
 }
 
@@ -212,29 +265,23 @@ void FgHookRemove(void)
 {
     if (!g_installed) return;
     void** vt = *(void***)g_dummy;
-    void* dummy = NULL;
-    PatchSlot(vt, kVtPresent,       (void*)g_origPresent,  &dummy);
-    PatchSlot(vt, kVtResizeBuffers, (void*)g_origResize,   &dummy);
-    PatchSlot(vt, kVtPresent1,      (void*)g_origPresent1, &dummy);
+    UnpatchSlots(vt, kSlots);
     g_dummy->Release(); g_dummy = NULL;
     DestroyWindow(g_dummyHwnd); g_dummyHwnd = NULL;
-    g_installed = 0; g_app = NULL; g_appDescValid = 0;
+    g_installed = 0; g_app = NULL; g_appHwnd = NULL; g_appDescValid = 0;
     FgLog("hook: removed");
+}
+
+void FgHookForgetApp(void)
+{
+    if (!g_app) return;
+    FgLog("hook: app swapchain %p on hwnd %p forgotten", (void*)g_app, (void*)g_appHwnd);
+    g_app = NULL; g_appHwnd = NULL; g_appDescValid = 0;
 }
 
 IDXGISwapChain3* FgAppSwapChain(void) { return g_app; }
 HWND FgAppHwnd(void) { return g_appHwnd; }
 const DXGI_SWAP_CHAIN_DESC1* FgAppDesc(void) { return g_appDescValid ? &g_appDesc : NULL; }
-
-HRESULT FgOriginalPresent(IDXGISwapChain* sc, UINT sync, UINT flags)
-{
-    return g_origPresent ? g_origPresent(sc, sync, flags) : E_FAIL;
-}
-
-HRESULT FgOriginalResizeBuffers(IDXGISwapChain* sc, UINT count, UINT w, UINT h, DXGI_FORMAT fmt, UINT flags)
-{
-    return g_origResize ? g_origResize(sc, count, w, h, fmt, flags) : E_FAIL;
-}
 
 void FgPresentedAdd(int n)
 {
