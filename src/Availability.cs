@@ -35,8 +35,9 @@ namespace Renderforge
                         return DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется видеокарта NVIDIA RTX");
                     if (IsD3D12)
                         return DlssConfig.Loc("DLSS on D3D12 comes in Phase 2", "DLSS на D3D12 появится в фазе 2");
-                    return RenderforgeMod.Available
-                        ? null
+                    if (RenderforgeMod.Available) return null;
+                    return RenderforgeMod.InitCode == Native.DLSS_ERR_NOT_AVAILABLE   // NVIDIA without tensor cores (GTX)
+                        ? DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется NVIDIA RTX")
                         : DlssConfig.Loc("DLSS init failed — see the log", "Не удалось инициализировать DLSS — смотрите лог");
                 case Feature.Fsr:
                 case Feature.Xess:
