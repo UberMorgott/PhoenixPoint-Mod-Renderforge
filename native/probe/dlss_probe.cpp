@@ -181,7 +181,10 @@ static ID3D12Resource* MakeTex12(unsigned w, unsigned h, DXGI_FORMAT fmt, bool u
     d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     d.Width = w; d.Height = h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.Format = fmt;
     d.SampleDesc.Count = 1; d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    d.Flags = uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
+    // ALLOW_RENDER_TARGET always: Unity's RenderTextures have it, and RENDER_TARGET is the state the D3D12
+    // backends now declare for them, which a resource without the flag cannot legally be created in.
+    d.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    if (uav) d.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     ID3D12Resource* t = NULL;
     HRESULT hr = g_dev12->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &d, state, NULL, IID_PPV_ARGS(&t));
     if (FAILED(hr)) { printf("CreateCommittedResource %ux%u fmt %d failed hr=0x%08X\n", w, h, (int)fmt, (unsigned)hr); g_failed = 1; }

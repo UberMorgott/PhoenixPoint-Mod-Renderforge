@@ -64,10 +64,12 @@ struct Device12 : IDevice
     bool End(int n) { return ring.End(n); }
     void WaitIdle() { ring.WaitIdle(); }
 
-    // Declare the state we need a Unity resource to be in; Unity transitions it for us and records `current`.
-    // We never barrier a Unity resource ourselves: `expected = COMMON` is treated by Unity as "nothing to do",
-    // so the RT stays in RENDER_TARGET and our own COMMON -> X barrier is then a before-state mismatch
-    // (301x D3D12 debug-layer id=527 in one run, 2026-09-02). Transitions only on resources we own (ngxOut).
+    // Declare the state a Unity resource must be in for the list; `current` == `expected` because NGX restores
+    // what it found. We issue NO barrier of our own on a Unity resource - measured with the debug layer, its
+    // pre-state is not a constant (RENDER_TARGET, GENERIC_READ, COPY_DEST and DEPTH_WRITE all observed on the
+    // same RTs across frames), so any StateBefore we could hard-code is wrong some of the time.
+    // KNOWN OPEN ISSUE: this still leaves id=527 mismatches on Unity's own lists and a DEVICE_REMOVED after
+    // 1-5 min - Unity 2019.4 appears not to perform the `expected` transition before running our list.
     static void Declare(UnityGraphicsD3D12ResourceState* st, int& n, ID3D12Resource* res, D3D12_RESOURCE_STATES s)
     {
         st[n].resource = res;
@@ -228,8 +230,6 @@ struct Device12 : IDevice
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
             else if (doSharpen) sharpen.Run(cl, output, fp.sharpness, ring.ringIdx);
-            // No barrier back: NGX restores the incoming states, so `current` == `expected` and Unity's tracker
-            // stays right. Transitioning a Unity resource ourselves is what produced the id=527 mismatches.
         }
         if (RfDbg::On() && logged != output) {
             logged = output;
