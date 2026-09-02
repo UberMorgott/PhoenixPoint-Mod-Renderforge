@@ -2870,7 +2870,38 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): DLSS-G/MFG provider 
 
 Never touch `D:\Steam\steamapps\common\Phoenix Point` — that is the user's own game. Everything here runs against the automation install. PPCLI usage is per `E:\DEV\PhoenixPoint\PPCLI\PLAYBOOK.md`.
 
-- [ ] **Step 1: Deploy and take the no-FG baseline**
+> **2026-09-02 full verification on `D:\PP-Instance3` (profile `...593`, NOT Instance2 — the whole phase was measured there), HEAD `aa53ba4`, `-mods -force-d3d12 -force-d3d12-debug` + `RENDERFORGE_D3D12_DEBUG=1`, `ALN_PLT_Nest_48x48_A` seed 12345, 1280x720, RTX 5070 Ti: PASS with one defect (FSR-FG does not refuse 3x/4x).** Four game sessions: A `Upscaler:1`/`Renderer:2` (DLSS SR), B `Upscaler:3` (FSR SR), C `Upscaler:4` (XeSS SR), D `Renderer:1` no `-force-d3d12` (D3D11 guard). `deploy.ps1 -PPRoot D:\PP-Instance3` first (all six NVIDIA FG DLLs + AMD + Intel staged, `build-native: OK`, `dotnet build` 0/0).
+>
+> | provider | mult | live status | ratio (5 x 1 s) | 60 s soak | `start-mission` reload w/ FG live | Off → On |
+> |---|---|---|---|---|---|---|
+> | FSR (`3.1.6`, SDK paced chain) | X2 | `fg=live provider=fsr enabled=1 multiplier=2 chain=child caps=0x1 lastError=0 presentHr=0x00000000 presented=492 fps=104` | `+104/52 +100/50 +100/50 +100/51 +108/53` = **1.96-2.04** | alive, `presented=6616 lastError=0` | ok, fresh child `011E1020`, `presented=10734` | `off … multiplier=2` alive → live `011F1020` |
+> | XeSS (`XeSS-FG 1.3.1` + XeLL) | X2 | `fg=live provider=xess … caps=0x1 lastError=0 presented=12652 fps=87` | `+88/44 +90/45 +94/47 +88/45 +94/46` = **1.96-2.04** | alive, `presented=19234 lastError=0` | ok, fresh child `01251020`, `presented=21908` | `off` alive → live `01261020` |
+> | DLSS-G (Streamline 2.12.0, production plugins) | X2 | `fg=live provider=dlss … caps=0x7 lastError=0 presented=25614 fps=49` | `+54/56 +57/57 +59/58 +56/57 +58/58` = **1.00 — unfocused, expected** | alive, `presented=31820 lastError=0` | ok, fresh child `00A81044`, `presented=33902` | `off` alive → live `00A91044` |
+> | DLSS-G | X3 | `fg=live … multiplier=3 caps=0x7 lastError=0` | `+51/51 +56/58 +60/60 +59/59 +58/58` = **1.00 — unfocused, expected** | — | — | — |
+> | DLSS-G | X4 | `fg=live … multiplier=4 caps=0x7 lastError=0` | `+59/59 +60/60 +59/58 +55/55 +55/54` = **1.00 — unfocused, expected** | — | — | — |
+>
+> **DLSS-G ratio 1.00 is NOT a failure here** — the production `sl.dlss_g` plugin's focus gate (`sl.extra` `extra.cpp:97-124 hasFocus()`, RCA in the Task 5 round-2 note) presents no generated frame while the game window is not the foreground window; every status line in these runs reads `fg=0`, and the run was unattended with another application holding the foreground, which must not be stolen. The chain came up, presented stably and tore down cleanly at all three multipliers. The dev-plugin measurement of 2.00/3.00/4.00 on this same code is in the Task 5 round-2 note.
+>
+> **Provider round-trip FSR → XeSS → DLSS → FSR, X2 live each time: PASS, no leak.** Fresh shadow every time — `0000021DB2767690` / `0000021D1B3050B0` / `0000021D42E26760` / `0000021B799F8CA0`, `lastError=0`, `caps` flips `0x1`/`0x1`/`0x7`/`0x1`, 0 `DEVICE_REMOVED` in the debug layer across the whole session.
+>
+> **Upscaler + FG combos** (each live 20 s, desktop capture by `PrintWindow PW_CLIENTONLY|PW_RENDERFULLCONTENT`, 853x480 = DPI-scaled client rect):
+> - DLSS SR Quality + FSR-FG X2 — `docs\shots\phase5-fsr-x2-desktop.png`, overlay `Upscaler: DLSS SR (nvngx 310.7.129.0)`, `FG: FSR 2x`, `FPS: 45 / 104 (22,4 ms)`.
+> - FSR SR + DLSS-G X2 — `docs\shots\phase5-combo-fsrsr-dlssg.png`, overlay `Upscaler: FSR 3.1.5`, `FG: DLSS 2x`, `FPS: 94 / 95` (1.00, unfocused); ratio samples `+96/96 +96/96 +94/94 +96/96 +95/95`.
+> - XeSS SR + FSR-FG X2 — `docs\shots\phase5-combo-xesssr-fsrfg.png`, overlay `Upscaler: XeSS 2.0.2 DP4a`, `FG: FSR 2x`, `FPS: 76 / 150 (13,2 ms)`; ratio `+124/62 +136/68 +156/79 +158/78 +155/78` = **1.97-2.03**.
+>
+> **Screenshots judged (Step 3).** `phase5-fsr-x2-desktop.png`, `phase5-xess-x2-desktop.png` (`FG: XeSS 2x`, `FPS: 43 / 87`), `phase5-dlss-x4-desktop.png` (`FG: DLSS 4x`, `FPS: 43 / 45` — file named for what it actually shows; the DLSS desktop capture was taken after the X4 loop) and both combo shots: HUD (`ЗАДАЧИ` panel, unit/overwatch markers, the mod's own overlay text) is as sharp as the no-FG baseline, scene colour/brightness/fog identical, no tear line, no black band, no half-frame, `FG:` names the right provider and multiplier. The TFTV error dialog visible in every shot is TFTV's own, raised by the `start-mission` plan, and is present with FG off too. Overlay captures via `connect screenshot` (1280x720): `phase5-{fsr,xess}-x2-overlay.png`, `phase5-dlss-{x2,x3,x4}-overlay.png`, `phase5-soak-end-overlay.png`.
+>
+> **10-minute soak, DLSS SR Quality + FSR-FG X2, with 3 `start-mission` loads: PASS.** `t0 presented=45268 fps=121` → `+2m 59328` → `+4m 72444` → load1 (fresh child `004E06F0`, `presented=73713`) → `+6m 86951` → load2 (`005306F0`, `89267`) → `+8m 101211` → load3 (`01171044`, `102398`) → `+10m 114046 fps=104`, `lastError=0` at every sample, presented strictly monotonic, process alive throughout, end ratio `+108/55 +108/53 +102/53 +108/53 +106/52` = 1.92-2.04.
+>
+> **D3D11 guard (Step: relaunch without `-force-d3d12`, `Renderer:1`): PASS.** `api=11`; `SetFrameGen ["X2"]` returns `frameGen=X2 off provider=- enabled=0 multiplier=0 chain=- caps=0x0 lastError=0` — no chain, no throw, process alive; `FgSpike` returns `not D3D12` (the same DX12 gate `Availability.Reason(Feature.FrameGen)` shows as `Requires DirectX 12 — switch Renderer`).
+>
+> **Debug layer (`%TEMP%\renderforge-d3d12.log`), all three D3D12 sessions: 0 `REMOVED`, 0 `CORRUPTION`.** A 18279 lines / **3** naming ours, B 980 / 0, C 1797 / 0. The 3 are `D3D12 ERROR cat=8 id=527 ExecuteCommandLists: Using ResourceBarrier on Command List … 'Renderforge …'` — the documented Unity-state-tracker noise (Task 3 saw 5 of them; present with FG off too), inside bursts of Unity's own `BackBuffer*` id=527 on `Unnamed` lists. `Player.log`: 0 `DXGI_ERROR`, 0 `D3D12 ERROR`, 0 `RemovedDevice`, 0 `DEVICE_REMOVED`. `renderforge_fg.log`: 0 `fail`/`error` lines.
+>
+> **DEFECT (Step 5 half-failed): FSR-FG accepts X3 and X4 instead of refusing them.** `caps=0x1` (2x only) yet `SetFrameGen ["X3"]` → `fg=live provider=fsr enabled=1 multiplier=3 chain=child caps=0x1 lastError=0`, measured ratio `+110/56 +110/55 +112/55 +114/58 +118/59` = **1.96-2.04, i.e. 2x**; X4 likewise `multiplier=4` live at `+118/58 +110/56 +116/58 +112/56 +112/56` = 2x. XeSS does it correctly: `SetFrameGen ["X3"]` → `fg=off … multiplier=3 caps=0x1 lastError=6 … reason=multiplier above what this provider supports on this GPU`, process alive. So the status line and the picker would claim 3x/4x while FSR delivers 2x. No crash, no device removal, no `FG init … 3x -> 6` in `Player.log` for FSR. Fix belongs in `FgFsr.cpp` `Create` (or the host's caps gate): refuse `multiplier > 2` with `FG_ERR_UNSUPPORTED_MULTIPLIER` before creating the chain, the way `FgXess.cpp` already does off `maxSupportedInterpolations`. Not fixed in this evidence-gathering task.
+>
+> No PPCLI defect (Step 9): every verb behaved; `-PPRoot 'D:\PP-Instance3'` is required on every `connect`/`plan` because `ppcli-install.txt` pins Instance2. ModConfig restored (`FrameGen:0`, `Upscaler:1`, `Renderer:0`), Instance3 stopped.
+
+- [x] **Step 1: Deploy and take the no-FG baseline**
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\deploy.ps1"
@@ -2888,7 +2919,7 @@ Start-Sleep -Seconds 5
 ```
 Expected: `api=12 feature=1 lastError=0 | fg=off`, overlay reading `FPS: <n> (<ms>)` with no `/`.
 
-- [ ] **Step 2: All three providers, one screenshot each**
+- [x] **Step 2: All three providers, one screenshot each**
 
 ```powershell
 foreach ($p in 'Fsr','Xess','Dlss') {
@@ -2903,7 +2934,7 @@ foreach ($p in 'Fsr','Xess','Dlss') {
 ```
 Expected per provider: `fg=live provider=<FSR-FG 3.1.6|XeSS-FG|DLSS-G> enabled=1 multiplier=2 lastError=0` and a screenshot whose overlay reads `FPS: <real> / <presented>` with presented between 1.7× and 2.1× real.
 
-- [ ] **Step 3: Read every screenshot and judge the picture**
+- [x] **Step 3: Read every screenshot and judge the picture**
 
 Open `C:\Temp\rf\p5-baseline.png`, `p5-Fsr-2x.png`, `p5-Xess-2x.png`, `p5-Dlss-2x.png` with the Read tool. Check, in this order:
 1. **HUD not smeared.** Unit cards, action bar, the top status strip and the mod's own overlay text must be as sharp as in the baseline. A ghosted or doubled HUD means the hud-less contract failed — the provider is interpolating the composed backbuffer instead of `outRT`. Fix: `HUDLessColor` (FSR) / `XEFG_SWAPCHAIN_RES_HUDLESS_COLOR` tag (XeSS) / `kBufferTypeHUDLessColor` tag (DLSS) is not reaching the SDK; check `renderforge_fg.log` for a tag/configure error before touching anything else.
@@ -2911,7 +2942,7 @@ Open `C:\Temp\rf\p5-baseline.png`, `p5-Fsr-2x.png`, `p5-Xess-2x.png`, `p5-Dlss-2
 3. **No tear line, no black band, no half-frame.**
 4. Overlay `FG:` line names the right provider and multiplier.
 
-- [ ] **Step 4: MFG 3x and 4x (DLSS only)**
+- [x] **Step 4: MFG 3x and 4x (DLSS only)**
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetFgProvider","args":["Dlss"]}'
@@ -2936,7 +2967,7 @@ foreach ($p in 'Fsr','Xess') {
 ```
 Expected: `fg=off` with `FG init … 3x -> 6` in `Player.log`, the process alive and the picture un-generated. **A crash here is a bug, not an expected limitation.**
 
-- [ ] **Step 6: 10-minute stability soak with FG on**
+- [x] **Step 6: 10-minute stability soak with FG on**
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetFgProvider","args":["Fsr"]}'
@@ -2949,7 +2980,7 @@ Expected: `fg=off` with `FG init … 3x -> 6` in `Player.log`, the process alive
 ```
 Expected: ten answers, the process alive throughout, `lastError=0` every time, `presented=` growing monotonically, and the final screenshot indistinguishable from the 10-minute-earlier one.
 
-- [ ] **Step 7: Three mission loads with FG live, then a renderer round trip**
+- [x] **Step 7: Three mission loads with FG live, then a renderer round trip**
 
 ```powershell
 1..3 | ForEach-Object { .\ppcli.ps1 plan .\plans\start-mission.json '{"scene":"ALN_PLT_Nest_48x48_A","seed":12345}'; Start-Sleep -Seconds 15 }
@@ -2960,7 +2991,7 @@ Expected: ten answers, the process alive throughout, `lastError=0` every time, `
 ```
 Expected: the FG chain is torn down and rebuilt across each level change (`FgHostSetEnabled(0)` from `BeginRelease`, then `FrameGen.Retry()` once the new camera is live); `fg=live` again after each load; the final screenshot shows the plain, un-upscaled, un-generated game with a correct HUD.
 
-- [ ] **Step 8: Log diff against the D3D12 baseline**
+- [x] **Step 8: Log diff against the D3D12 baseline**
 
 ```powershell
 $log = "$env:USERPROFILE\AppData\LocalLow\Snapshot Games Inc\Phoenix Point\Player.log"
@@ -2971,11 +3002,11 @@ Get-Process PhoenixPointWin64 -ErrorAction SilentlyContinue | Where-Object { $_.
 ```
 Expected: no `DXGI_ERROR`, no `D3D12 ERROR`, no `RemovedDevice`, and every `Exception` group already present in the Phase 2 D3D12 run. `renderforge_fg.log` may contain informational lines but no failure codes.
 
-- [ ] **Step 9: PPCLI defects only if PPCLI itself misbehaved**
+- [x] **Step 9: PPCLI defects only if PPCLI itself misbehaved**
 
 If a PPCLI verb misbehaved (not the mod), append an entry to `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity) and work around it; do not fix PPCLI from this session.
 
-- [ ] **Step 10: Commit the evidence note**
+- [x] **Step 10: Commit the evidence note**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
