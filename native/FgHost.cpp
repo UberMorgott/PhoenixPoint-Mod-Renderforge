@@ -170,12 +170,12 @@ void Detach(const char* why)
 }
 
 // Main thread. Destroys the detached chain once the render thread has left it (it leaves every frame; `waitMs`
-// bounds a hung one). Returns true when nothing is left detached.
+// bounds a hung one). Returns true when nothing is left detached (a live chain is not "left").
 bool DestroyDetached(DWORD waitMs)
 {
     {
         Locked lk;
-        if (H.state != kDetached) return H.state == kNone;
+        if (H.state != kDetached) return true;
     }
     ULONGLONG until = GetTickCount64() + waitMs;
     for (;;) {

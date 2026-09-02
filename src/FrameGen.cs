@@ -25,7 +25,7 @@ namespace Renderforge
         internal static uint Caps => Usable ? Native.Fg_Caps() : 0u;
         internal static int LastResult => lastRc;
         /// <summary>Every provider Auto could try on this GPU failed this session (the picker greys FG with LastReason).</summary>
-        internal static bool Exhausted => !live && wantMultiplier != 0 && wantProvider < 0;
+        internal static bool Exhausted => !live && AutoProvider() < 0;
         internal static string LastReason => lastReason;
 
         internal static string ProviderName(int id)
