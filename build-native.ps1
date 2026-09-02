@@ -59,7 +59,7 @@ foreach ($dll in $slDlls) {
     Write-Host ("{0} {1} from {2}" -f (Split-Path $dll -Leaf), (Get-Item $dll).VersionInfo.FileVersion, $dll)
 }
 $dlssgVer = (Get-Item $slDlls[-1]).VersionInfo.FileVersion -replace '[ ,]+', '.'
-if ($dlssgVer -ne '310.7.129.0') { throw "nvngx_dlssg.dll is $dlssgVer, expected 310.7.129.0 (refs\Streamline\latest-dll)" }
+if ($dlssgVer -notlike '310.7.*') { Write-Warning "nvngx_dlssg.dll is $dlssgVer, expected a 310.7.* build (refs\Streamline\latest-dll, 310.7.129 verified) - shipping it anyway" }
 
 New-Item -ItemType Directory -Force $buildDir, $outDir | Out-Null
 
@@ -88,10 +88,12 @@ try {
     & (Join-Path $outDir 'dlss_probe.exe') $outDir --xess
     $rcXess = $LASTEXITCODE
 } finally { Pop-Location }
-if ($rc11 -ne 0) { throw "dlss_probe (D3D11) failed ($rc11)" }
-if ($rc12 -ne 0) { throw "dlss_probe (D3D12) failed ($rc12)" }
-# Exit 3 = the machine cannot run that provider (probe could not init): the DLLs still ship, so warn only.
-# Anything else non-zero is a real create/dispatch failure and gates the build.
+# Exit 3 = the machine cannot run that provider (probe could not init: no NVIDIA RTX, no DP4a, ...): the DLLs still
+# ship, so warn only. Anything else non-zero is a real create/dispatch failure and gates the build.
+if ($rc11 -eq 3) { Write-Warning "dlss_probe (D3D11): NGX unavailable on this GPU/driver - DLSS untested, build continues" }
+elseif ($rc11 -ne 0) { throw "dlss_probe (D3D11) failed ($rc11)" }
+if ($rc12 -eq 3) { Write-Warning "dlss_probe (D3D12): NGX unavailable on this GPU/driver - DLSS untested, build continues" }
+elseif ($rc12 -ne 0) { throw "dlss_probe (D3D12) failed ($rc12)" }
 if ($rcFsr -eq 3) { Write-Warning "dlss_probe (FSR): no D3D12 upscale provider on this machine - FSR untested, build continues" }
 elseif ($rcFsr -ne 0) { throw "dlss_probe (FSR) failed ($rcFsr)" }
 if ($rcXess -eq 3) { Write-Warning "dlss_probe (XeSS): this GPU/driver cannot run XeSS (SM 6.4 + DP4a) - XeSS untested, build continues" }

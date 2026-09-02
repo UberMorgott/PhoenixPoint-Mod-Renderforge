@@ -63,6 +63,14 @@ foreach ($file in @((Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.j
 # needs IUnityInterfaces, so the shim is staged there too and Native.Load prefers that copy.
 $plugins = Join-Path $PPRoot 'PhoenixPointWin64_Data\Plugins\x86_64'
 New-Item -ItemType Directory -Force -Path $plugins | Out-Null
+$staged = Join-Path $plugins 'RenderforgeNative.dll'
+if ($running.Count -gt 0 -and (Test-Path $staged)) {
+    # A mapped DLL cannot be overwritten but CAN be renamed (what Native.EnsureStaged does): move it aside, the mod's
+    # own sweep deletes the .old* leftovers on a later run once nothing maps them.
+    $aside = "$staged.old" + [DateTime]::UtcNow.Ticks
+    Move-Item $staged $aside -Force
+    Write-Warning "Renamed the mapped $staged aside to $(Split-Path $aside -Leaf)"
+}
 Copy-Item $nativeDll $plugins -Force
 Write-Host "Staged RenderforgeNative.dll into $plugins (Unity plugin folder, for UnityPluginLoad)"
 

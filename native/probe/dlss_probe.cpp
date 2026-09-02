@@ -56,6 +56,8 @@ static int RunD3D11(const wchar_t* dllDir, const wchar_t* cwd)
     int c = 0, e = 0, alive = 0; Dlss_Status(&c, &e, &alive);
     printf("Dlss_Init      code=%d (0=ok 1=noDevice 2=initFailed 3=notAvailable 4=needsDriver 5=noUnityIface) api=%d lastResult=0x%08X %s\n",
            init, Dlss_Api(), (unsigned)c, init == DLSS_ERR_INIT_FAILED ? Dlss_ResultString(c) : "");
+    // NGX refuses on a non-RTX / non-NVIDIA GPU or an old driver: not a defect of ours (3, like --fsr / --xess).
+    if (init == DLSS_ERR_NOT_AVAILABLE || init == DLSS_ERR_NEEDS_DRIVER) { printf("NGX unsupported here (code %d): DLSS untested on this machine\n", init); return 3; }
     if (init != DLSS_OK) { printf("NGX init not ok, see nvngx.log in %ls\n", cwd); return 1; }
     if (Dlss_Api() != 11) { printf("Dlss_Api()=%d, expected 11\n", Dlss_Api()); return 1; }
 
@@ -268,6 +270,7 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     int c = 0, e = 0, alive = 0; Dlss_Status(&c, &e, &alive);
     printf("Dlss_Init      code=%d (0=ok 1=noDevice 2=initFailed 3=notAvailable 4=needsDriver 5=noUnityIface) api=%d lastResult=0x%08X %s\n",
            init, Dlss_Api(), (unsigned)c, init == DLSS_ERR_INIT_FAILED ? Dlss_ResultString(c) : "");
+    if (init == DLSS_ERR_NOT_AVAILABLE || init == DLSS_ERR_NEEDS_DRIVER) { printf("NGX unsupported here (code %d): DLSS D3D12 untested on this machine\n", init); return 3; }
     if (init != DLSS_OK) { printf("NGX D3D12 init not ok, see nvngx.log in %ls\n", cwd); return 1; }
     if (Dlss_Api() != 12) { printf("Dlss_Api()=%d, expected 12\n", Dlss_Api()); return 1; }
 
