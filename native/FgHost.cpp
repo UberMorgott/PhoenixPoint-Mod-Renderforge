@@ -42,6 +42,7 @@ struct Host
     unsigned              scFlags;      // DXGI_SWAP_CHAIN_FLAG_* the shadow chain was created with
     int                   enabled;
     int                   lastError;
+    const char*           reason;       // static text explaining lastError == FG_ERR_NO_PROVIDER, else NULL
     long                  lastPresentHr;
     unsigned              outW, outH;
     // per-frame ring, main thread writes, render thread reads
@@ -144,8 +145,7 @@ ProviderNone g_none;
 } // namespace
 
 IFgProvider* MakeFgProviderNone(void) { return &g_none; }
-// XeSS / Streamline providers land in Tasks 4-5; until then those ids fall back to the pass-through chain.
-IFgProvider* MakeFgProviderXess(void) { return NULL; }
+// The Streamline provider lands in Task 5; until then that id falls back to the pass-through chain.
 IFgProvider* MakeFgProviderStreamline(void) { return NULL; }
 
 // Composition swapchain + DirectComposition target on s.hwnd (topmost, above Unity's own chain).
@@ -212,7 +212,10 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     IFgProvider* p = NULL;
     switch (provider) {
     case FG_PROVIDER_FSR:  p = MakeFgProviderFsr();        break;
-    case FG_PROVIDER_XESS: p = MakeFgProviderXess();       break;
+    case FG_PROVIDER_XESS: p = MakeFgProviderXess();
+        // SDK-blocked (FgXess.cpp): no pass-through fallback, the caller must see WHY there is no chain.
+        if (!p) { H.reason = FgXessBlockedReason(dllDir); H.lastError = FG_ERR_NO_PROVIDER; return FG_ERR_NO_PROVIDER; }
+        break;
     case FG_PROVIDER_DLSS: p = MakeFgProviderStreamline(); break;
     default:               p = MakeFgProviderNone();       break;
     }
@@ -256,6 +259,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.prep.Attach(H.device);
     H.copy.Attach(H.device);
     H.lastError = FG_OK;
+    H.reason = NULL;
     H.lastPresentHr = 0;
     FgLog("host: provider=%s multiplier=%u shadow=%p %ux%u flags=0x%X caps=0x%X",
           p->Name(), H.multiplier, (void*)H.shadow, H.outW, H.outH, H.scFlags, p->Caps());
@@ -379,9 +383,9 @@ int FgHostProvider(void) { return H.prov ? H.prov->Id() : FG_PROVIDER_NONE; }
 const char* FgHostStatus(void)
 {
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
-        "provider=%s enabled=%d multiplier=%u shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu",
+        "provider=%s enabled=%d multiplier=%u shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu%s%s",
         H.prov ? H.prov->Name() : "-", H.enabled, H.multiplier, (void*)H.shadow, H.outW, H.outH, H.scFlags,
         FgHostCaps(), H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
-        (unsigned long long)H.frames[H.frameIdx & 3].frameId);
+        (unsigned long long)H.frames[H.frameIdx & 3].frameId, H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;
 }

@@ -40,7 +40,9 @@ $amdUpscaler = Join-Path $root 'build\out\amd_fidelityfx_upscaler_dx12.dll'
 $amdFrameGen = Join-Path $root 'build\out\amd_fidelityfx_framegeneration_dx12.dll'
 # Intel XeSS (D3D12, cross-vendor DP4a + Intel XMX): one runtime DLL, delay-loaded by the shim.
 $xessDll     = Join-Path $root 'build\out\libxess.dll'
-foreach ($f in $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll) { if (-not (Test-Path $f)) { throw "missing $f - run build-native.ps1" } }
+# Intel XeSS-FG runtime: SDK-blocked for frame generation (FgXess.cpp), only probed for its version.
+$xessFgDll   = Join-Path $root 'build\out\libxess_fg.dll'
+foreach ($f in $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll) { if (-not (Test-Path $f)) { throw "missing $f - run build-native.ps1" } }
 
 dotnet build (Join-Path $root 'Renderforge.csproj') -c $Configuration /p:PPRoot="$PPRoot"
 if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
@@ -48,7 +50,7 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
 $out  = Join-Path $root "bin\$Configuration\Renderforge"
 $dest = Join-Path $PPRoot 'Mods\Renderforge'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-foreach ($file in (Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll,
+foreach ($file in (Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll,
                   (Join-Path $root 'LICENSE-NVIDIA.txt'), (Join-Path $root 'LICENSE-NIS.txt'), (Join-Path $root 'LICENSE-AMD.txt'), (Join-Path $root 'LICENSE-INTEL.txt'),
                   (Join-Path $root 'LICENSE'), (Join-Path $root 'README.md')) {
     Copy-Item $file $dest -Force

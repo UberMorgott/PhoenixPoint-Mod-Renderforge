@@ -112,8 +112,10 @@ const OwnedSet12* FgOwned12(void);
 
 IFgProvider* MakeFgProviderNone(void);
 IFgProvider* MakeFgProviderFsr(void);
-IFgProvider* MakeFgProviderXess(void);
+IFgProvider* MakeFgProviderXess(void);      // always NULL: XeSS-FG is SDK-blocked (FgXess.cpp)
 IFgProvider* MakeFgProviderStreamline(void);
+// Why there is no XeSS provider, one static line for Fg_Status (probes <dllDir>\libxess_fg.dll once for its version).
+const char* FgXessBlockedReason(const wchar_t* dllDir);
 
 // ---------------------------------------------------------------- host (FgHost.cpp)
 

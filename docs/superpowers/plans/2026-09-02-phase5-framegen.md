@@ -2072,7 +2072,10 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): FSR frame generation
 
 XeSS-FG only ever creates its own swapchain for us: `xefgSwapChainD3D12InitFromSwapChain` demands the application's swapchain have refcount 1 and then **destroys** it (`xess_fg_developer_guide_english.md:270-276`), which Unity's live reference makes impossible. So we go through `xefgSwapChainD3D12InitFromSwapChainDesc` with `pApplicationSwapChain = NULL` — the same shadow shape the host already expects. **XeLL is not optional**: without a XeLL context the proxy swapchain refuses to initialise (`:229-231`).
 
-- [ ] **Step 1: Write `native\FgXess.cpp`**
+> **2026-09-02 result: SDK-BLOCKED — shipped as a stub, no XeSS-FG provider, XeLL not touched.** The snippet below was written for the plan's `CreateSwapChainForHwnd` shadow chain; Task 1 measured that call as `E_ACCESSDENIED` (`0x80070005`) on the game window (`FgHost.cpp:7-9`) and the host became a `CreateSwapChainForComposition` + DComp chain, which FSR-FG drives by manual `ffxDispatch` (Task 3). XeSS-FG has no equivalent: its ONLY output path is the proxy `IDXGISwapChain` the library creates itself, always on an HWND — `xefgSwapChainD3D12InitFromSwapChainDesc` (`xefg_swapchain_d3d12.h:216`, `:212` "a swap chain will be created according to `hWnd`, `pSwapChainDesc`", no composition overload) and `InitFromSwapChain` (`:190`, guide `:275` "Creates a new swap chain for the underlying window"). The complete API is `xefg_swapchain.h:334-512` + `xefg_swapchain_d3d12.h:120-320` + `xefg_swapchain_debug.h:56` (24 functions, matching `doc\xess_frame_generation_doxygen\globals_func.html:96-119`); `dumpbin /exports bin\libxess_fg.dll` (1.3.1.78) = 31 entries: those 24 + `xefgAIL{GetDecision,GetVersion,SetAppXeFGVersion}` + undocumented `xefgSwapChain{D3D12GetProfilingData,D3D12SetDiagnosticCallbacks,GetParameterP,SetParameterP}`. No dispatch/execute/output-texture/present-callback entry exists; `xefg_swapchain.h:321-324` calls this "utils API" over an "underlying XeSS-FG API" the SDK does not ship. Hacking a second HWND was ruled out by the brief.
+> Shipped: `native\FgXess.cpp` (`MakeFgProviderXess` → `NULL`; `FgXessBlockedReason(dllDir)` probes `<modDir>\libxess_fg.dll` once via `LoadLibraryW` + `GetProcAddress("xefgSwapChainGetVersion")`, never linked); `FgHost.cpp` returns `FG_ERR_NO_PROVIDER` for `FG_PROVIDER_XESS` (no pass-through fallback) and appends ` reason=XeSS-FG 1.3.1 needs its own HWND swapchain - unavailable in-process` to `Fg_Status`; `Pickers.FrameGenReason` greys the row with the same EN/RU text whenever the (forced) provider is XeSS. `build-native.ps1` verifies (`libxess_fg.dll 1.3.1.78 signed by Intel Corporation`) + stages, `deploy.ps1` copies; `libxell.dll`/`libxell.lib`/`libxess_fg.lib` are NOT staged or linked. Build: 4x `PROBE OK`, `build-native: OK`, 0 warnings; `dotnet build -c Release` 0/0. Steps 5-6 (in-game) not run — nothing to measure. Revisit when Intel ships a non-swapchain XeSS-FG entry point.
+
+- [x] **Step 1: Write `native\FgXess.cpp`** (superseded: SDK-blocked stub, see the result note above — the snippet below is NOT what shipped)
 
 ```cpp
 // FgXess.cpp - Intel XeSS Frame Generation. The FG proxy swapchain is created from a DESC (not from Unity's
@@ -2278,7 +2281,7 @@ ProviderXess g_xess;
 IFgProvider* MakeFgProviderXess(void) { return &g_xess; }
 ```
 
-- [ ] **Step 2: `native\CMakeLists.txt` — XeSS headers, import libs, delay load**
+- [x] **Step 2: `native\CMakeLists.txt` — XeSS headers, import libs, delay load** (only `FgXess.cpp` added; `${XESS_SDK}/inc` was already on the include path; NO `libxess_fg.lib`/`libxell.lib` link and no `/DELAYLOAD` — the stub uses `GetProcAddress`)
 
 Insert after the FidelityFX block:
 
@@ -2300,7 +2303,7 @@ target_link_libraries(RenderforgeNative PRIVATE
 target_link_options(RenderforgeNative PRIVATE "/DELAYLOAD:libxess_fg.dll" "/DELAYLOAD:libxell.dll")
 ```
 
-- [ ] **Step 3: `build-native.ps1` — verify and stage the Intel DLLs**
+- [x] **Step 3: `build-native.ps1` — verify and stage the Intel DLLs** (`libxess_fg.dll` only, `$xessFgDll` block after the `libxess.dll` one; `libxell.dll` deliberately not shipped)
 
 Extend the `$vendorDlls` array:
 
@@ -2313,14 +2316,14 @@ $vendorDlls += @(
 ```
 (place this immediately after the array literal, before the `foreach` that verifies it).
 
-- [ ] **Step 4: Build and deploy**
+- [x] **Step 4: Build and deploy** (2026-09-02: `build-native.ps1` prints `libxess_fg.dll 1.3.1.78 from ...\refs\XeSS-sdk\bin\libxess_fg.dll`, 4x `PROBE OK`, `build-native: OK`, 0 warnings; `dotnet build -c Release /p:PPRoot=D:\PP-Instance2` 0 warnings / 0 errors; `deploy.ps1` copies `libxess_fg.dll` — not deployed, nothing to run)
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\deploy.ps1"
 ```
 Expected: `libxess_fg.dll 1.3.1.78 signed by Intel Corporation`, `libxell.dll 1.3.2.10 signed by Intel Corporation`, `build-native: OK`, and both files listed in the deploy output.
 
-- [ ] **Step 5: Run XeSS-FG in-game (cross-vendor path on the RTX)**
+- [x] **Step 5: Run XeSS-FG in-game (cross-vendor path on the RTX)** — SKIPPED, SDK-blocked (not measured in-game): by code, `SetFgProvider ["Xess"]` + `SetFrameGen ["X2"]` logs `FG init XeSS 2x -> 4` (`FG_ERR_NO_PROVIDER`) and `Fg_Status` ending in `reason=XeSS-FG 1.3.1 needs its own HWND swapchain - unavailable in-process`; the picker row greys with the same text
 
 ```powershell
 Start-Process 'D:\PP-Instance2\PhoenixPointWin64.exe' -ArgumentList '-mods','-force-d3d12'
@@ -2339,7 +2342,7 @@ Get-Content 'D:\PP-Instance2\Mods\Renderforge\renderforge_fg.log' -Tail 40
 ```
 Expected: `fg=live provider=XeSS-FG enabled=1 multiplier=2 caps=0x1 lastError=0`; the log shows `xess: maxSupportedInterpolations=1 -> caps 0x1` (1 is the documented value on every non-Intel GPU) and `xess: created <W>x<H> interpolated=1`, with **no** `xess: tag …` error lines and no `xess: frameGenResult` negatives. The screenshot shows `FG: XeSS 2x` and presented ≈ 2 × real.
 
-- [ ] **Step 6: Also try 3x and confirm it is refused cleanly, not crashed**
+- [x] **Step 6: Also try 3x and confirm it is refused cleanly, not crashed** — SKIPPED (same `FG_ERR_NO_PROVIDER` path for every multiplier)
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetFrameGen","args":["X3"]}'
@@ -2348,11 +2351,11 @@ Get-Process PhoenixPointWin64 -ErrorAction SilentlyContinue | Where-Object { $_.
 ```
 Expected: `fg=off …` with the log line `xess: 3x asked, 2x supported` and `FG init XeSS 3x -> 6` (`FG_ERR_UNSUPPORTED_MULTIPLIER`); the process is alive and the picture is back to un-generated frames.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit** (as `feat(fg): XeSS-FG provider stub - SDK requires its own HWND swapchain`)
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
-git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): XeSS-FG provider with mandatory XeLL, hudless UI mode 4, capability-gated multiplier"
+git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): XeSS-FG provider stub - SDK requires its own HWND swapchain"
 ```
 
 ---

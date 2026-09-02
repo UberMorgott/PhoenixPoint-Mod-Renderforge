@@ -61,6 +61,7 @@ add_library(RenderforgeNative SHARED
     FgHook.cpp
     FgHost.cpp
     FgFsr.cpp
+    FgXess.cpp
     unity/IUnityInterface.h
     unity/IUnityGraphics.h
     unity/IUnityGraphicsD3D12.h)

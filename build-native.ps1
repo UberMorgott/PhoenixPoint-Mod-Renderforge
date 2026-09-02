@@ -37,6 +37,13 @@ $xsig = Get-AuthenticodeSignature $xessDll
 if ($xsig.Status -ne 'Valid' -or $xsig.SignerCertificate.Subject -notmatch 'Intel Corporation') { throw "libxess.dll signature invalid: $xessDll" }
 Write-Host "libxess.dll $((Get-Item $xessDll).VersionInfo.FileVersion) from $xessDll"
 if (-not (Test-Path (Join-Path $root 'LICENSE-INTEL.txt'))) { throw "LICENSE-INTEL.txt missing (copy refs\XeSS-sdk\LICENSE.txt)" }
+# XeSS-FG runtime, Intel-signed. SDK-BLOCKED for frame generation (FgXess.cpp: it only renders through its own HWND
+# swapchain); shipped so the shim can report the runtime's version in the blocked reason. Nothing links it.
+$xessFgDll = Join-Path $xessSdk 'bin\libxess_fg.dll'
+if (-not (Test-Path $xessFgDll)) { throw "libxess_fg.dll not found at $xessFgDll" }
+$xfsig = Get-AuthenticodeSignature $xessFgDll
+if ($xfsig.Status -ne 'Valid' -or $xfsig.SignerCertificate.Subject -notmatch 'Intel Corporation') { throw "libxess_fg.dll signature invalid: $xessFgDll" }
+Write-Host "libxess_fg.dll $((Get-Item $xessFgDll).VersionInfo.FileVersion) from $xessFgDll"
 
 New-Item -ItemType Directory -Force $buildDir, $outDir | Out-Null
 
@@ -50,6 +57,7 @@ Copy-Item (Join-Path $buildDir 'Release\dlss_probe.exe') $outDir -Force
 Copy-Item $ngxDll $outDir -Force
 foreach ($dll in $amdDlls) { Copy-Item $dll $outDir -Force }
 Copy-Item $xessDll $outDir -Force
+Copy-Item $xessFgDll $outDir -Force
 
 Push-Location $outDir
 try {

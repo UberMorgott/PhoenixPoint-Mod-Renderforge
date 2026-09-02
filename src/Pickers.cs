@@ -150,6 +150,10 @@ namespace Renderforge
             if (index == 0) return null;
             string r = Availability.Reason(Feature.FrameGen);
             if (r != null) return r;
+            // XeSS-FG is SDK-blocked (native FgXess.cpp): it only renders through an HWND swapchain of its own.
+            if (FrameGen.AutoProvider() == Native.FG_PROVIDER_XESS)
+                return DlssConfig.Loc("XeSS-FG needs its own HWND swapchain — unavailable in-process",
+                                      "XeSS-FG требует собственную HWND swapchain — недоступно внутри процесса");
             uint caps = FrameGen.Caps;
             // Caps are 0 until the chain has been built once; only grey a multiplier we KNOW is unsupported.
             if (caps != 0 && (caps & (uint)FrameGenCaps[index]) == 0)
