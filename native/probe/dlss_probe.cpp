@@ -1,5 +1,5 @@
 // dlss_probe.cpp - offline check of RenderforgeNative.dll: init -> optimal -> create -> 3x evaluate -> passthrough -> release.
-// Usage: dlss_probe.exe <dir containing nvngx_dlss.dll> [--d3d12]. Exit 0 only if every NGX result succeeded.
+// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll> [--d3d12|--fsr]. Exit 0 only if every result succeeded.
 #include <d3d11.h>
 #include <d3d12.h>
 #include <stdio.h>
@@ -8,6 +8,10 @@
 #include "RenderforgeNative.h"
 #include "unity/IUnityInterface.h"
 #include "unity/IUnityGraphicsD3D12.h"
+#include "ffx_api.h"
+#include "ffx_api_loader.h"
+#include "ffx_upscale.h"
+#include "FfxLoader.h"
 
 #define NGX_OK(r) ((((unsigned)(r)) & 0xFFF00000u) != 0xBAD00000u)
 
@@ -190,7 +194,10 @@ static void WaitGpu()
     CloseHandle(ev);
 }
 
-static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
+static IUnityGraphicsD3D12v5 stub;
+
+// Creates g_dev12/g_queue/g_fence and installs the stand-in IUnityGraphicsD3D12v5. 0 on success.
+static int InitD3D12(void)
 {
     HRESULT hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&g_dev12));
     if (FAILED(hr) || !g_dev12) { printf("D3D12CreateDevice failed hr=0x%08X\n", (unsigned)hr); return 1; }
@@ -199,7 +206,6 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     if (FAILED(g_dev12->CreateCommandQueue(&qd, IID_PPV_ARGS(&g_queue)))) { printf("CreateCommandQueue failed\n"); return 1; }
     if (FAILED(g_dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_fence)))) { printf("CreateFence failed\n"); return 1; }
 
-    static IUnityGraphicsD3D12v5 stub;
     stub.GetDevice = &StubGetDevice;
     stub.GetFrameFence = &StubGetFrameFence;
     stub.GetNextFrameFenceValue = &StubGetNextFrameFenceValue;
@@ -208,6 +214,12 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     stub.GetCommandQueue = &StubGetCommandQueue;
     stub.TextureFromRenderBuffer = &StubTextureFromRenderBuffer;
     Dlss_TestSetUnityD3D12(&stub);
+    return 0;
+}
+
+static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
+{
+    if (InitD3D12() != 0) return 1;
 
     ID3D12Resource* any = MakeTex12(1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     if (!any) return 1;
@@ -296,17 +308,114 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     return g_failed ? 1 : 0;
 }
 
+// ---------------------------------------------------------------- FSR (provider 1)
+
+// Prints every upscaler version the AMD DLL offers for this device. On a non-AMD GPU the 4.x ML provider is
+// expected to be absent or unusable and the created context falls back to 3.1.5 - printed, never assumed.
+static void PrintFsrVersions(ID3D12Device* dev, const wchar_t* dir)
+{
+    const ffxFunctions* ffx = FfxLoad(dir);
+    if (!ffx) { printf("FSR versions    <amd_fidelityfx_*_dx12.dll not found in %ls>\n", dir); return; }
+    uint64_t count = 0;
+    struct ffxQueryDescGetVersions q = {};
+    q.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    q.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+    q.device = dev;
+    q.outputCount = &count;
+    if (ffx->Query(NULL, &q.header) != FFX_API_RETURN_OK || count == 0) { printf("FSR versions    <query failed>\n"); return; }
+    if (count > 8) count = 8;
+    uint64_t ids[8] = {}; const char* names[8] = {};
+    q.versionIds = ids; q.versionNames = names;
+    if (ffx->Query(NULL, &q.header) != FFX_API_RETURN_OK) { printf("FSR versions    <name query failed>\n"); return; }
+    printf("FSR versions    %llu:", (unsigned long long)count);
+    for (uint64_t i = 0; i < count; ++i) printf(" %s", names[i] ? names[i] : "?");
+    printf("\n");
+}
+
+static int RunFsr(const wchar_t* dllDir, const wchar_t* cwd)
+{
+    if (InitD3D12() != 0) return 1;              // creates g_dev12/g_queue/g_fence and installs the Unity stub
+    (void)cwd;
+
+    Dlss_SetProvider(DLSS_PROVIDER_FSR);
+    PrintFsrVersions(g_dev12, dllDir);
+
+    ID3D12Resource* any = MakeTex12(1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    if (!any) return 1;
+    int init = Dlss_Init(any, dllDir, dllDir);
+    printf("Dlss_Init      code=%d (0=ok 6=noProviderDll 7=providerUnsupported) provider=%d api=%d\n",
+           init, Dlss_Provider(), Dlss_Api());
+    if (init != DLSS_OK) { printf("FSR init not ok\n"); return 1; }
+    if (Dlss_Provider() != DLSS_PROVIDER_FSR) { printf("Dlss_Provider()=%d, expected %d\n", Dlss_Provider(), DLSS_PROVIDER_FSR); return 1; }
+
+    unsigned rw = 0, rh = 0, mnw = 0, mnh = 0, mxw = 0, mxh = 0;
+    int r = Dlss_GetOptimal(1920, 1080, DLSS_Q_QUALITY, &rw, &rh, &mnw, &mnh, &mxw, &mxh);
+    Report("GetOptimal", r);
+    printf("  1920x1080 Quality -> render %ux%u (expect 1280x720)\n", rw, rh);
+    if (rw != 1280 || rh != 720) { printf("  <-- unexpected render resolution\n"); g_failed = 1; }
+
+    const unsigned RW = 1280, RH = 720, OW = 1920, OH = 1080;
+    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    if (g_failed) return 1;
+
+    RenderEventFn ev = (RenderEventFn)Dlss_GetRenderEventFunc();
+    RenderEventAndDataFn evd = (RenderEventAndDataFn)Dlss_GetRenderEventAndDataFunc();
+    Dlss_SetCamera(0.1f, 1000.0f, 1.0471976f);
+    Dlss_SetCreateParams(RW, RH, OW, OH, DLSS_Q_QUALITY, DLSS_F_HDR | DLSS_F_DEPTH_INVERTED | DLSS_F_MV_LOW_RES | DLSS_F_AUTO_EXPOSURE);
+    ev(DLSS_EV_CREATE);
+    int c = 0, e = 0, alive = 0;
+    Dlss_Status(&c, &e, &alive);
+    Report("Create", c);
+    char ver[64] = {};
+    Dlss_ProviderVersion(ver, (int)sizeof(ver));
+    printf("  contextAlive=%d provider version='%s'\n", alive, ver);
+    if (!alive || !ver[0]) g_failed = 1;
+
+    const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
+    for (int i = 0; i < 3; ++i) {
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], -(float)RW, -(float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f);
+        evd(DLSS_EV_EVALUATE, slot);
+        Dlss_Status(&c, &e, &alive);
+        char name[32]; sprintf_s(name, "Dispatch[%d]", i);
+        Report(name, e);
+    }
+    WaitGpu();
+    // FSR creates its context on the CPU (no command list), so only the dispatches reach ExecuteCommandList.
+    printf("Submissions    ExecuteCommandList calls=%d (expect 3: 3 dispatch)\n", g_execCalls);
+    if (g_execCalls != 3) g_failed = 1;
+    printf("Sharpener      %d (expect %d = FSR built-in RCAS)\n", Dlss_Sharpener(), DLSS_SHARPEN_RCAS);
+    if (Dlss_Sharpener() != DLSS_SHARPEN_RCAS) g_failed = 1;
+
+    ev(DLSS_EV_RELEASE);
+    Dlss_Status(&c, &e, &alive);
+    printf("Release        contextAlive=%d\n", alive);
+    if (alive) g_failed = 1;
+
+    Dlss_Shutdown();
+    WaitGpu();
+    color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
+    g_fence->Release(); g_queue->Release(); g_dev12->Release();
+    return g_failed ? 1 : 0;
+}
+
 // ----------------------------------------------------------------
 
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc < 2) { fprintf(stderr, "usage: dlss_probe.exe <dir containing nvngx_dlss.dll> [--d3d12]\n"); return 2; }
-    int want12 = 0;
-    for (int i = 2; i < argc; ++i) if (wcscmp(argv[i], L"--d3d12") == 0) want12 = 1;
+    if (argc < 2) { fprintf(stderr, "usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll> [--d3d12|--fsr]\n"); return 2; }
+    int want12 = 0, wantFsr = 0;
+    for (int i = 2; i < argc; ++i) {
+        if (wcscmp(argv[i], L"--d3d12") == 0) want12 = 1;
+        if (wcscmp(argv[i], L"--fsr") == 0) wantFsr = 1;
+    }
     wchar_t cwd[MAX_PATH]; _wgetcwd(cwd, MAX_PATH);
-    printf("== dlss_probe %s ==\n", want12 ? "D3D12" : "D3D11");
+    printf("== dlss_probe %s ==\n", wantFsr ? "FSR" : want12 ? "D3D12" : "D3D11");
 
-    int rc = want12 ? RunD3D12(argv[1], cwd) : RunD3D11(argv[1], cwd);
+    int rc = wantFsr ? RunFsr(argv[1], cwd) : want12 ? RunD3D12(argv[1], cwd) : RunD3D11(argv[1], cwd);
     printf(rc ? "PROBE FAILED\n" : "PROBE OK\n");
     return rc;
 }
