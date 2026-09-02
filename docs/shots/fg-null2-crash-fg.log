@@ -1,0 +1,9 @@
+hook: installed (vtable 00007FF837072688, Present 00007FF836FA2CA0, Present1 00007FF836FA3140, ResizeBuffers 00007FF836FD8BC0)
+hook: app swapchain 000001E31FD17840 hwnd 00000000007D099C 1280x720 fmt 28 buffers 3 swapEffect 3 flags 0x802 windowed 1 flip 1 waitable 0
+hook: app ResizeBuffers 1280x720 count 3 fmt 28 flags 0x802
+host: provider 3 not built yet - pass-through chain
+host: composition chain 000001E78A7F1380 on hwnd 00000000007D099C, flags 0x800 (tearing supported 1)
+host: provider=none multiplier=2 shadow=000001E78A7F1380 1280x720 flags=0x800 caps=0x1
+host: enabled=1
+spike: second CreateSwapChainForHwnd on game hwnd -> 0x80070005
+spike: CreateSwapChainForComposition -> 0x00000000

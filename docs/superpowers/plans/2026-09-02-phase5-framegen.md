@@ -1552,6 +1552,42 @@ The two failure modes to watch for and their documented answers:
 > hook counts Unity's own presents, not shadow presents (`frameId=0` throughout). A `start-mission` reload after `Off`
 > succeeded (`ok:true`, 58 steps, 19808 ms), so teardown is clean. Not a rendering regression — Step 14 is blocked on 4a.
 
+> **2026-09-02 RE-RUN on `D:\PP-Instance3` (HEAD `e4915dd`, fallback 4a = `CreateSwapChainForComposition` + DComp visual, `-mods -force-d3d12`, `ALN_PLT_Nest_48x48_A` seed 12345, 1280x720): FAIL — the shadow chain now comes up, and the GPU device is removed on the first shadow present.**
+> The chain creation half of 4a WORKS. `docs\shots\fg-null2-crash-fg.log`:
+> `hook: app swapchain … hwnd 00000000007D099C 1280x720 fmt 28 buffers 3 swapEffect 3 flags 0x802 windowed 1 flip 1 waitable 0`
+> `host: provider 3 not built yet - pass-through chain`
+> `host: composition chain 000001E78A7F1380 on hwnd 00000000007D099C, flags 0x800 (tearing supported 1)`
+> `host: provider=none multiplier=2 shadow=000001E78A7F1380 1280x720 flags=0x800 caps=0x1`
+> `host: enabled=1`
+> `spike: second CreateSwapChainForHwnd on game hwnd -> 0x80070005`  ← the old 55dbf41 path, kept only as the probe
+> `spike: CreateSwapChainForComposition -> 0x00000000`
+>
+> Sequence: `SetMode ["DLAA","None"]` + `SetOverlay ["TopCenter"]` OK; before-status
+> `… present=on broken=False fail= | fg=off provider=- enabled=0 multiplier=0 shadow=0000000000000000 out=0x0 flags=0x0 caps=0x0 lastError=0 presentHr=0x00000000 presented=0 fps=0 frameId=0`;
+> `docs\shots\fg-null2-before.png` normal (1280x720, HUD + overlay intact).
+> `SetFrameGen ["X2"]` → `frameGen=X2 off provider=- enabled=0 multiplier=0 shadow=0000000000000000 out=0x0 flags=0x0 caps=0x0 lastError=0 presentHr=0x00000000 presented=0 fps=0 frameId=0`
+> (that reply is the pre-arm snapshot; the host armed a tick later, see `host: enabled=1`).
+> The **very next** `GetStatus` 5 s later never returned: `{"ok":false,"error":"the pipe closed after 0 of 4 bytes"}` — the process was gone.
+> No `fg-null2-on.png` / `fg-null2-off.png` exist; the run cannot reach them.
+>
+> `Player.log`: `d3d12: swapchain present failed (887a0005).` / `d3d12:     DXGI_ERROR_DEVICE_REMOVED reason (887a002b).` (= `DXGI_ERROR_INVALID_CALL`),
+> `d3d12 : CreateCommittedResource 'TexturesD3D12::CreateTextureInternal() Texture' (128 x 2) format 10 failed (887a0005).`, then `Crash!!!`
+> with the faulting frame in **`nvwgf2umx` `OpenAdapter10`** (NVIDIA UMD) under `UnityPlayer`.
+> Crash dumps: `C:\Temp\Snapshot Games Inc\Phoenix Point\Crashes\Crash_2026-09-02_15{2542,2607,2632}*`.
+>
+> **The crash is deterministic and FG-caused, proven by config bisect.** `SetFrameGen` persists the mode, so
+> `…\Steam\76561197996210593\ModConfig.json` → `"com.morgott.Renderforge": {… "FrameGen":1}` made every subsequent cold launch
+> die with exit `-1073741819` (`0xC0000005`) ~4 s in, before Unity even flushed `Player.log` — 4 launches, 4 identical exits,
+> each writing the same `host: composition chain … / host: enabled=1` pair to `renderforge_fg.log`.
+> Flipping that one field to `"FrameGen":0` and relaunching → the game came up and stayed up. Nothing else changed.
+>
+> Conclusion: fallback 4a fixes swapchain *creation* (`0x80070005` gone, `shadow` non-zero, `caps=0x1`) but the present path
+> is invalid — `presentHr` never even got read back, and D3D12 reports `INVALID_CALL` device removal from the shadow present
+> while Unity's own D3D12 queue is still using the back buffer. Next suspects, in order: (1) the shadow chain is presented
+> from a different queue / without a fence sync against Unity's queue; (2) the DComp visual is never `SetContent` + `Commit`ed
+> on the same thread that owns the device, so the chain's buffers are unbound; (3) `DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING`
+> (`flags=0x800`) with a `SyncInterval` that is not 0. Steps 14-16 stay **unticked**; no source edits made in this run.
+
 - [ ] **Step 15: Turn it off again and confirm a clean teardown**
 
 ```powershell
