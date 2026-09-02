@@ -434,6 +434,38 @@ databases and ship the newest NVIDIA-signed build, never the SDK copy blindly.
 - Under D3D12 the mod stays fully active (pickers, overlay, PPv2 fix) but the NGX init is skipped; the
   overlay says `Upscaler: off (DLSS on D3D12 comes in Phase 2)`.
 
+## Packaging (Phase 6, 2026-09-02)
+
+- `build\release.ps1` is the only packaging path. It reads the version from `meta.json`, walks an
+  ordered pack table, and emits `Renderforge-{Core,NVIDIA,AMD,Intel,Full}-<v>.zip` plus
+  `SHA256SUMS.txt` into `build\release\`.
+- **Layout rule:** every zip has ONE top-level `Renderforge/` folder and is extracted into
+  `<Phoenix Point>\Mods\`. Core + any vendor packs overlay into a single `Mods\Renderforge\` in any
+  order. (1.0.0's zip was flat and extracted INTO `Mods\Renderforge\`; 1.1.0 changed it, because an
+  overlay cannot work without the prefix.)
+- Pack contents: **Core** = `Renderforge.dll`, `RenderforgeNative.dll`, `meta.json`, `README.md`,
+  `LICENSE`, `LICENSE-NIS.txt`. **NVIDIA** = `nvngx_dlss.dll` + `LICENSE-NVIDIA.txt` (with
+  `-WithFrameGen`: `nvngx_dlssg.dll` 310.7.129 and `sl.{interposer,common,dlss,dlss_g,reflex,pcl}.dll`
+  2.12.0). **AMD** = `amd_fidelityfx_{loader,upscaler}_dx12.dll` + `LICENSE-AMD.txt` (with
+  `-WithFrameGen`: `amd_fidelityfx_framegeneration_dx12.dll`). **Intel** = `libxess.dll` +
+  `LICENSE-INTEL.txt` (with `-WithFrameGen`: `libxess_fg.dll`, `libxell.dll`). **Full** = the union.
+- Each zip also carries `manifest-<pack>.json`: mod id, version, generation timestamp, and per file
+  the name, FileVersion, byte size, SHA-256, required Authenticode signer and licence file. Per-pack
+  names, not one shared `manifest.json`, because vendor packs are extracted on top of Core.
+- Every vendor DLL is Authenticode-asserted before packing — subject must contain `NVIDIA Corporation`
+  / `Advanced Micro Devices` / `Intel Corporation`, status must be `Valid`; anything else fails the
+  build. NVIDIA reports FileVersion with commas (`310,7,129,0`), so all comparisons normalise
+  `-replace '[ ,]', '.'`.
+- Stale-DLL guard: `$NewestKnownNgx` pins `nvngx_dlss.dll` and `nvngx_dlssg.dll` at `310.7.129.0`;
+  a mismatch is a WARNING telling the operator to check the TechPowerUp DLL databases. Warning, not
+  error — a newer DLL is legitimate, it just has to be a deliberate choice.
+- Missing vendor DLLs are a supported state at runtime: `Availability.Reason` returns
+  `DLL missing: <name> — install the <Vendor> pack` (RU: `Нет файла: <name> — установите пакет
+  <Vendor>`), the row greys out, and everything else keeps working.
+- Release checklist: `docs\RELEASING.md`. GitHub release and Steam Workshop upload are user-gated.
+- Steam Workshop item: **TBD — filled in by the Workshop publish task**. Uses PerkOracle's
+  SteamworksPy publisher (`PerkOracle\docs\OPERATIONS.md`), appid 839770, content = the Full pack.
+
 ## Idea backlog (user, not scheduled)
 
 - **Color grading preset / LUT** (2026-09-02, "like Cyberpunk's natural-grey look"): PPv2 already
