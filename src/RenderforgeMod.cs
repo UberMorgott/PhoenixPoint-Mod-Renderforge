@@ -28,6 +28,7 @@ namespace Renderforge
             Instance = this;
             ModDir = base.Instance?.Entry?.Directory ?? ".";
             Available = false;
+            RendererSwitch.SelfTest();   // [Conditional("DEBUG")]: compiled out of Release
             ApplyFrameRate();
             // Every API: harmless under D3D11, and the switch to D3D12 always goes through a restart, so the copy is there by then.
             Native.EnsureStaged(ModDir, s => Logger.LogInfo(s));

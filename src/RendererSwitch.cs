@@ -47,17 +47,41 @@ namespace Renderforge
         /// flag, plus the one we want. DirectX 11 = no flag at all.</summary>
         internal static string Args(bool want12)
         {
-            string[] argv = Environment.GetCommandLineArgs();
+            return string.Join(" ", BuildArgs(Environment.GetCommandLineArgs(), want12));
+        }
+
+        /// <summary>argv[1..] with every Unity graphics-API force flag dropped, quoted, plus "-force-d3d12" when
+        /// wanted. In Unity 2019.4 every "-force-*" arg is a gfx flag (-force-d3d11, -force-d3d12,
+        /// -force-d3d12-debug, -force-d3d11-singlethreaded, -force-vulkan, -force-glcore, -force-glcore32..46,
+        /// -force-gles*, -force-opengl, -force-clamped, -force-low-power-device), so a prefix match is exact.
+        /// "-mods", "-logFile &lt;path&gt;" and everything else pass through untouched.</summary>
+        internal static string[] BuildArgs(string[] argv, bool d3d12)
+        {
             List<string> kept = new List<string>();
             for (int i = 1; i < argv.Length; i++)
             {
                 string a = argv[i];
-                if (string.Equals(a, Flag11, StringComparison.OrdinalIgnoreCase)) continue;
-                if (string.Equals(a, Flag12, StringComparison.OrdinalIgnoreCase)) continue;
+                if (a.StartsWith("-force-", StringComparison.OrdinalIgnoreCase)) continue;
                 kept.Add(Quote(a));
             }
-            if (want12) kept.Add(Flag12);
-            return string.Join(" ", kept.ToArray());
+            if (d3d12) kept.Add(Flag12);
+            return kept.ToArray();
+        }
+
+        [Conditional("DEBUG")]
+        internal static void SelfTest()
+        {
+            string[] argv = { "exe", "-mods", "-FORCE-D3D11", "-force-glcore45", "-logFile", "C:\\a b\\log.txt", "-force-gles31" };
+            string a11 = string.Join(" ", BuildArgs(argv, false));
+            string a12 = string.Join(" ", BuildArgs(argv, true));
+            Check(a11 == "-mods -logFile \"C:\\a b\\log.txt\"", a11);
+            Check(a12 == "-mods -logFile \"C:\\a b\\log.txt\" -force-d3d12", a12);
+            Check(BuildArgs(new[] { "exe", "-force-d3d12" }, true).Length == 1, "dup flag");
+        }
+
+        private static void Check(bool ok, string what)
+        {
+            if (!ok) throw new InvalidOperationException("RendererSwitch.SelfTest failed: " + what);
         }
 
         /// <summary>MSVC argv rules: quote on whitespace/quotes, embedded " becomes \", a trailing backslash
