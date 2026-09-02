@@ -143,6 +143,10 @@ unsigned FgHostCaps(void);
 // Composition swapchain on s.hwnd shown through a DirectComposition target (the host owns the DComp objects).
 // Every provider that does not bring its own swapchain builds it from this.
 int  FgHostCreateShadowSwapChain(const FgSetup& s, IDXGISwapChain4** out);
+// Our child HWND (FgWnd.cpp) for a provider that builds the swapchain ITSELF (FSR's proxy chain): the host then
+// reports chain=child and presents whatever the provider returned from Create. NULL when the child cannot be
+// made or RENDERFORGE_FG_CHAIN=composition - fall back to FgHostCreateShadowSwapChain.
+HWND FgHostChildHwnd(const FgSetup& s);
 int  FgHostProvider(void);
 const char* FgHostStatus(void);
 

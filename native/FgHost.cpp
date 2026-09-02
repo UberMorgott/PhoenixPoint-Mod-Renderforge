@@ -160,12 +160,20 @@ IFgProvider* MakeFgProviderStreamline(void) { return NULL; }
 // The child-HWND chain: a window of our own over the game's client area (FgWnd.cpp) with an ordinary
 // CreateSwapChainForHwnd on it - the shape every vendor FG SDK needs. Composition is the fallback.
 // RENDERFORGE_FG_CHAIN=composition skips the child.
-static int CreateChildChain(const FgSetup& s, DXGI_SWAP_CHAIN_DESC1 d, IDXGISwapChain4** out)
+HWND FgHostChildHwnd(const FgSetup& s)
 {
     char env[32] = {};
-    if (GetEnvironmentVariableA("RENDERFORGE_FG_CHAIN", env, sizeof(env)) && _stricmp(env, "composition") == 0) return FG_ERR_NO_SWAPCHAIN;
-    H.child = FgWndCreate(s.hwnd);
-    if (!H.child) { H.childHr = HRESULT_FROM_WIN32(FgWndProbeNow()->createErr); return FG_ERR_NO_SWAPCHAIN; }
+    if (GetEnvironmentVariableA("RENDERFORGE_FG_CHAIN", env, sizeof(env)) && _stricmp(env, "composition") == 0) return NULL;
+    if (!H.child) H.child = FgWndCreate(s.hwnd);
+    if (!H.child) { H.childHr = HRESULT_FROM_WIN32(FgWndProbeNow()->createErr); return NULL; }
+    H.scFlags = 0;                                     // a provider-built chain gets plain Present(sync, 0)
+    H.chainKind = 1;
+    return H.child;
+}
+
+static int CreateChildChain(const FgSetup& s, DXGI_SWAP_CHAIN_DESC1 d, IDXGISwapChain4** out)
+{
+    if (!FgHostChildHwnd(s)) return FG_ERR_NO_SWAPCHAIN;
     d.Scaling = DXGI_SCALING_NONE;
     d.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
     IDXGISwapChain1* sc1 = NULL;
