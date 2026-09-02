@@ -31,9 +31,10 @@ namespace Renderforge
             get { return new[] { "DirectX 11", DlssConfig.Loc("DirectX 12 (experimental)", "DirectX 12 (экспериментально)") }; }
         }
 
+        // Index == UpscalerKind (declared Off, Auto, DLSS, FSR, XeSS).
         private static string[] UpscalerLabels
         {
-            get { return new[] { DlssConfig.Loc("Off", "Выкл"), "DLSS", "FSR", "XeSS" }; }
+            get { return new[] { DlssConfig.Loc("Off", "Выкл"), DlssConfig.Loc("Auto", "Авто"), "DLSS", "FSR", "XeSS" }; }
         }
 
         private static string[] FrameGenLabels
@@ -41,9 +42,9 @@ namespace Renderforge
             get { return new[] { DlssConfig.Loc("Off", "Выкл"), "2x", "3x", "4x" }; }
         }
 
-        private static Feature UpscalerFeature(int index)
+        private static UpscalerKind UpscalerAt(int index)
         {
-            return index == 2 ? Feature.Fsr : index == 3 ? Feature.Xess : Feature.Dlss;
+            return index >= 0 && index <= 4 ? (UpscalerKind)index : UpscalerKind.Auto;
         }
 
         /// <summary>Builds/re-syncs the three rows and returns the LAST one, for the caller to place after.</summary>
@@ -58,7 +59,7 @@ namespace Renderforge
             renderer.Init(RendererLabels.Length, pendingRenderer == RendererMode.DirectX12 ? 1 : 0, OnRenderer);
             ShowRenderer();
 
-            pendingUpscaler = cfg.Mode == RenderforgeMode.Off ? 0 : 1;
+            pendingUpscaler = (int)cfg.Upscaler;
             upscaler = Row(src, UpscalerName, DlssConfig.Loc("Upscaler", "Апскейлер"), renderer.transform.GetSiblingIndex() + 1);
             upscaler.Init(UpscalerLabels.Length, pendingUpscaler, OnUpscaler);
             ShowUpscaler();
@@ -127,8 +128,15 @@ namespace Renderforge
 
         private static void ShowUpscaler()
         {
-            string reason = pendingUpscaler == 0 ? null : Availability.Reason(UpscalerFeature(pendingUpscaler));
-            GraphicsPanel.SetRaw(upscaler.CurrentItem, upscaler.CurrentItemText, UpscalerLabels[pendingUpscaler]);
+            UpscalerKind want = UpscalerAt(pendingUpscaler);
+            UpscalerKind resolved = Upscalers.Resolve(want);
+            string reason = resolved == UpscalerKind.Off ? null : Availability.Reason(Upscalers.FeatureOf(resolved));
+            string label = UpscalerLabels[pendingUpscaler];
+            if (want == UpscalerKind.Auto && resolved != UpscalerKind.Off) label += " (" + resolved + ")";
+            // The shim latched its provider at startup: a different choice only takes effect on the next launch.
+            if (reason == null && resolved != Upscalers.Running && resolved != UpscalerKind.Off)
+                label += DlssConfig.Loc(" (restart pending)", " (нужен перезапуск)");
+            GraphicsPanel.SetRaw(upscaler.CurrentItem, upscaler.CurrentItemText, label);
             GraphicsPanel.Grey(upscaler.CurrentItem.gameObject, reason != null);
             GraphicsPanel.Tip(upscaler.CentralButton.gameObject, reason);
         }
@@ -161,17 +169,15 @@ namespace Renderforge
                 ShowUpscaler();
                 var mod = RenderforgeMod.Instance;
                 if (mod == null) return;
-                if (index == 0)
-                {
+                UpscalerKind want = UpscalerAt(index);
+                mod.Cfg.Upscaler = want;
+                // OFF here means "no upscaling at all", so the quality row follows.
+                if (want == UpscalerKind.Off && mod.Cfg.Mode != RenderforgeMode.Off)
                     RenderforgeMod.SetMode(RenderforgeMode.Off.ToString(), mod.Cfg.DebugView.ToString());
-                    RenderforgeMod.SaveConfig();
-                }
-                else if (index == 1 && Availability.Reason(Feature.Dlss) == null && mod.Cfg.Mode == RenderforgeMode.Off)
-                {
+                else if (want != UpscalerKind.Off && mod.Cfg.Mode == RenderforgeMode.Off)
                     RenderforgeMod.SetMode(RenderforgeMode.Auto.ToString(), mod.Cfg.DebugView.ToString());
-                    RenderforgeMod.SaveConfig();
-                }
-                GraphicsPanel.SyncQuality();   // keep the DLSS quality row's label/grey in step
+                RenderforgeMod.SaveConfig();
+                GraphicsPanel.SyncQuality();   // the quality row's labels depend on the provider
             }
             catch (Exception ex) { Log("upscaler picker change failed", ex); }
         }

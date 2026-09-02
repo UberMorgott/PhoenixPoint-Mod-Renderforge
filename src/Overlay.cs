@@ -13,7 +13,15 @@ namespace Renderforge
     {
         private const float Margin = 6f, Pad = 6f, Refresh = 0.25f, Window = 0.5f;
         private static Overlay inst;
-        private static string upscaler;
+        private static string nvngxVersion;
+        private static string NvngxVersion
+        {
+            get
+            {
+                if (nvngxVersion == null) nvngxVersion = NativeFileVersion(Path.Combine(RenderforgeMod.ModDir, "nvngx_dlss.dll"));
+                return nvngxVersion;
+            }
+        }
 
         /// <summary>Presented (frame-generated) fps. 0 = frame generation off, which is every Phase-1 build;
         /// Phase 5's FG provider writes it and the FPS line turns into "real / presented".</summary>
@@ -72,8 +80,6 @@ namespace Renderforge
             inst.text.horizontalOverflow = HorizontalWrapMode.Overflow;
             inst.text.verticalOverflow = VerticalWrapMode.Overflow;
             inst.text.font = HudFont();
-
-            if (upscaler == null) upscaler = "DLSS SR (nvngx " + NativeFileVersion(Path.Combine(RenderforgeMod.ModDir, "nvngx_dlss.dll")) + ")";
         }
 
         // Mono's FileVersionInfo returns an empty FileVersion for a native DLL (seen live), so read VERSIONINFO via version.dll.
@@ -136,7 +142,7 @@ namespace Renderforge
                 bool sameRes = d.RenderW == d.OutW && d.RenderH == d.OutH;   // DLAA: no upscale, show one resolution
                 mode = d.LiveMode + (d.LiveMode == RenderforgeMode.Auto ? "/" + QualityName(d.Quality) : "")
                      + " (" + (sameRes ? "" : d.RenderW + "x" + d.RenderH + " -> ") + d.OutW + "x" + d.OutH + ")";
-                aa = "DLSS";
+                aa = Upscalers.Running == UpscalerKind.FSR ? "FSR" : Upscalers.Running == UpscalerKind.XeSS ? "XeSS" : "DLSS";
             }
             else
             {
@@ -146,12 +152,12 @@ namespace Renderforge
                    : l.antialiasingMode == PostProcessLayer.Antialiasing.SubpixelMorphologicalAntialiasing ? "SMAA" : l.antialiasingMode.ToString();
             }
             float avg = dtSum / dts.Count;
-            string dlssReason = Availability.Reason(Feature.Dlss);
+            string dlssReason = Availability.Reason(Upscalers.ActiveFeature);
             string fps = "FPS: " + Mathf.RoundToInt(1f / avg)
                        + (FgFps > 0 ? " / " + FgFps : "")
                        + " (" + (avg * 1000f).ToString("F1") + " ms)";
             text.text = "Renderer: " + Availability.ApiName
-                      + "\nUpscaler: " + (live ? upscaler
+                      + "\nUpscaler: " + (live ? Upscalers.RunningName(NvngxVersion)
                                           : Availability.NeedsRestart ? "off (restart required)"
                                           : "off" + (dlssReason != null ? " (" + dlssReason + ")" : ""))
                       + "\nMode: " + mode
@@ -168,7 +174,7 @@ namespace Renderforge
                 case Native.DLSS_Q_BALANCED: return "Balanced";
                 case Native.DLSS_Q_PERFORMANCE: return "Performance";
                 case Native.DLSS_Q_ULTRA_PERFORMANCE: return "UltraPerformance";
-                default: return "DLAA";
+                default: return Upscalers.Running == UpscalerKind.DLSS ? "DLAA" : "NativeAA";
             }
         }
     }

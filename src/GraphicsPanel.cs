@@ -17,7 +17,8 @@ namespace Renderforge
     {
         private const string Name = "DlssPicker";
         private const string SliderName = "DlssSharpness";
-        private static readonly string[] Labels = { "Off", "Auto", "DLAA", "Quality", "Balanced", "Performance", "Ultra Performance" };
+        // Provider-dependent: DLSS calls the 1.0x ratio "DLAA", FSR/XeSS call it "Native AA".
+        private static string[] Labels { get { return Upscalers.QualityLabels; } }
         private static bool loggedError;
         private static ArrowPickerController picker;
         private static Slider sharp;
@@ -48,7 +49,7 @@ namespace Renderforge
                     var go = UnityEngine.Object.Instantiate(src.gameObject, src.transform.parent);
                     go.name = Name;
                     picker = go.GetComponent<ArrowPickerController>();
-                    SetRaw(picker.Title, null, DlssConfig.Loc("DLSS quality", "Качество DLSS").ToUpperInvariant());
+                    SetRaw(picker.Title, null, DlssConfig.Loc("Quality", "Качество").ToUpperInvariant());
                 }
                 picker.transform.SetSiblingIndex(after.GetSiblingIndex() + 1);
                 picker.gameObject.SetActive(true);
@@ -73,7 +74,7 @@ namespace Renderforge
             if (picker == null || mod == null) return;
             int idx = (int)mod.Cfg.Mode;
             if (idx < 0 || idx >= Labels.Length) idx = 0;
-            string reason = Availability.Reason(Feature.Dlss);
+            string reason = Availability.Reason(Upscalers.ActiveFeature);
             SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[idx]);
             Grey(picker.CurrentItem.gameObject, reason != null);
             Tip(picker.CentralButton.gameObject, reason);
@@ -86,7 +87,7 @@ namespace Renderforge
             {
                 var mod = RenderforgeMod.Instance;
                 if (mod == null) return;
-                if (Availability.Reason(Feature.Dlss) != null)
+                if (Availability.Reason(Upscalers.ActiveFeature) != null)
                 {
                     // Not usable on this API/GPU: show the choice greyed, write nothing.
                     SetRaw(target.CurrentItem, target.CurrentItemText, Labels[i]);

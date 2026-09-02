@@ -352,6 +352,9 @@ namespace Renderforge
                 // current -> previous in pixels, hence InMVScale = (-renderW, -renderH).
                 // Sharpness = our RCAS pass in the shim (NGX InSharpness is deprecated in SDK 310), read live: slider/100.
                 float sharp = passthrough ? 0f : Mathf.Clamp01((RenderforgeMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
+                // FSR needs the camera frustum (cameraNear/Far/FovAngleVertical); NGX ignores it. Cached in the
+                // shim and copied into the frame slot, so the ABI of Dlss_SetFrame stays untouched.
+                Native.SetCamera(cam.nearClipPlane, cam.farClipPlane, cam.fieldOfView * Mathf.Deg2Rad);
                 IntPtr slot = Native.Dlss_GetFrameSlot();
                 Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, -jx, -jy, -renderW, -renderH,
                     reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp);
