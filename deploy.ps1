@@ -47,6 +47,13 @@ foreach ($file in (Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.jso
     Copy-Item $file $dest -Force
 }
 
+# Unity only calls UnityPluginLoad for plugins it resolves out of its own Plugins folder; the D3D12 backend
+# needs IUnityInterfaces, so the shim is staged there too and Native.Load prefers that copy.
+$plugins = Join-Path $PPRoot 'PhoenixPointWin64_Data\Plugins\x86_64'
+New-Item -ItemType Directory -Force -Path $plugins | Out-Null
+Copy-Item $nativeDll $plugins -Force
+Write-Host "Staged RenderforgeNative.dll into $plugins (Unity plugin folder, for UnityPluginLoad)"
+
 Write-Host "Deployed Renderforge to $dest"
 Get-ChildItem $dest -File | ForEach-Object { Write-Host ("  {0,-20} {1,12:N0} bytes" -f $_.Name, $_.Length) }
 Write-Host "Activation is separate: 'com.morgott.Renderforge' must be in MOD_ACTIVATED of the profile's Options.jopt"

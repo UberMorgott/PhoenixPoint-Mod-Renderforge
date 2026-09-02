@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using UnityEngine;
 
 namespace Renderforge
 {
@@ -8,7 +9,7 @@ namespace Renderforge
     /// mod folder so "RenderforgeNative" resolves against the already-loaded module, not the game's Plugins folder.</summary>
     public static class Native
     {
-        public const int DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4;
+        public const int DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4, DLSS_ERR_NO_UNITY_IFACE = 5;
         public const int DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMANCE = 3, DLSS_Q_ULTRA_PERFORMANCE = 4;
         public const int DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_MV_JITTERED = 8, DLSS_F_AUTO_EXPOSURE = 16;
         public const int DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3;
@@ -23,7 +24,12 @@ namespace Renderforge
         public static bool Load(string modDir)
         {
             if (Handle != IntPtr.Zero) return true;
-            Handle = LoadLibraryW(Path.Combine(modDir, "RenderforgeNative.dll"));
+            // Unity calls UnityPluginLoad only for modules it resolves out of <game>_Data\Plugins\x86_64, and the
+            // D3D12 backend needs the IUnityInterfaces that call delivers. Prefer that copy; fall back to the mod folder.
+            string plugins = Path.Combine(Path.Combine(Application.dataPath, "Plugins"), "x86_64");
+            string candidate = Path.Combine(plugins, "RenderforgeNative.dll");
+            if (File.Exists(candidate)) Handle = LoadLibraryW(candidate);
+            if (Handle == IntPtr.Zero) Handle = LoadLibraryW(Path.Combine(modDir, "RenderforgeNative.dll"));
             return Handle != IntPtr.Zero;
         }
 
@@ -78,6 +84,28 @@ namespace Renderforge
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_Shutdown();
+
+        /// <summary>Graphics API the shim bound to: 0 = none, 11 = D3D11, 12 = D3D12.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_Api();
+
+        /// <summary>bit0 = UnityPluginLoad ran, bit1 = IUnityGraphicsD3D12v5 acquired.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_UnityIface();
+
+        /// <summary>Dlss_UnityIface behind a try, for the startup diagnostic line.</summary>
+        public static int UnityIface()
+        {
+            try { return Dlss_UnityIface(); }
+            catch (Exception) { return -1; }
+        }
+
+        /// <summary>Dlss_Api behind a try: 0 when the DLL is missing or the export is absent.</summary>
+        public static int Api()
+        {
+            try { return Dlss_Api(); }
+            catch (Exception) { return 0; }
+        }
 
         /// <summary>Dlss_Init behind a try: a missing/unloadable DLL is a code, not an exception in the game's frame.</summary>
         public static int Init(IntPtr anyTex, string dllDir, string logDir)

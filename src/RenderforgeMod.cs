@@ -57,8 +57,10 @@ namespace Renderforge
             else
             {
                 InitCode = Native.DLSS_ERR_NOT_AVAILABLE;
+                // Phase 2 spike: load the shim so Unity gets a chance to call UnityPluginLoad, then report what arrived.
+                int iface = Native.Load(ModDir) ? Native.UnityIface() : -2;
                 Logger.LogInfo("Renderforge: " + SystemInfo.graphicsDeviceType + " - native DLSS init skipped ("
-                               + Availability.Reason(Feature.Dlss) + ")");
+                               + Availability.Reason(Feature.Dlss) + ") unityIface=" + iface);
             }
             try
             {
