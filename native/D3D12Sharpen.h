@@ -121,7 +121,18 @@ struct SharpenPass12
         hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         hd.NumDescriptors = 2 * D3D12Ring::kRing;
         hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FAILED(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&descHeap)))) { Fail(); return false; }
+        HRESULT hh = device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&descHeap));
+        // pso is already set above, so Ensure() would short-circuit on the next call and Run() would then
+        // dereference a null heap. Undo the PSO too, and say what the heap actually came back as: the debug
+        // layer's id=1315 ("GetGPUDescriptorHandleForHeapStart on a heap that is not SHADER_VISIBLE") is
+        // otherwise unattributable between this heap and the vendor SDKs' own heaps.
+        if (FAILED(hh) || !descHeap) {
+            RfDbg::Log("Sharpen: CreateDescriptorHeap failed hr=0x%08X", (unsigned)hh);
+            if (pso) { pso->Release(); pso = NULL; }
+            Fail(); return false;
+        }
+        D3D12_DESCRIPTOR_HEAP_DESC got = descHeap->GetDesc();
+        RfDbg::Log("Sharpen: descHeap=%p num=%u flags=0x%X (1 = SHADER_VISIBLE)", (void*)descHeap, got.NumDescriptors, (unsigned)got.Flags);
         descSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
         D3D12_HEAP_PROPERTIES hp = {};

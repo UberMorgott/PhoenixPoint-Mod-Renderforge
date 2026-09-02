@@ -228,11 +228,8 @@ struct Device12 : IDevice
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
             else if (doSharpen) sharpen.Run(cl, output, fp.sharpness, ring.ringIdx);
-
-            Barrier(cl, color, kIn, D3D12_RESOURCE_STATE_COMMON);
-            Barrier(cl, depth, kIn, D3D12_RESOURCE_STATE_COMMON);
-            Barrier(cl, mv,    kIn, D3D12_RESOURCE_STATE_COMMON);
-            Barrier(cl, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+            // No barrier back: NGX restores the incoming states, so `current` == `expected` and Unity's tracker
+            // stays right. Transitioning a Unity resource ourselves is what produced the id=527 mismatches.
         }
         if (RfDbg::On() && logged != output) {
             logged = output;

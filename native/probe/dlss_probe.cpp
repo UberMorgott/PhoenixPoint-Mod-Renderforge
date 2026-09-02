@@ -465,10 +465,10 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
     if (uqW <= rw || uqW >= 1920) g_failed = 1;
 
     const unsigned RW = rw, RH = rh, OW = 1920, OH = 1080;
-    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COMMON);
-    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT,     false, D3D12_RESOURCE_STATE_COMMON);
-    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT,  false, D3D12_RESOURCE_STATE_COMMON);
-    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT,     false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT,  false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (g_failed) return 1;
 
     RenderEventFn ev = (RenderEventFn)Dlss_GetRenderEventFunc();

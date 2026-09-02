@@ -275,10 +275,10 @@ struct Xess12 : IDevice
     }
 
     // Unity hands its RenderTextures over in COMMON and tracks them itself (see Device12::Declare).
-    static void Declare(UnityGraphicsD3D12ResourceState* st, int& n, ID3D12Resource* res)
+    static void Declare(UnityGraphicsD3D12ResourceState* st, int& n, ID3D12Resource* res, D3D12_RESOURCE_STATES s)
     {
         st[n].resource = res;
-        st[n].expected = st[n].current = D3D12_RESOURCE_STATE_COMMON;
+        st[n].expected = st[n].current = s;
         ++n;
     }
 
@@ -303,13 +303,9 @@ struct Xess12 : IDevice
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = 0;
         if (passthrough) {
-            Declare(st, n, color);
-            Declare(st, n, output);
-            SharpenPass12::Barrier(cl, color,  D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
-            SharpenPass12::Barrier(cl, output, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+            Declare(st, n, color,  D3D12_RESOURCE_STATE_COPY_SOURCE);
+            Declare(st, n, output, D3D12_RESOURCE_STATE_COPY_DEST);
             cl->CopyResource(output, color);
-            SharpenPass12::Barrier(cl, color,  D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
-            SharpenPass12::Barrier(cl, output, D3D12_RESOURCE_STATE_COPY_DEST,   D3D12_RESOURCE_STATE_COMMON);
             lastEval = NVSDK_NGX_Result_Success;
         } else {
             bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(output, ring);
@@ -337,13 +333,9 @@ struct Xess12 : IDevice
 
             ID3D12Resource* depth = (ID3D12Resource*)fp.depth;
             ID3D12Resource* mv    = (ID3D12Resource*)fp.mv;
-            Declare(st, n, color); Declare(st, n, depth); Declare(st, n, mv); Declare(st, n, output);
-
             const D3D12_RESOURCE_STATES kIn = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-            SharpenPass12::Barrier(cl, color, D3D12_RESOURCE_STATE_COMMON, kIn);
-            SharpenPass12::Barrier(cl, depth, D3D12_RESOURCE_STATE_COMMON, kIn);
-            SharpenPass12::Barrier(cl, mv,    D3D12_RESOURCE_STATE_COMMON, kIn);
-            SharpenPass12::Barrier(cl, output, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            Declare(st, n, color, kIn); Declare(st, n, depth, kIn); Declare(st, n, mv, kIn);
+            Declare(st, n, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
             xess_result_t r = xessD3D12Execute(ctx, cl, &ep);
             lastEval = Map(r);
@@ -351,10 +343,7 @@ struct Xess12 : IDevice
             // XeSS binds its own heap/root signature/PSO on this list; the sharpen pass re-binds all three.
             else if (doSharpen) sharpen.Run(cl, output, fp.sharpness, ring.ringIdx);
 
-            SharpenPass12::Barrier(cl, color, kIn, D3D12_RESOURCE_STATE_COMMON);
-            SharpenPass12::Barrier(cl, depth, kIn, D3D12_RESOURCE_STATE_COMMON);
-            SharpenPass12::Barrier(cl, mv,    kIn, D3D12_RESOURCE_STATE_COMMON);
-            SharpenPass12::Barrier(cl, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+            // No barrier back: XeSS restores the incoming states, so `current` == `expected` (see Device12.cpp).
         }
         if (RfDbg::On() && logged != output) {
             logged = output;
