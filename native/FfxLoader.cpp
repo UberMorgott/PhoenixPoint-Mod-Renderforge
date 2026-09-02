@@ -10,6 +10,7 @@ namespace {
 ffxFunctions g_fns;
 int g_loaded = 0;         // 1 = g_fns valid, -1 = tried and failed
 HMODULE g_upscaler;       // pre-loaded so the loader's bare-name LoadLibrary binds to OUR copy
+HMODULE g_framegen;       // same trick for the frame-generation DLL; optional (FG greys out without it)
 HMODULE g_loader;
 
 HMODULE LoadFrom(const wchar_t* dir, const wchar_t* name)
@@ -37,6 +38,7 @@ const ffxFunctions* FfxLoad(const wchar_t* dir)
     // returns whichever copy is already in the process, so an earlier-loaded copy (another mod, an overlay) wins.
     g_upscaler = LoadFrom(dir, L"amd_fidelityfx_upscaler_dx12.dll");
     if (!g_upscaler) return NULL;
+    g_framegen = LoadFrom(dir, L"amd_fidelityfx_framegeneration_dx12.dll");
     g_loader = LoadFrom(dir, L"amd_fidelityfx_loader_dx12.dll");
     if (!g_loader) { FreeLibrary(g_upscaler); g_upscaler = NULL; return NULL; }
 

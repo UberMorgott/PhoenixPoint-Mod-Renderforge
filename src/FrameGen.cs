@@ -29,12 +29,18 @@ namespace Renderforge
             }
         }
 
+        private static int forced = -1;
+
+        /// <summary>PPCLI/test override: -1 = auto, else an FG_PROVIDER_* id. Tears the live chain down so Apply rebuilds it.</summary>
+        internal static void Force(int provider) { forced = provider; Stop(); }
+
         internal static int Multiplier(FrameGenMode m) => m == FrameGenMode.X4 ? 4 : m == FrameGenMode.X3 ? 3 : m == FrameGenMode.X2 ? 2 : 0;
 
         /// <summary>Which vendor drives FG on this GPU: NVIDIA -> DLSS-G, everything else -> FSR-FG (cross-vendor),
         /// with XeSS-FG as the second cross-vendor option. Mirrors the spec's Auto order for D3D12.</summary>
         internal static int AutoProvider()
         {
+            if (forced >= 0) return forced;
             if (Availability.IsNvidia) return Native.FG_PROVIDER_DLSS;
             return Native.FG_PROVIDER_FSR;
         }

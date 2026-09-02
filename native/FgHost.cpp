@@ -134,8 +134,7 @@ struct ProviderNone : IFgProvider
         return rc;
     }
     void Prepare(ID3D12GraphicsCommandList*, const FgFrame&) {}
-    void BeforePresent(const FgFrame&) {}
-    int  AfterPresent(void) { return 1; }
+    int  Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT) { return 0; }
     void SetEnabled(bool) {}
     void Destroy(void) { sc = NULL; }
 };
@@ -145,8 +144,7 @@ ProviderNone g_none;
 } // namespace
 
 IFgProvider* MakeFgProviderNone(void) { return &g_none; }
-// Vendor providers land in Tasks 3-5; until then every id falls back to the pass-through chain.
-IFgProvider* MakeFgProviderFsr(void) { return NULL; }
+// XeSS / Streamline providers land in Tasks 4-5; until then those ids fall back to the pass-through chain.
 IFgProvider* MakeFgProviderXess(void) { return NULL; }
 IFgProvider* MakeFgProviderStreamline(void) { return NULL; }
 
@@ -285,22 +283,16 @@ void FgHostPrepare(void)
     Locked lk;
     if (!H.prov || !H.enabled) return;
     H.cur = H.frames[H.frameIdx & 3];
-    // The pass-through provider has nothing to prepare; declaring hudless/depth/mv as NON_PIXEL_SHADER_RESOURCE
-    // here would make Unity transition them under the upscaler's own barriers (debug layer id=527 on every frame).
+    // The pass-through provider has nothing to prepare. Nothing is declared to Unity: providers read the
+    // shim-owned twins (COMMON at rest), never the Unity RTs - declaring those as NON_PIXEL_SHADER_RESOURCE made
+    // Unity transition them under the upscaler's own barriers (debug layer id=527 on every frame).
     if (H.prov->Id() == FG_PROVIDER_NONE) return;
     if (!H.cur.hudless || !H.cur.depth || !H.cur.mv) return;
 
     ID3D12GraphicsCommandList* l = H.prep.Begin();
     if (!l) return;
     H.prov->Prepare(l, H.cur);
-
-    // Unity owns the states of hudless/depth/mv. We ask for the state every FG SDK reads them in and
-    // hand them back unchanged, exactly like Phase 2's DLSS evaluate.
-    UnityGraphicsD3D12ResourceState* st = H.prep.StateSlot();
-    st[0].resource = H.cur.hudless; st[0].expected = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; st[0].current = st[0].expected;
-    st[1].resource = H.cur.depth;   st[1].expected = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; st[1].current = st[1].expected;
-    st[2].resource = H.cur.mv;      st[2].expected = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; st[2].current = st[2].expected;
-    H.prep.End(3);
+    H.prep.End(0);
 }
 
 bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags, HRESULT* outHr)
@@ -310,32 +302,34 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags, HRESULT
     IDXGISwapChain3* app3 = FgAppSwapChain();
     if (app != (IDXGISwapChain*)app3) return false;
 
-    ID3D12Resource* src = NULL;
-    ID3D12Resource* dst = NULL;
-    if (FAILED(app3->GetBuffer(app3->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&src)) ||
-        FAILED(H.shadow->GetBuffer(H.shadow->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&dst)))
-    {
-        if (src) src->Release();
-        if (dst) dst->Release();
-        return false;
-    }
-    static int firstLogged = 0;
-    if (!firstLogged) {
-        firstLogged = 1;
-        FgLog("host: first present: appIdx=%u shadowIdx=%u src=%p dst=%p sync=%u flags=0x%X tid=%u",
-              app3->GetCurrentBackBufferIndex(), H.shadow->GetCurrentBackBufferIndex(), (void*)src, (void*)dst,
-              syncInterval, flags, (unsigned)GetCurrentThreadId());
-    }
-    bool copied = CopyBackBuffer(src, dst);
-    src->Release(); dst->Release();
-    if (!copied) return false;
-
     // Only the present flags the shadow chain opted into: tearing iff created with ALLOW_TEARING (and
     // Unity asked for it this frame); never TEST / DO_NOT_SEQUENCE / RESTART, which belong to Unity's chain.
     UINT pf = (H.scFlags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) ? (flags & DXGI_PRESENT_ALLOW_TEARING) : 0;
     if (pf && syncInterval) pf = 0;                    // tearing needs sync interval 0
 
-    H.prov->BeforePresent(H.cur);
+    ID3D12Resource* src = NULL;
+    if (FAILED(app3->GetBuffer(app3->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&src)) || !src) return false;
+
+    // Generated frame(s) first - they sit between the previous real frame and this one - then the real one.
+    // The provider presents its own frames on the shadow chain, so the current back buffer is fetched after.
+    int generated = H.prov->Generate(H.cur, src, H.shadow, syncInterval, pf);
+
+    ID3D12Resource* dst = NULL;
+    if (FAILED(H.shadow->GetBuffer(H.shadow->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&dst)) || !dst) {
+        src->Release();
+        return false;
+    }
+    static int firstLogged = 0;
+    if (!firstLogged) {
+        firstLogged = 1;
+        FgLog("host: first present: appIdx=%u shadowIdx=%u src=%p dst=%p sync=%u flags=0x%X generated=%d tid=%u",
+              app3->GetCurrentBackBufferIndex(), H.shadow->GetCurrentBackBufferIndex(), (void*)src, (void*)dst,
+              syncInterval, flags, generated, (unsigned)GetCurrentThreadId());
+    }
+    bool copied = CopyBackBuffer(src, dst);
+    src->Release(); dst->Release();
+    if (!copied) return false;
+
     HRESULT hr = H.shadow->Present(syncInterval, pf);
     H.lastPresentHr = (long)hr;
     if (firstLogged == 1) {
@@ -357,8 +351,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags, HRESULT
         TearDownLocked(why);                           // this frame goes through the original Present
         return false;
     }
-    int presented = H.prov->AfterPresent();
-    FgPresentedAdd(presented < 1 ? 1 : presented);
+    FgPresentedAdd(1 + (generated < 0 ? 0 : generated));
     *outHr = hr;
     return true;
 }

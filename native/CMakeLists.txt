@@ -18,6 +18,7 @@ set(FFX_SDK "${CMAKE_SOURCE_DIR}/../../refs/FidelityFX-SDK" CACHE PATH "AMD Fide
 get_filename_component(FFX_SDK "${FFX_SDK}" ABSOLUTE)
 set(FFX_API_INC "${FFX_SDK}/Kits/FidelityFX/api/include")
 set(FFX_UPSCALE_INC "${FFX_SDK}/Kits/FidelityFX/upscalers/include")
+set(FFX_FG_INC "${FFX_SDK}/Kits/FidelityFX/framegeneration/include")
 if(NOT EXISTS "${FFX_API_INC}/ffx_api.h")
     message(FATAL_ERROR "ffx_api.h not found at ${FFX_API_INC} (FFX_SDK=${FFX_SDK})")
 endif()
@@ -59,12 +60,13 @@ add_library(RenderforgeNative SHARED
     Fg.h
     FgHook.cpp
     FgHost.cpp
+    FgFsr.cpp
     unity/IUnityInterface.h
     unity/IUnityGraphics.h
     unity/IUnityGraphicsD3D12.h)
 target_include_directories(RenderforgeNative
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
-    PRIVATE "${DLSS_SDK}/include" "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}" "${XESS_SDK}/inc" "${CMAKE_CURRENT_BINARY_DIR}")
+    PRIVATE "${DLSS_SDK}/include" "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}" "${FFX_FG_INC}" "${XESS_SDK}/inc" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" "${XESS_LIB}" d3d11 d3d12 dxgi dcomp d3dcompiler delayimp)
 target_link_options(RenderforgeNative PRIVATE "/DELAYLOAD:libxess.dll")
 # _WINDOWS is what ffx_api_loader.h:38 tests to compile ffxLoadFunctions; without it every pointer stays NULL.

@@ -130,6 +130,7 @@ struct Xess12 : IDevice
 
     int Api() const override { return 12; }
     bool FeatureAlive() const override { return initialised != 0; }
+    const OwnedSet12* Owned12() const override { return &owned; }
 
     int ProviderVersion(char* buf, int cap) override
     {

@@ -1641,7 +1641,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): Fg_* ABI, shadow-swa
 
 FSR-FG is the cross-vendor provider and the one that can be fully tested on the RTX 5070 Ti in this machine (through the analytical 3.1.6 model — the ML 4.0.1 model needs RDNA4 and stays untestable here). It ships **2x only**: `numGeneratedFrames = 1`, matching the SDK's own sample.
 
-- [ ] **Step 1: Write `native\FgFsr.cpp`**
+- [x] **Step 1: Write `native\FgFsr.cpp`** (shipped shape differs from the snippet below — see the Step 7 result: no FSR swapchain context, manual dispatch on the host's composition chain)
 
 ```cpp
 // FgFsr.cpp - AMD FidelityFX frame generation. Two ffx-api contexts:
@@ -1917,7 +1917,7 @@ IFgProvider* MakeFgProviderFsr(void) { return &g_fsr; }
 
 > Every `FFX_API_..._DX12` macro above is verbatim from `Kits\FidelityFX\framegeneration\include\dx12\ffx_api_framegeneration_dx12.h` (`:33`, `:51`, `:71`, `:78`, `:85`, `:128`), as are `FFX_FRAMEGENERATION_VERSION` (`ffx_framegeneration.h:33`, = 4.0.1, the header/API handshake — the *model* is chosen separately by `ffxOverrideVersion`) and `FFX_FRAMEGENERATION_SWAPCHAIN_DX12_VERSION` (`ffx_api_framegeneration_dx12.h:31`, = 3.1.7).
 
-- [ ] **Step 2: `native\CMakeLists.txt` — the FidelityFX headers**
+- [x] **Step 2: `native\CMakeLists.txt` — the FidelityFX headers** (`FFX_FG_INC` added next to the existing `FFX_API_INC`/`FFX_UPSCALE_INC`)
 
 Insert after the `NGX_LIB` check:
 
@@ -1937,7 +1937,7 @@ target_include_directories(RenderforgeNative PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}
             "${FFX_SDK}/api/include" "${FFX_SDK}/framegeneration/include")
 ```
 
-- [ ] **Step 3: `build-native.ps1` — verify and stage the AMD DLLs**
+- [x] **Step 3: `build-native.ps1` — verify and stage the AMD DLLs** (`amd_fidelityfx_framegeneration_dx12.dll` joined the existing `$amdDlls` list; loader + upscaler were already there)
 
 Insert after the existing `nvngx_dlss.dll` signature block:
 
@@ -1965,7 +1965,7 @@ and after the existing `Copy-Item $ngxDll $outDir -Force`:
 foreach ($v in $vendorDlls) { Copy-Item $v.Path $outDir -Force }
 ```
 
-- [ ] **Step 4: `deploy.ps1` — copy the vendor DLLs into the mod folder**
+- [x] **Step 4: `deploy.ps1` — copy the vendor DLLs into the mod folder** (`$amdFrameGen` added to the explicit list)
 
 Replace the `foreach ($file in ...)` block with:
 
@@ -1977,7 +1977,7 @@ foreach ($file in @((Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.j
 }
 ```
 
-- [ ] **Step 5: `src\FrameGen.cs` — let PPCLI force a provider**
+- [x] **Step 5: `src\FrameGen.cs` — let PPCLI force a provider**
 
 Replace `AutoProvider()` with an override-aware version and add the forcing entry point:
 
@@ -2021,14 +2021,14 @@ and in `src\RenderforgeMod.cs`, after `SetFrameGen`:
         }
 ```
 
-- [ ] **Step 6: Build and deploy**
+- [x] **Step 6: Build and deploy** (2026-09-02: `build-native.ps1` 4x `PROBE OK`, `build-native: OK`, 0 warnings, three AMD lines incl. `amd_fidelityfx_framegeneration_dx12.dll 4.0.1.2740`; `dotnet build -c Release` 0/0; `deploy.ps1 -PPRoot D:\PP-Instance3 -SkipNative` lists the 40,085,776-byte FG DLL)
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\deploy.ps1"
 ```
 Expected: the two AMD lines (`amd_fidelityfx_loader_dx12.dll 2.3.0.2740 signed by Advanced Micro Devices`, `amd_fidelityfx_framegeneration_dx12.dll 4.0.1.2740 signed by ...`), `build-native: OK`, and the deploy listing now includes both AMD DLLs.
 
-- [ ] **Step 7: Run FSR-FG in-game**
+- [x] **Step 7: Run FSR-FG in-game**
 
 ```powershell
 Start-Process 'D:\PP-Instance2\PhoenixPointWin64.exe' -ArgumentList '-mods','-force-d3d12'
@@ -2047,7 +2047,15 @@ Get-Content 'D:\PP-Instance2\Mods\Renderforge\renderforge_fg.log' -Tail 30
 ```
 Expected: `GetStatus` contains `fg=live provider=FSR-FG 3.1.6 enabled=1 multiplier=2 caps=0x1 lastError=0`; the log shows a `fsr: FG version … = …3.1…` line, `fsr: created, display <W>x<H>`, and **no** `fsr: configure`/`fsr: prepare`/`fsr: dispatch` error lines. The screenshot must show the overlay's `FPS: <real> / <presented>` with **presented ≈ 2 × real**, `FG: FSR 2x`, and a HUD that is sharp and not smeared.
 
-- [ ] **Step 8: Commit**
+> **2026-09-02 result on `D:\PP-Instance3` (profile `...593`, `-mods -force-d3d12 -force-d3d12-debug`, `RENDERFORGE_D3D12_DEBUG=1`, `ALN_PLT_Nest_48x48_A` seed 12345, 1280x720, ModConfig `Upscaler:3`/`Renderer:2` latched so the FSR upscaler runs): PASS.**
+> **Deviation from the snippet above — the SDK's frame-interpolation swapchain is NOT used.** All three of its creation shapes end in `IDXGIFactory2::CreateSwapChainForHwnd` on the game window (`FrameInterpolationSwapchainDX12.cpp:1162`, reached from `:477` Wrap, `:520` New, `:523` ForHwnd), which is the `0x80070005` this phase already measured, and `Wrap` also needs `GetHwnd` (`:468`), which a composition chain refuses. `FgFsr.cpp` therefore keeps the host's composition shadow chain and takes the manual-dispatch path (`frame-interpolation-api.md:281`): one FG context, `ffxConfigure` per frame with `FFX_FRAMEGENERATION_FLAG_NO_SWAPCHAIN_CONTEXT_NOTIFY` (`ffx_provider_fsr3framegeneration.cpp:240-241` — "allow for run configure without swapchain"), `PrepareV2` in `DLSS_EV_FG_PREPARE`, then in the Present hook `ffxDispatchDescFrameGeneration` with `presentColor` = Unity's back buffer (state PRESENT) and `outputs[0]` = an owned UAV texture that is copied into the shadow chain and presented BEFORE the real frame. `IFgProvider::BeforePresent/AfterPresent` became `Generate(f, unityBackBuffer, shadow, sync, pf) -> frames presented`.
+> Inputs are the upscaler's owned twins (`IDevice::Owned12()`, new; `FgOwned12()` in `RenderforgeNative.cpp`): depth/mv/out passed as `FFX_API_RESOURCE_STATE_COMMON` (`ffx_dx12.cpp:625`), so `FgHostPrepare` declares nothing to Unity (`prep.End(0)`); Unity RTs are never handed to ffx. Hud-less = owned `out` (same 1280x720 R8G8B8A8 as the back buffer). The FG DLL lists exactly one provider on this RTX 5070 Ti: `fsr: FG version 17726168133342859270 = 3.1.6` (no 4.0.1 entry) — pinned via `ffxOverrideVersion`, `ffxQueryGetProviderVersion` confirms `3.1.6`. `FfxLoad` pre-loads `amd_fidelityfx_framegeneration_dx12.dll` (optional) beside the upscaler DLL.
+> Sequence (`SetMode ["Quality","None"]`, `SetOverlay ["TopCenter"]`, `SetFgProvider ["Fsr"]`, `SetFrameGen ["X2"]`): before `fg=off provider=- enabled=0 multiplier=0 … presented=0 fps=0 frameId=0`; +5 s `fg=live provider=fsr enabled=1 multiplier=2 shadow=00000163A10CAD10 out=1280x720 flags=0x800 caps=0x1 lastError=0 presentHr=0x00000000 presented=618 fps=140 frameId=2028`; +10 s `… presented=1274 fps=133 frameId=2357` (656 presented / 329 rendered in 5 s = 2.0x); +60 s alive `… presented=11336 fps=124 frameId=7390`. Overlay `docs\shots\fg-fsr-on.png`: `Upscaler: FSR 3.1.5`, `FG: FSR 2x`, `FPS: 63 / 124 (15,9 ms)`; desktop `docs\shots\fg-fsr-on-desktop.png` (PrintWindow `PW_CLIENTONLY|PW_RENDERFULLCONTENT` on the game HWND, 853x480 = DPI-scaled client rect) shows the live scene + HUD + `FPS: 50 / 98`, with faint white speckles over the dark ground — the generated frame at capture time, 3.1.6 artefacts in a near-black scene, not a hang.
+> `SetFrameGen ["Off"]` → `frameGen=Off off provider=- enabled=0 multiplier=2 shadow=0000000000000000 … presented=25055 fps=126 frameId=14253`, alive 20 s later; `SetFrameGen ["X2"]` again → `frameGen=X2 live provider=fsr … shadow=0000016280A157B0 …`, +8 s `presented=28540 fps=132 frameId=17223`, +13 s `presented=29196 fps=132 frameId=17551`; Off again, process stopped cleanly. `renderforge_fg.log`: no `fsr: configure/prepare/dispatch/generated Present` lines; `host: first present: … generated=1 tid=17532`, `first shadow Present(0, 0x200) -> 0x00000000 removed=0x00000000`, both teardowns `fsr: destroyed (provider '3.1.6')`.
+> Debug layer over the whole run (~200 s FG-on): 0 `DEVICE REMOVED`, 0 `CORRUPTION`, **5 x id=527 on `Renderforge ring N`**, every one inside a burst of Unity's own `BackBuffer*` id=527 mismatches on `Unnamed` lists (498 such Unity lines; the tracker already believed RENDER_TARGET when our PRESENT->COPY_SOURCE barrier ran — the same Unity-tracker noise D3D12Owned.h documents, present with FG off too). No fix round spent on it; no `FG interp`/AMD resource is named in any error.
+> ponytail ceiling: no frame pacing — the generated and the real frame are presented back to back on the submit thread (sync 0), so the presented counter doubles but the display cadence is not smoothed; upgrade = a present thread that delays the real frame by half the average frame time (what the SDK proxy does). ModConfig reset afterwards (`FrameGen:0`, `Upscaler:1`, `Renderer:0`, `Mode:2`), Instance3 stopped.
+
+- [x] **Step 8: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A

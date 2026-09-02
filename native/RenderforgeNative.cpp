@@ -318,6 +318,8 @@ void __cdecl Fg_SetFrame(void* hudless, void* depth, void* mv,
     FgHostSetFrame(f);
 }
 
+const OwnedSet12* FgOwned12(void) { return S.dev ? S.dev->Owned12() : NULL; }
+
 unsigned __cdecl Fg_Caps(void) { return FgHostCaps(); }
 int __cdecl Fg_Provider(void) { return FgHostProvider(); }
 const char* __cdecl Fg_Status(void) { return FgHostStatus(); }

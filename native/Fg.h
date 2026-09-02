@@ -93,15 +93,22 @@ struct IFgProvider
     virtual const char* Name() const = 0;
     // Build the FG-owned swapchain on s.hwnd. Returns FG_OK or an FG_ERR_*.
     virtual int      Create(const FgSetup& s, IDXGISwapChain4** outSwapChain) = 0;
-    // Render thread, inside the DLSS_EV_FG_PREPARE render event, on a recording DIRECT command list.
+    // Render thread, inside the DLSS_EV_FG_PREPARE render event, on a recording DIRECT command list that goes
+    // through Unity's ExecuteCommandList with NO state declarations: providers read the shim-owned twins
+    // (FgOwned12(), all resting in COMMON), never the Unity RTs in `f`.
     virtual void     Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f) = 0;
-    // Render thread, inside the Present hook, after the backbuffer copy and before the shadow Present.
-    virtual void     BeforePresent(const FgFrame& f) = 0;
-    // Render thread, right after the shadow Present. Returns how many frames were actually presented.
-    virtual int      AfterPresent(void) = 0;
+    // Render thread, inside the Present hook, BEFORE the host copies the real frame into `shadow`.
+    // `unityBackBuffer` is Unity's finished frame (state PRESENT). The provider generates its in-between
+    // frame(s), presents them on `shadow` itself (same sync/flags the host will use) and returns how many it
+    // presented; 0 = nothing generated this frame (the host still presents the real frame).
+    virtual int      Generate(const FgFrame& f, ID3D12Resource* unityBackBuffer, IDXGISwapChain4* shadow, UINT sync, UINT pf) = 0;
     virtual void     SetEnabled(bool on) = 0;
     virtual void     Destroy(void) = 0;
 };
+
+// The live upscaler backend's owned twins (RenderforgeNative.cpp); NULL when no D3D12 backend is up.
+struct OwnedSet12;
+const OwnedSet12* FgOwned12(void);
 
 IFgProvider* MakeFgProviderNone(void);
 IFgProvider* MakeFgProviderFsr(void);

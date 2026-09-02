@@ -37,6 +37,8 @@ struct CreateParams
     int rawFlags;     // the untranslated DLSS_F_* bitmask, for providers that map them differently (FSR, XeSS)
 };
 
+struct OwnedSet12;   // D3D12Owned.h: the shim-owned twins a D3D12 backend fills every Evaluate
+
 struct IDevice
 {
     NVSDK_NGX_Result lastCreate;
@@ -63,6 +65,9 @@ struct IDevice
     // Writes the provider's version string into buf (NUL-terminated, at most cap bytes). Returns bytes written.
     // Default: nothing - the NGX backends report their runtime version on the managed side from nvngx_dlss.dll.
     virtual int ProviderVersion(char* buf, int cap) { (void)buf; (void)cap; return 0; }
+    // D3D12 backends: the owned twins (depth/mv at render res, out = hud-less at output res) the last Evaluate
+    // filled, all resting in COMMON. The FG providers read these instead of Unity's RTs (D3D12Owned.h contract).
+    virtual const OwnedSet12* Owned12() const { return NULL; }
 };
 
 // Return the singleton backend if `nativeResource` belongs to that API, else NULL. No allocation.

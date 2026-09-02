@@ -16,11 +16,12 @@ $sig = Get-AuthenticodeSignature $ngxDll
 if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'NVIDIA Corporation') { throw "nvngx_dlss.dll signature invalid: $ngxDll" }
 Write-Host "nvngx_dlss.dll $((Get-Item $ngxDll).VersionInfo.FileVersion) from $ngxDll"
 
-# AMD FidelityFX SDK 2.3 signed binaries: the small loader + the upscaler DLL (FSR 4.1.1 ML + 3.1.5 fallback
-# in one file). Both are Authenticode-signed by AMD; a tampered or repacked DLL must never ship.
+# AMD FidelityFX SDK 2.3 signed binaries: the small loader, the upscaler DLL (FSR 4.1.1 ML + 3.1.5 fallback
+# in one file) and the frame-generation DLL (FG 4.0.1 ML + 3.1.x analytical). All Authenticode-signed by AMD;
+# a tampered or repacked DLL must never ship.
 $ffxSdk = Join-Path $root '..\refs\FidelityFX-SDK'
 $amdBin = Join-Path $ffxSdk 'Kits\FidelityFX\signedbin'
-$amdDlls = @('amd_fidelityfx_loader_dx12.dll', 'amd_fidelityfx_upscaler_dx12.dll') | ForEach-Object { Join-Path $amdBin $_ }
+$amdDlls = @('amd_fidelityfx_loader_dx12.dll', 'amd_fidelityfx_upscaler_dx12.dll', 'amd_fidelityfx_framegeneration_dx12.dll') | ForEach-Object { Join-Path $amdBin $_ }
 foreach ($dll in $amdDlls) {
     if (-not (Test-Path $dll)) { throw "AMD FidelityFX DLL not found at $dll" }
     $s = Get-AuthenticodeSignature $dll

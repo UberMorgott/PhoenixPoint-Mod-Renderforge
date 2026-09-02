@@ -104,6 +104,7 @@ struct Fsr12 : IDevice
 
     int Api() const override { return 12; }
     bool FeatureAlive() const override { return context != NULL; }
+    const OwnedSet12* Owned12() const override { return &owned; }
 
     int ProviderVersion(char* buf, int cap) override
     {

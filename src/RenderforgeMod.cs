@@ -220,6 +220,26 @@ namespace Renderforge
             return "frameGen=" + m.Cfg.FrameGen + " " + FrameGen.Status();
         }
 
+        /// <summary>PPCLI: {"member":"SetFgProvider","args":["Fsr"]} - Auto / None / Fsr / Xess / Dlss. Test lever:
+        /// the RTX in this machine can run all three, and only a forced pick proves the cross-vendor paths.</summary>
+        public static string SetFgProvider(string name)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            int id;
+            switch (name.ToLowerInvariant())
+            {
+                case "none": id = Native.FG_PROVIDER_NONE; break;
+                case "fsr": id = Native.FG_PROVIDER_FSR; break;
+                case "xess": id = Native.FG_PROVIDER_XESS; break;
+                case "dlss": id = Native.FG_PROVIDER_DLSS; break;
+                default: id = -1; break;
+            }
+            FrameGen.Force(id);
+            FrameGen.Apply(m.Cfg);
+            return "fgProvider=" + name + " " + FrameGen.Status();
+        }
+
         public static string GetStatus() => (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 

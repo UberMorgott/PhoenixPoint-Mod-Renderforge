@@ -55,6 +55,7 @@ struct Device12 : IDevice
 
     int Api() const override { return 12; }
     bool FeatureAlive() const override { return feature != NULL; }
+    const OwnedSet12* Owned12() const override { return &owned; }
 
     // Ring wrappers: Begin() reports its failure through failCode, which is this device's lastError.
     ID3D12GraphicsCommandList* Begin()
