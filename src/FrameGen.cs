@@ -15,7 +15,8 @@ namespace Renderforge
 
         internal static bool Live => live;
         internal static int Provider => live ? Native.Fg_Provider() : Native.FG_PROVIDER_NONE;
-        internal static uint Caps => live ? Native.Fg_Caps() : 0u;
+        /// <summary>The shim keeps the last provider's caps after a refused multiplier too, so 3x/4x grey out without a live chain.</summary>
+        internal static uint Caps => Availability.IsD3D12 ? Native.Fg_Caps() : 0u;
         internal static int LastResult => lastRc;
 
         internal static string ProviderName(int id)

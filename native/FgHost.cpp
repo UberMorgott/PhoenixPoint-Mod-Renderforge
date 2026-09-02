@@ -65,6 +65,7 @@ struct Host
     const char*           reason;       // static text explaining lastError == FG_ERR_NO_PROVIDER, else NULL
     long                  lastPresentHr;
     unsigned              outW, outH;
+    unsigned              lastCaps;     // caps of the last provider Create tried, live or not
     FgFrame               slot;         // main thread writes, render thread copies; both under g_lock; resources retained
     FgFrame               cur;          // render-thread copy
     int                   pinned;       // render thread is inside Prepare/OnPresent on H.c
@@ -129,11 +130,15 @@ void ReleaseGpu(Chain& c)
     c.chainKind = 0;
 }
 
-// No lock held. Provider first (it may still hold the chain), then the GPU objects.
+// No lock held. The host's shadow reference goes first (XeSS-FG's xefgSwapChainDestroy refuses while any proxy
+// reference is outstanding; FSR's swapchain context and the DComp visual hold their own), then the provider, then
+// the remaining GPU objects.
 void DestroyChain(Chain& c, const char* why)
 {
     ULONGLONG t0 = GetTickCount64();
-    if (c.prov) { c.prov->SetEnabled(false); c.prov->Destroy(); c.prov = NULL; }
+    if (c.prov) c.prov->SetEnabled(false);
+    SafeRelease(c.shadow);
+    if (c.prov) { c.prov->Destroy(); c.prov = NULL; }
     ULONGLONG t1 = GetTickCount64();
     ReleaseGpu(c);
     FgLog("host: teardown (%s) tid %u: provider %llu ms, gpu %llu ms", why, (unsigned)GetCurrentThreadId(),
@@ -350,10 +355,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     IFgProvider* p = NULL;
     switch (provider) {
     case FG_PROVIDER_FSR:  p = MakeFgProviderFsr();        break;
-    case FG_PROVIDER_XESS: p = MakeFgProviderXess();
-        // SDK-blocked (FgXess.cpp): no pass-through fallback, the caller must see WHY there is no chain.
-        if (!p) { H.reason = FgXessBlockedReason(dllDir); H.lastError = FG_ERR_NO_PROVIDER; return FG_ERR_NO_PROVIDER; }
-        break;
+    case FG_PROVIDER_XESS: p = MakeFgProviderXess();       break;
     case FG_PROVIDER_DLSS: p = MakeFgProviderStreamline(); break;
     default:               p = MakeFgProviderNone();       break;
     }
@@ -393,7 +395,16 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
 
     IDXGISwapChain4* shadow = NULL;
     int rc = p->Create(s, &shadow);
-    if (rc != FG_OK || !shadow) { ReleaseGpu(c); H.lastError = rc; return rc; }
+    // The provider's caps survive a refused multiplier (XeSS-FG: 1 interpolated frame on non-Intel GPUs), so the
+    // picker can grey 3x/4x from Fg_Caps even while no chain is up.
+    H.lastCaps = p->Caps();
+    if (rc != FG_OK || !shadow) {
+        ReleaseGpu(c);
+        H.lastError = rc;
+        H.reason = rc == FG_ERR_UNSUPPORTED_MULTIPLIER ? "multiplier above what this provider supports on this GPU"
+                 : rc == FG_ERR_NO_PROVIDER ? "vendor DLLs missing from the mod folder" : NULL;
+        return rc;
+    }
     c.shadow = shadow;
     c.app = app; app->AddRef();
     c.prep.Attach(H.device);
@@ -487,6 +498,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 
     HRESULT hr = c.shadow->Present(syncInterval, pf);
     H.lastPresentHr = (long)hr;
+    c.prov->AfterPresent(hr);
     if (firstLogged == 1) {
         firstLogged = 2;
         FgLog("host: first shadow Present(%u, 0x%X) -> 0x%08X removed=0x%08X", syncInterval, pf, (unsigned)hr, (unsigned)H.device->GetDeviceRemovedReason());
@@ -536,7 +548,7 @@ void FgHostShutdown(void)
 }
 
 int FgHostAlive(void) { return H.c.prov ? 1 : 0; }
-unsigned FgHostCaps(void) { return H.c.prov ? H.c.prov->Caps() : 0u; }
+unsigned FgHostCaps(void) { return H.c.prov ? H.c.prov->Caps() : H.lastCaps; }
 int FgHostProvider(void) { return H.c.prov ? H.c.prov->Id() : FG_PROVIDER_NONE; }
 
 const char* FgHostStatus(void)

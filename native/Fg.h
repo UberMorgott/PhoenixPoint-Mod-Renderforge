@@ -100,6 +100,9 @@ struct IFgProvider
     // frame(s), presents them on `shadow` itself (same sync/flags the host will use) and returns how many it
     // presented; 0 = nothing generated this frame (the host still presents the real frame).
     virtual int      Generate(const FgFrame& f, ID3D12Resource* unityBackBuffer, IDXGISwapChain4* shadow, UINT sync, UINT pf) = 0;
+    // Render thread, right after the host presented `shadow` (hr = that Present's result). XeSS-FG's present markers
+    // and present status live here; the default is a no-op.
+    virtual void     AfterPresent(HRESULT) {}
     virtual void     SetEnabled(bool on) = 0;
     virtual void     Destroy(void) = 0;
 };
@@ -110,10 +113,8 @@ const OwnedSet12* FgOwned12(void);
 
 IFgProvider* MakeFgProviderNone(void);
 IFgProvider* MakeFgProviderFsr(void);
-IFgProvider* MakeFgProviderXess(void);      // always NULL: XeSS-FG is SDK-blocked (FgXess.cpp)
+IFgProvider* MakeFgProviderXess(void);      // XeSS-FG + XeLL on the child HWND (FgXess.cpp)
 IFgProvider* MakeFgProviderStreamline(void);
-// Why there is no XeSS provider, one static line for Fg_Status (probes <dllDir>\libxess_fg.dll once for its version).
-const char* FgXessBlockedReason(const wchar_t* dllDir);
 
 // ---------------------------------------------------------------- our own HWND (FgWnd.cpp)
 
