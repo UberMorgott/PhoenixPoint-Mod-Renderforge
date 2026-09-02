@@ -695,8 +695,12 @@ Expected on the second `FgSpike` call: `hookInstall=0 installed=1 sawPresent=1 p
 
 - [x] **Step 9: Go/no-go**
 
-> **Verdict: GO** — `secondSwapChain=0x00000000`, so decision 3 stands and Task 2 proceeds unchanged
-> (no need for the 4a composition fallback, which is nonetheless available: `composition=0x00000000`).
+> **Verdict: GO with fallback 4a (measured in Task 2)**
+>
+> **2026-09-02 correction:** the `secondSwapChain=0x00000000 composition=0x00000000` result above was an artefact — `FgHookSpike` only ran inside `FgHostPrepare` (called from `DLSS_EV_FG_PREPARE`), which the driver issues only when `FrameGen.Live` is true; that was never true in Task 1, so the two probes never executed and zero-initialised HRESULTs read as `S_OK`.
+> - Measured in Task 2 (HEAD `55dbf41`): `CreateSwapChainForHwnd` on Unity's HWND → `0x80070005` (`E_ACCESSDENIED`) every time.
+> - `CreateSwapChainForComposition` → `S_OK` (commit `e4915dd`) → decision 4a (DComp visual on the game HWND) is the shipped path.
+> - Hook must forward Unity's own `Present` every frame (commit `8a2b8a2`) or the flip-chain buffer index freezes (debug layer id=907 → `DEVICE_REMOVED` `0x887A002B`).
 
 - `secondSwapChain=0x00000000` → **GO**. Proceed to Task 2 unchanged.
 - `secondSwapChain != 0` and `composition == 0` → **GO with fallback 4a**. In Task 2 Step 2 replace `CreateSwapChainForHwnd` with `CreateSwapChainForComposition` + a DirectComposition device/target/visual bound to `FgAppHwnd()` (`dcomp.lib` is already linked by Step 5 of Task 2). Everything else in Tasks 2-5 is identical.
