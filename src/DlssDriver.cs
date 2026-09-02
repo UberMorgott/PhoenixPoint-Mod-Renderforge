@@ -151,7 +151,15 @@ namespace Renderforge
                     if (wantsFeature)
                     {
                         int c, e, alive; Native.Dlss_Status(out c, out e, out alive);
-                        if (alive == 0) { Fail("NGX create failed: 0x" + c.ToString("X") + " " + Native.Dlss_ResultString(c)); break; }
+                        if (alive == 0)
+                        {
+                            // Every provider reports NGX codes (FSR/XeSS map theirs): only 0xBAD0xxxx is a failure.
+                            // 0 / a stale Success means the create event has not landed yet (FSR/XeSS keep the
+                            // previous generation's Success across ReleaseFeature) - keep waiting, bounded.
+                            bool failed = (c & 0xFFF00000) == 0xBAD00000;
+                            if (failed || genFrames >= 120) { Fail("create failed: 0x" + c.ToString("X") + " " + Native.Dlss_ResultString(c) + (failed ? "" : " (feature never came alive)")); }
+                            break;
+                        }
                     }
                     gen = Gen.Live;
                     resetNext = true;

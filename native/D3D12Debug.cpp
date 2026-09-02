@@ -59,9 +59,15 @@ void Log(const char* fmt, ...)
     va_end(ap);
 }
 
-void EarlyEnable()
+void EarlyEnable(ID3D12Device* existing)
 {
     if (!On()) return;
+    if (existing) {
+        // Too late: the device exists, and ID3D12Debug::EnableDebugLayer() now would remove it. Attach() still
+        // picks up the info queue when Unity's own layer is on.
+        Log("d3d12 debug: layer not enabled (device %p already created; launch with -force-d3d12-debug)", (void*)existing);
+        return;
+    }
     HMODULE d3d12 = GetModuleHandleW(L"d3d12.dll");
     if (!d3d12) d3d12 = LoadLibraryW(L"d3d12.dll");
     typedef HRESULT(WINAPI * PFN_GET)(REFIID, void**);

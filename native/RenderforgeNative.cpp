@@ -37,19 +37,19 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
 
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces* unityInterfaces)
 {
-    RfDbg::EarlyEnable();
     g_unityIfaces = unityInterfaces;
     g_unityLoaded = 1;
-    if (!unityInterfaces) return;
+    if (!unityInterfaces) { RfDbg::EarlyEnable(NULL); return; }
     g_unityGfx = unityInterfaces->Get<IUnityGraphics>();
     if (g_unityGfx) g_unityGfx->RegisterDeviceEventCallback(OnGraphicsDeviceEvent);
     // The device already exists when a plugin is loaded late, so the Initialize event is never delivered.
     OnGraphicsDeviceEvent(kUnityGfxDeviceEventInitialize);
-    // Ordering proof: a non-NULL device here means Unity created it before we were loaded, i.e. EarlyEnable
-    // above was too late and the debug layer must come from Unity's own -force-d3d12-debug switch.
+    // A non-NULL device here means Unity created it before we were loaded: EarlyEnable must NOT enable the debug
+    // layer (that removes the live device) and the layer can only come from Unity's own -force-d3d12-debug switch.
+    ID3D12Device* existing = g_unityD3D12 ? g_unityD3D12->GetDevice() : NULL;
+    RfDbg::EarlyEnable(existing);
     RfDbg::Log("UnityPluginLoad: renderer=%d unityD3D12=%p device=%p",
-               g_unityGfx ? (int)g_unityGfx->GetRenderer() : -1, (void*)g_unityD3D12,
-               (void*)(g_unityD3D12 ? g_unityD3D12->GetDevice() : NULL));
+               g_unityGfx ? (int)g_unityGfx->GetRenderer() : -1, (void*)g_unityD3D12, (void*)existing);
 }
 
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload(void)

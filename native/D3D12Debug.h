@@ -17,7 +17,10 @@ namespace RfDbg
     bool On();
     bool NoEvents();   // RENDERFORGE_D3D12_NOEVENTS=1 - diagnostic: swallow every render event
     void Log(const char* fmt, ...);
-    void EarlyEnable();                                   // debug layer + DRED settings (best effort)
+    // Debug layer + DRED settings (best effort). `existing` = Unity's device if it is already created: then the
+    // layer is NOT enabled (enabling it after creation removes the device: every CreateCommittedResource fails
+    // with DXGI_ERROR_DEVICE_REMOVED 0x887a0005) and only -force-d3d12-debug can provide it.
+    void EarlyEnable(ID3D12Device* existing);
     void Attach(ID3D12Device* dev);                       // QI InfoQueue / DRED once
     void Drain();                                         // info-queue messages -> log
     void Removed(ID3D12Device* dev, const char* where);   // GetDeviceRemovedReason + DRED dump
