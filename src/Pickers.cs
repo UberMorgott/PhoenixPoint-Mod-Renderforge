@@ -22,6 +22,7 @@ namespace Renderforge
         private static bool loggedError;
         private static ArrowPickerController renderer, upscaler, frameGen;
         private static RendererMode pendingRenderer;
+        private static bool rendererTouched;   // the user moved the RENDERER row since the panel opened
         private static int pendingUpscaler, pendingFrameGen;
         private static Action onChanged;
 
@@ -52,7 +53,7 @@ namespace Renderforge
             var cfg = RenderforgeMod.Instance.Cfg;
             onChanged = Traverse.Create(panel).Field("_onChanged").GetValue<Action>();
 
-            pendingRenderer = RendererSwitch.Effective(cfg.Renderer);
+            Reset();
             renderer = Row(src, RendererName, DlssConfig.Loc("Renderer", "Рендерер"), src.transform.GetSiblingIndex() + 1);
             renderer.Init(RendererLabels.Length, pendingRenderer == RendererMode.DirectX12 ? 1 : 0, OnRenderer);
             ShowRenderer();
@@ -68,6 +69,15 @@ namespace Renderforge
             ShowFrameGen();
 
             return frameGen.transform;
+        }
+
+        /// <summary>Forget an uncommitted RENDERER choice: called on panel Init AND Deinit (UIModuleGraphicsOptionsPanel.cs:86,:107)
+        /// so a change the user backed out of can never be committed by a later Apply.</summary>
+        internal static void Reset()
+        {
+            var cfg = RenderforgeMod.Instance != null ? RenderforgeMod.Instance.Cfg : null;
+            pendingRenderer = cfg != null ? RendererSwitch.Effective(cfg.Renderer) : RendererSwitch.Running;
+            rendererTouched = false;
         }
 
         internal static void Hide(Transform content)
@@ -129,6 +139,7 @@ namespace Renderforge
             try
             {
                 pendingRenderer = index == 1 ? RendererMode.DirectX12 : RendererMode.DirectX11;
+                rendererTouched = true;
                 ShowRenderer();
                 if (onChanged != null) onChanged();   // lights the panel's Apply button
             }
@@ -168,12 +179,17 @@ namespace Renderforge
             catch (Exception ex) { Log("frame-generation picker change failed", ex); }
         }
 
+        /// <summary>Picker differs from the config (must be written), OR the user moved it and it differs from the
+        /// RUNNING API (config may already say so after a "No" to the restart dialog - Apply must still light
+        /// so the dialog can be asked again).</summary>
         internal static bool RendererChanged
         {
             get
             {
                 var cfg = RenderforgeMod.Instance != null ? RenderforgeMod.Instance.Cfg : null;
-                return cfg != null && renderer != null && pendingRenderer != RendererSwitch.Effective(cfg.Renderer);
+                return cfg != null && renderer != null
+                    && (pendingRenderer != RendererSwitch.Effective(cfg.Renderer)
+                        || (rendererTouched && pendingRenderer != RendererSwitch.Running));
             }
         }
 
@@ -182,13 +198,13 @@ namespace Renderforge
             try
             {
                 var cfg = RenderforgeMod.Instance != null ? RenderforgeMod.Instance.Cfg : null;
-                if (cfg == null || renderer == null) return;
-                if (pendingRenderer == RendererSwitch.Effective(cfg.Renderer)) return;
+                if (cfg == null || renderer == null || !RendererChanged) return;
+                bool ask = rendererTouched && pendingRenderer != RendererSwitch.Running;
                 cfg.Renderer = pendingRenderer;
+                rendererTouched = false;
                 RenderforgeMod.SaveConfig();
                 ShowRenderer();
-                if (pendingRenderer != RendererSwitch.Running)
-                    RendererSwitch.Confirm(pendingRenderer == RendererMode.DirectX12, ShowRenderer);
+                if (ask) RendererSwitch.Confirm(pendingRenderer == RendererMode.DirectX12, ShowRenderer);
             }
             catch (Exception ex) { Log("renderer apply failed", ex); }
         }
@@ -216,6 +232,12 @@ namespace Renderforge
         static void Apply()
         {
             Pickers.ApplyRenderer();
+        }
+
+        [HarmonyPostfix, HarmonyPatch("Deinit")]
+        static void Deinit()
+        {
+            Pickers.Reset();
         }
     }
 }

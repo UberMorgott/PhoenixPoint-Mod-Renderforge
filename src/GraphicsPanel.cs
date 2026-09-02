@@ -33,6 +33,7 @@ namespace Renderforge
                 var existing = src.transform.parent.Find(Name);
                 if (!mod.Cfg.ShowInGraphicsOptions)
                 {
+                    Pickers.Reset();
                     Pickers.Hide(src.transform.parent);
                     if (existing != null) existing.gameObject.SetActive(false);
                     var hidden = src.transform.parent.Find(SliderName);
