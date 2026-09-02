@@ -243,15 +243,6 @@ namespace Renderforge
         public static string GetStatus() => (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 
-        /// <summary>Phase 5 Task 1 spike: {"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"FgSpike"}.
-        /// Installs the Present hook (D3D12 only) and returns the diagnostics line once frames have gone through it.</summary>
-        public static string FgSpike()
-        {
-            if (!Availability.IsD3D12) return "not D3D12";
-            int rc = Native.Fg_HookInstall(ModDir);
-            return "hookInstall=" + rc + " " + Native.Fg_SpikeStatus();
-        }
-
         private static string Reason(int code)
         {
             switch (code)

@@ -25,8 +25,12 @@
 //
 // Loading: sl.interposer.dll is LoadLibraryW'd from the mod folder and every entry point GetProcAddress'd (nothing is
 // linked); the interposer loads sl.common/sl.dlss_g/sl.reflex/sl.pcl + nvngx_dlssg.dll from pathsToPlugins = the mod
-// folder. slInit runs ONCE per process (it loads plugins and NGX); the chain, queue and factory proxy are per Create.
-// OTA flags are deliberately off: nothing may be written outside the mod folder.
+// folder. STREAMLINE IS PINNED FOR THE PROCESS LIFETIME: slInit runs once (it loads plugins and NGX), slSetD3DDevice
+// and the device proxy bind it to the FIRST D3D12 device, and there is no slShutdown - the chain, queue and factory
+// proxy are per Create and every later Create reuses that device. A Create on a different device (Unity rebuilt its
+// device: kUnityGfxDeviceEventShutdown + Initialize) is refused with FG_ERR_PROVIDER_FAILED rather than fed to a
+// Streamline that still points at the old one. OTA flags are deliberately off: nothing may be written outside the
+// mod folder.
 //
 // FOCUS GATE (measured 2026-09-02, RTX 5070 Ti, driver 596.49, Instance3): DLSS-G interpolates ONLY while the game
 // process owns the foreground window (sl.extra extra.cpp:97-124 hasFocus compares GetForegroundWindow's PID with the
@@ -83,6 +87,7 @@ struct SlCore
     PFun_slReflexSleep*         reflexSleep;
     PFun_slPCLSetMarker*        marker;
     ID3D12Device*               proxyDevice;   // slUpgradeInterface(device): the only legal CreateCommandQueue
+    ID3D12Device*               device;        // the device Streamline is pinned to (compared, never dereferenced)
     int                         state;         // 0 not tried, 1 up, <0 failed (FG_ERR_* negated)
     unsigned                    maxGen;        // DLSSGState::numFramesToGenerateMax once measured, 0 = not yet
     unsigned                    frameIdx;      // process-wide: SL refuses constants/options set twice for one index
@@ -111,7 +116,11 @@ unsigned CapsFor(unsigned maxGen) { return FG_CAP_2X | (maxGen >= 2 ? FG_CAP_3X 
 // Once per process. Returns FG_OK or the FG_ERR_* to hand back from Create.
 int SlUp(const FgSetup& s)
 {
-    if (g_sl.state > 0) return FG_OK;
+    if (g_sl.state > 0) {
+        if (g_sl.device == s.device) return FG_OK;
+        FgLog("sl: device %p != %p Streamline is pinned to (no slShutdown) - DLSS-G refused on this device", (void*)s.device, (void*)g_sl.device);
+        return FG_ERR_PROVIDER_FAILED;
+    }
     if (g_sl.state < 0) return -g_sl.state;
     wchar_t path[MAX_PATH];
     _snwprintf_s(path, MAX_PATH, _TRUNCATE, L"%s\\sl.interposer.dll", s.dllDir ? s.dllDir : L".");
@@ -178,6 +187,7 @@ int SlUp(const FgSetup& s)
     r = g_sl.upgrade(&dev);                        // ManualHooking.md:195-203
     if (r != sl::Result::eOk || !dev) { FgLog("sl: slUpgradeInterface(device) %d", (int)r); g_sl.state = -FG_ERR_PROVIDER_FAILED; return FG_ERR_PROVIDER_FAILED; }
     g_sl.proxyDevice = (ID3D12Device*)dev;
+    g_sl.device = s.device;
     g_sl.state = 1;
     return FG_OK;
 }
@@ -195,7 +205,8 @@ struct ProviderStreamline : IFgProvider
     unsigned            frames;        // Prepare calls on this chain
     // Tokens awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent pops
     // exactly one per Present so the PRESENT_START/END markers name the frame whose inputs were tagged (DLSS_G.md:933).
-    // A token is never overwritten while it waits; a full ring drops the Prepare instead (kTokens > SL's 3 in flight).
+    // A Present the host skipped (GetBuffer / copy failed) leaves its token behind: a full ring drops the OLDEST token,
+    // so the FIFO can never wedge - it drains one per Present and re-aligns by itself (kTokens > SL's 3 in flight).
     static const unsigned kTokens = 4;
     sl::FrameToken*     fifo[kTokens];
     unsigned            head, tail;
@@ -222,7 +233,7 @@ struct ProviderStreamline : IFgProvider
     const char* Name() const { return "dlss"; }
     ID3D12CommandQueue* PresentQueue() { return queue; }
 
-    int Fail(int rc) { unsigned c = caps; if (proxy) { proxy->Release(); proxy = NULL; } Destroy(); caps = c; return rc; }
+    int Fail(int rc) { unsigned c = caps; if (proxy) { proxy->Release(); proxy = NULL; } Destroy(true); caps = c; return rc; }
 
     int Create(const FgSetup& s, IDXGISwapChain4** out)
     {
@@ -322,7 +333,7 @@ struct ProviderStreamline : IFgProvider
             if (warned < 8) { ++warned; FgLog("sl: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)o->outFmt, outW, outH, (unsigned)backFmt); }
             return;
         }
-        if (tail - head >= kTokens) { if (warned < 8) { ++warned; FgLog("sl: %u frames prepared without a Present - skipping this one", kTokens); } return; }
+        if (tail - head >= kTokens) { if (warned < 8) { ++warned; FgLog("sl: %u frames prepared without a Present - dropping the oldest token", kTokens); } ++head; }
         ++frames;
         ++g_sl.frameIdx;
         sl::FrameToken* t = NULL;
@@ -428,28 +439,39 @@ struct ProviderStreamline : IFgProvider
         }
     }
 
-    // ponytail: off is applied HERE (main thread, or the host's teardown with the render thread idle) because DLSS-G
-    // must be eOff before the chain is released (DLSS_G.md:745-748); on waits for the presenting thread (Generate).
+    // Main thread. True once DLSS-G is eOff (or was never on).
+    bool Off()
+    {
+        if (!proxy || !isOn) return true;
+        sl::DLSSGOptions o{};
+        Options(o, (unsigned)sl::DLSSGMode::eOff);
+        sl::ViewportHandle vp(0u);
+        sl::Result r = g_sl.fgSetOptions(vp, o);
+        if (r == sl::Result::eOk) { isOn = 0; return true; }
+        FgLog("sl: slDLSSGSetOptions(off) %d", (int)r);
+        return false;
+    }
+
+    // ponytail: off is applied HERE (main thread) because DLSS-G must be eOff before the chain is released
+    // (DLSS_G.md:745-748); on waits for the presenting thread (Generate).
     void SetEnabled(bool on)
     {
         wantOn = on ? 1 : 0;
-        if (!on && proxy && isOn) {
-            sl::DLSSGOptions o{};
-            Options(o, (unsigned)sl::DLSSGMode::eOff);
-            sl::ViewportHandle vp(0u);
-            sl::Result r = g_sl.fgSetOptions(vp, o);
-            if (r == sl::Result::eOk) isOn = 0; else FgLog("sl: slDLSSGSetOptions(off) %d", (int)r);
-        }
+        if (!on) Off();
     }
 
-    // Caller thread, chain detached; the host already released its proxy reference (FgHost.cpp DestroyChain).
-    void Destroy(void)
+    // Main thread, chain detached; the host already released its proxy reference (FgHost.cpp DestroyChain). The
+    // proxy queue and factory go ONLY once DLSS-G is eOff: while it is on, it still presents on that queue. A refused
+    // eOff retains everything and the host retries next pump; `force` releases regardless (last resort).
+    bool Destroy(bool force)
     {
+        if (!Off() && !force) return false;
         proxy = NULL;
         if (queue) { queue->Release(); queue = NULL; }
         if (proxyFactory) { proxyFactory->Release(); proxyFactory = NULL; }
-        FgLog("sl: destroyed (%s, generated %lld, lastStatus 0x%X, frames %u)", g_sl.version, generated, lastStatus, frames);
+        FgLog("sl: destroyed (%s, generated %lld, lastStatus 0x%X, frames %u)%s", g_sl.version, generated, lastStatus, frames, force && isOn ? " (forced with DLSS-G still on)" : "");
         Zero();                                          // Streamline itself stays up for the process
+        return true;
     }
 };
 

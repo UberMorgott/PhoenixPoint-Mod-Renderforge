@@ -1,22 +1,23 @@
-// FgHost.cpp - the presentation host. Owns the FG-owned "shadow" swapchain, copies Unity's finished
-// backbuffer into it every frame, drives one IFgProvider and presents the shadow chain. Unity's own swapchain
-// is STILL presented every frame (sync 0, hidden under the child window / DComp visual) so its back-buffer index
-// keeps rotating in step with Unity's own tracking - but ONLY by the hook (FgHook.cpp), exactly once per hooked
-// call; the host never presents Unity's chain, so no path can present it twice (that was a device removal).
+// FgHost.cpp - the presentation host. Owns the FG-owned "shadow" swapchain on our child window (FgWnd.cpp),
+// copies Unity's finished backbuffer into it every frame, drives one IFgProvider and presents the shadow chain.
+// Unity's own swapchain is STILL presented every frame (sync 0, hidden under the child window) so its back-buffer
+// index keeps rotating in step with Unity's own tracking - but ONLY by the hook (FgHook.cpp), exactly once per
+// hooked call; the host never presents Unity's chain, so no path can present it twice (that was a device removal).
 //
-// The shadow chain is a COMPOSITION swapchain shown through a DirectComposition target on the game's HWND
-// (decision 4a). A second CreateSwapChainForHwnd on a window that already owns a flip-model chain fails
-// with E_ACCESSDENIED (measured on Instance3: 0x80070005 on every retry); the Task 1 spike's
-// `secondSwapChain=0x00000000` was the zero-initialised FgSpike field - the probe only ran inside
-// DLSS_EV_FG_PREPARE, which the driver issues only while FrameGen is already live.
+// Ownership: the chain lives in H.c and is DESTROYED ON THE MAIN THREAD ONLY (FgHostPump / FgHostShutdown /
+// FgHostInit). Every other thread - the render thread inside its Present hook, the UI thread inside WM_NCDESTROY,
+// whichever thread Unity calls ResizeBuffers on - only DETACHES it: a flag flip under the lock that stops the render
+// thread from pinning it again. Destroying on the render thread was a 5 s stall per teardown (the FSR proxy's
+// Destroy waits for presents the render thread must keep feeding) and D3D12Ring::WaitIdle on Unity's frame fence
+// from inside the Present hook (4 x 5 s). State: kNone -> (Init) kLive -> (Detach) kDetached -> (Pump) kNone.
+// Init refuses while kDetached: the provider singletons (g_fsr / g_xess / g_dlssg) are never Create()d while their
+// previous chain is still being destroyed.
 //
-// Threading: Init/Shutdown/SetEnabled/SetFrame on the main thread, Prepare/OnPresent on the render thread,
-// OnResize/TearDown from whichever thread Unity calls ResizeBuffers/SetFullscreenState on (measured: the main
-// thread) or the UI thread (WM_NCDESTROY). One SRWLOCK guards the STATE only - it is never held across vendor
-// work, a Present, a GPU wait or a window message:
+// One SRWLOCK guards the STATE only - never held across vendor work, a Present, a GPU wait or a window message:
 //   - the render thread PINS the chain (Pin/Unpin) around Prepare and OnPresent and works on H.c unlocked;
-//   - a teardown waits (unlocked, bounded) for the render thread to unpin, DETACHES the chain under the lock
-//     (H.c -> local) and destroys the local outside the lock on the calling thread (RequestTeardown).
+//   - the main thread's destroy waits (unlocked, bounded) for the render thread to unpin, then works on H.c
+//     unlocked too - the render thread cannot pin a detached chain, and Create/SetEnabled/Destroy are all main
+//     thread, so a provider is never destroyed under a call in flight.
 //
 // Two D3D12Ring instances (D3D12Ring.h, the ring every D3D12 backend uses): `prep` submits through
 // IUnityGraphicsD3D12v5::ExecuteCommandList with the resource states Unity must know about (its state
@@ -26,7 +27,6 @@
 #include "RenderforgeNative.h"
 #include "D3D12Ring.h"
 
-#include <dcomp.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -34,45 +34,44 @@ namespace {
 
 template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = NULL; } }
 
-// Everything one teardown releases. Detached from H under the lock, destroyed outside it.
+enum { kNone = 0, kLive = 1, kDetached = 2 };
+const int kDestroyTries = 120;          // pumps (frames) a provider may refuse Destroy before it is forced
+
 struct Chain
 {
     IFgProvider*          prov;
-    IDXGISwapChain3*      app;          // the Unity chain this was built on, AddRef'd while the chain lives
+    IDXGISwapChain3*      app;          // the Unity chain this was built on, our own reference
     IDXGISwapChain4*      shadow;
     IDXGIFactory2*        factory;
-    IDCompositionDevice*  dcomp;
-    IDCompositionTarget*  target;
-    IDCompositionVisual*  visual;
     D3D12Ring             prep;         // DLSS_EV_FG_PREPARE, via Unity
     D3D12Ring             copy;         // backbuffer copy, direct
     ID3D12Fence*          xfence;       // Unity queue -> provider present queue handoff (its own fence: values on
     UINT64                xval;         // one fence from two queues retire out of order and would free a live slot)
     unsigned              scFlags;      // DXGI_SWAP_CHAIN_FLAG_* the shadow chain was created with
-    int                   chainKind;    // 0 none, 1 child HWND, 2 composition
-    HWND                  child;        // our own WS_CHILD window (chainKind 1)
-    Chain() : prov(NULL), app(NULL), shadow(NULL), factory(NULL), dcomp(NULL), target(NULL), visual(NULL),
-              xfence(NULL), xval(0), scFlags(0), chainKind(0), child(NULL) {}
+    HWND                  child;        // our own WS_CHILD window the chain sits on
+    int                   logged;       // 0 nothing, 1 first present, 2 first present result
+    Chain() : prov(NULL), app(NULL), shadow(NULL), factory(NULL), xfence(NULL), xval(0), scFlags(0), child(NULL), logged(0) {}
 };
 
 struct Host
 {
     Chain                 c;
+    int                   state;        // kNone / kLive / kDetached, under g_lock
+    char                  why[64];      // why it was detached
+    int                   destroyTries; // failed Destroy() attempts on the detached chain
     ID3D12Device*         device;
     ID3D12CommandQueue*   queue;
     unsigned              multiplier;
     long                  childHr;      // HRESULT of CreateSwapChainForHwnd on the child (last attempt)
     int                   enabled;
     int                   lastError;
-    const char*           reason;       // static text explaining lastError == FG_ERR_NO_PROVIDER, else NULL
+    const char*           reason;       // static text explaining the last Init failure, else NULL
     long                  lastPresentHr;
     unsigned              outW, outH;
     unsigned              lastCaps;     // caps of the last provider Create tried, live or not
     FgFrame               slot;         // main thread writes, render thread copies; both under g_lock; resources retained
     FgFrame               cur;          // render-thread copy
     int                   pinned;       // render thread is inside Prepare/OnPresent on H.c
-    int                   pending;      // a teardown arrived while pinned; Unpin performs it
-    char                  pendingWhy[64];
     char                  status[512];
 };
 
@@ -90,10 +89,14 @@ struct Locked
 // queue submitted for this frame (xfence), and Unity's queue then waits for the copy (ring fence) before it may render
 // into that back buffer again - DLSS-G holds its presenting queue while it paces, so the copy can run frames later
 // (measured: debug layer id=1047 races on Unity's back buffers, then id=541 + DEVICE_REMOVED, without the second wait).
+// False = a queue/fence call failed (device removed): the caller detaches without presenting.
 bool CopyBackBuffer(Chain& c, ID3D12Resource* src, ID3D12Resource* dst)
 {
     ID3D12CommandQueue* q = c.prov->PresentQueue();
     if (!q || !c.xfence) q = H.queue;
+    if (q != H.queue) {
+        if (FAILED(H.queue->Signal(c.xfence, ++c.xval)) || FAILED(q->Wait(c.xfence, c.xval))) return false;
+    }
     ID3D12GraphicsCommandList* l = c.copy.Begin();
     if (!l) return false;
 
@@ -117,106 +120,92 @@ bool CopyBackBuffer(Chain& c, ID3D12Resource* src, ID3D12Resource* dst)
     }
     l->ResourceBarrier(2, b);
 
-    if (q != H.queue) {
-        H.queue->Signal(c.xfence, ++c.xval);
-        q->Wait(c.xfence, c.xval);
-    }
-    bool ok = c.copy.EndDirect(q);
-    if (ok && q != H.queue && c.copy.fence) H.queue->Wait(c.copy.fence, c.copy.fenceVal);
-    return ok;
+    if (!c.copy.EndDirect(q)) return false;
+    if (q != H.queue && c.copy.fence && FAILED(H.queue->Wait(c.copy.fence, c.copy.fenceVal))) return false;
+    return true;
 }
 
-// No lock held. GPU objects of a chain whose provider is already gone (or never came up).
+// Main thread, no lock held. GPU objects of a chain whose provider is already gone (or never came up).
 void ReleaseGpu(Chain& c)
 {
     c.prep.Release();
     c.copy.Release();
     SafeRelease(c.xfence);
     c.xval = 0;
-    if (c.visual) c.visual->SetContent(NULL);
-    if (c.dcomp)  c.dcomp->Commit();
-    SafeRelease(c.visual);
-    SafeRelease(c.target);
-    SafeRelease(c.dcomp);
     SafeRelease(c.shadow);
     SafeRelease(c.factory);
     SafeRelease(c.app);
     if (c.child) { FgWndDestroy(); c.child = NULL; }
     c.scFlags = 0;
-    c.chainKind = 0;
 }
 
-// No lock held. The host's shadow reference goes first (XeSS-FG's xefgSwapChainDestroy refuses while any proxy
-// reference is outstanding; FSR's swapchain context and the DComp visual hold their own), then the provider, then
-// the remaining GPU objects.
-void DestroyChain(Chain& c, const char* why)
+// Main thread, no lock held, chain detached. The host's shadow reference goes first (XeSS-FG's xefgSwapChainDestroy
+// refuses while any proxy reference is outstanding; FSR's swapchain context holds its own), then the provider, then
+// the remaining GPU objects. False = the provider refused and kept its handles: retried on the next pump.
+bool DestroyChain(Chain& c, const char* why, bool force)
 {
     ULONGLONG t0 = GetTickCount64();
     if (c.prov) c.prov->SetEnabled(false);
     SafeRelease(c.shadow);
-    if (c.prov) { c.prov->Destroy(); c.prov = NULL; }
+    if (c.prov) {
+        if (!c.prov->Destroy(force)) { FgLog("host: teardown (%s): provider refused Destroy (try %d)", why, H.destroyTries + 1); return false; }
+        c.prov = NULL;
+    }
     ULONGLONG t1 = GetTickCount64();
     ReleaseGpu(c);
-    FgLog("host: teardown (%s) tid %u: provider %llu ms, gpu %llu ms", why, (unsigned)GetCurrentThreadId(),
-          (unsigned long long)(t1 - t0), (unsigned long long)(GetTickCount64() - t1));
-}
-
-// Lock held. Moves the live chain out of H so no thread starts new work on it. False when there is none.
-bool DetachLocked(Chain* out)
-{
-    if (!H.c.prov) return false;
-    *out = H.c;
-    H.c = Chain();
-    H.enabled = 0;
-    H.pending = 0;
+    FgLog("host: teardown (%s) tid %u: provider %llu ms, gpu %llu ms%s", why, (unsigned)GetCurrentThreadId(),
+          (unsigned long long)(t1 - t0), (unsigned long long)(GetTickCount64() - t1), force ? " (forced)" : "");
     return true;
 }
 
-// Any thread but the render thread's own Prepare/OnPresent (those use Unpin(why)). Waits - lock NOT held -
-// for the render thread to leave the chain (what Unity's main thread does every frame anyway), then detaches
-// under the lock and destroys on the CALLER. Destroying on the render thread inside its Present hook is not an
-// option: the FSR proxy's Destroy waits for queued presents the render thread must keep feeding (measured: a
-// 5 s stall per teardown). If the render thread stays pinned for 2 s the request is parked and its Unpin runs it.
-void RequestTeardown(const char* why)
+// Any thread, lock only. A live chain stops being pinnable; the main thread destroys it on its next pump.
+void Detach(const char* why)
 {
-    Chain c;
-    bool now = false;
-    for (int i = 0; i < 200; ++i) {
-        {
-            Locked lk;
-            if (!H.c.prov) return;
-            if (!H.pinned) { now = DetachLocked(&c); break; }
-            H.enabled = 0;                             // no new Pin while we wait
-        }
-        Sleep(10);
-    }
-    if (now) { DestroyChain(c, why); return; }
     Locked lk;
-    if (H.c.prov) { H.pending = 1; strncpy_s(H.pendingWhy, sizeof(H.pendingWhy), why, _TRUNCATE); }
+    if (H.state != kLive) return;
+    H.state = kDetached;
+    H.enabled = 0;
+    H.destroyTries = 0;
+    strncpy_s(H.why, sizeof(H.why), why, _TRUNCATE);
+}
+
+// Main thread. Destroys the detached chain once the render thread has left it (it leaves every frame; `waitMs`
+// bounds a hung one). Returns true when nothing is left detached.
+bool DestroyDetached(DWORD waitMs)
+{
+    {
+        Locked lk;
+        if (H.state != kDetached) return H.state == kNone;
+    }
+    ULONGLONG until = GetTickCount64() + waitMs;
+    for (;;) {
+        { Locked lk; if (!H.pinned) break; }
+        if (GetTickCount64() >= until) { FgLog("host: teardown (%s): render thread still pinned after %lu ms - deferred", H.why, waitMs); return false; }
+        Sleep(1);
+    }
+    bool force = H.destroyTries >= kDestroyTries;
+    if (!DestroyChain(H.c, H.why, force)) { ++H.destroyTries; return false; }
+    Locked lk;
+    H.c = Chain();
+    H.state = kNone;
+    return true;
 }
 
 // Render thread. True with H.c pinned (stable until Unpin) and H.cur refreshed from the slot.
 bool Pin()
 {
     Locked lk;
-    if (!H.c.prov || !H.enabled || H.pending) return false;
+    if (H.state != kLive || !H.enabled) return false;
     H.pinned = 1;
     H.cur = H.slot;
     return true;
 }
 
-// Render thread. `tearWhy` != NULL = this thread found the chain dead; either way a parked teardown runs now.
+// Render thread. `tearWhy` != NULL = this thread found the chain dead: detach (the main thread destroys).
 void Unpin(const char* tearWhy)
 {
-    Chain c;
-    bool now = false;
-    {
-        Locked lk;
-        H.pinned = 0;
-        if (tearWhy && H.c.prov) { H.pending = 1; strncpy_s(H.pendingWhy, sizeof(H.pendingWhy), tearWhy, _TRUNCATE); }
-        if (H.pending) now = DetachLocked(&c);
-    }
-    if (now) DestroyChain(c, H.pendingWhy);
+    { Locked lk; H.pinned = 0; }
+    if (tearWhy) Detach(tearWhy);
 }
 
 // Lock held. Drop the retained Unity RTs of the frame slot.
@@ -232,21 +221,14 @@ void ReleaseSlotLocked()
 
 struct ProviderNone : IFgProvider
 {
-    IDXGISwapChain4* sc;
-    ProviderNone() : sc(NULL) {}
     int Id() const { return FG_PROVIDER_NONE; }
     unsigned Caps() const { return FG_CAP_2X; }        // reported, never used: NONE generates nothing
     const char* Name() const { return "none"; }
-    int Create(const FgSetup& s, IDXGISwapChain4** out)
-    {
-        int rc = FgHostCreateShadowSwapChain(s, out);
-        if (rc == FG_OK) sc = *out;
-        return rc;
-    }
+    int Create(const FgSetup& s, IDXGISwapChain4** out) { return FgHostCreateChildSwapChain(s, out); }
     void Prepare(ID3D12GraphicsCommandList*, const FgFrame&) {}
     int  Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT) { return 0; }
     void SetEnabled(bool) {}
-    void Destroy(void) { sc = NULL; }
+    bool Destroy(bool) { return true; }
 };
 
 ProviderNone g_none;
@@ -255,29 +237,31 @@ ProviderNone g_none;
 
 IFgProvider* MakeFgProviderNone(void) { return &g_none; }
 
-// Composition swapchain + DirectComposition target on s.hwnd (topmost, above Unity's own chain).
-// Tearing: asked for when the factory reports DXGI_FEATURE_PRESENT_ALLOW_TEARING, dropped if the
-// composition chain refuses the flag; the flags actually granted are kept in H.c.scFlags for Present.
 // The child-HWND chain: a window of our own over the game's client area (FgWnd.cpp) with an ordinary
-// CreateSwapChainForHwnd on it - the shape every vendor FG SDK needs. Composition is the fallback.
-// RENDERFORGE_FG_CHAIN=composition skips the child. Both run inside Init (main thread, H.c.prov still
-// NULL, so the render thread ignores H.c) - no lock needed.
+// CreateSwapChainForHwnd on it - the shape every vendor FG SDK needs (a second chain on Unity's own window is
+// E_ACCESSDENIED). Both run inside Init (main thread, H.state == kNone, so the render thread ignores H.c).
 HWND FgHostChildHwnd(const FgSetup& s)
 {
-    char env[32] = {};
-    if (GetEnvironmentVariableA("RENDERFORGE_FG_CHAIN", env, sizeof(env)) && _stricmp(env, "composition") == 0) return NULL;
     if (!H.c.child) H.c.child = FgWndCreate(s.hwnd);
     if (!H.c.child) { H.childHr = HRESULT_FROM_WIN32(FgWndProbeNow()->createErr); return NULL; }
     H.c.scFlags = 0;                                   // a provider-built chain gets plain Present(sync, 0)
-    H.c.chainKind = 1;
     return H.c.child;
 }
 
-static int CreateChildChain(const FgSetup& s, DXGI_SWAP_CHAIN_DESC1 d, IDXGISwapChain4** out)
+int FgHostCreateChildSwapChain(const FgSetup& s, IDXGISwapChain4** out)
 {
+    *out = NULL;
     if (!FgHostChildHwnd(s)) return FG_ERR_NO_SWAPCHAIN;
+    DXGI_SWAP_CHAIN_DESC1 d = s.desc;
     d.Scaling = DXGI_SCALING_STRETCH;                  // child rect vs buffer size may disagree for a frame (DPI, resize)
     d.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+    BOOL tearing = FALSE;
+    IDXGIFactory5* f5 = NULL;
+    if (SUCCEEDED(s.factory->QueryInterface(__uuidof(IDXGIFactory5), (void**)&f5))) {
+        if (FAILED(f5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &tearing, sizeof(tearing)))) tearing = FALSE;
+        f5->Release();
+    }
+    d.Flags = tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
     IDXGISwapChain1* sc1 = NULL;
     HRESULT hr = s.factory->CreateSwapChainForHwnd(s.queue, H.c.child, &d, NULL, NULL, &sc1);
     if (FAILED(hr) && d.Flags) {
@@ -286,65 +270,14 @@ static int CreateChildChain(const FgSetup& s, DXGI_SWAP_CHAIN_DESC1 d, IDXGISwap
         hr = s.factory->CreateSwapChainForHwnd(s.queue, H.c.child, &d, NULL, NULL, &sc1);
     }
     H.childHr = (long)hr;
-    if (FAILED(hr) || !sc1) { FgLog("host: child CreateSwapChainForHwnd 0x%08X", (unsigned)hr); FgWndDestroy(); H.c.child = NULL; return FG_ERR_NO_SWAPCHAIN; }
+    if (FAILED(hr) || !sc1) { FgLog("host: child CreateSwapChainForHwnd 0x%08X", (unsigned)hr); return FG_ERR_NO_SWAPCHAIN; }
     IDXGISwapChain4* sc4 = NULL;
     hr = sc1->QueryInterface(__uuidof(IDXGISwapChain4), (void**)&sc4);
     sc1->Release();
-    if (FAILED(hr) || !sc4) { FgLog("host: child chain is not IDXGISwapChain4 0x%08X", (unsigned)hr); FgWndDestroy(); H.c.child = NULL; return FG_ERR_NO_SWAPCHAIN; }
+    if (FAILED(hr) || !sc4) { FgLog("host: child chain is not IDXGISwapChain4 0x%08X", (unsigned)hr); return FG_ERR_NO_SWAPCHAIN; }
     s.factory->MakeWindowAssociation(H.c.child, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
     H.c.scFlags = d.Flags;
-    H.c.chainKind = 1;
     FgLog("host: child chain %p on child hwnd %p (parent %p), flags 0x%X", (void*)sc4, (void*)H.c.child, (void*)s.hwnd, d.Flags);
-    *out = sc4;
-    return FG_OK;
-}
-
-int FgHostCreateShadowSwapChain(const FgSetup& s, IDXGISwapChain4** out)
-{
-    *out = NULL;
-    DXGI_SWAP_CHAIN_DESC1 d = s.desc;
-    d.Scaling = DXGI_SCALING_STRETCH;                  // the only value CreateSwapChainForComposition accepts
-    d.AlphaMode = DXGI_ALPHA_MODE_IGNORE;              // opaque game output
-
-    BOOL tearing = FALSE;
-    IDXGIFactory5* f5 = NULL;
-    if (SUCCEEDED(s.factory->QueryInterface(__uuidof(IDXGIFactory5), (void**)&f5))) {
-        if (FAILED(f5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &tearing, sizeof(tearing)))) tearing = FALSE;
-        f5->Release();
-    }
-    d.Flags = tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
-
-    if (CreateChildChain(s, d, out) == FG_OK) return FG_OK;
-
-    IDXGISwapChain1* sc1 = NULL;
-    HRESULT hr = s.factory->CreateSwapChainForComposition(s.queue, &d, NULL, &sc1);
-    if (FAILED(hr) && d.Flags) {
-        FgLog("host: CreateSwapChainForComposition with ALLOW_TEARING 0x%08X - retrying without", (unsigned)hr);
-        d.Flags = 0;
-        hr = s.factory->CreateSwapChainForComposition(s.queue, &d, NULL, &sc1);
-    }
-    if (FAILED(hr) || !sc1) { FgLog("host: CreateSwapChainForComposition 0x%08X", (unsigned)hr); return FG_ERR_NO_SWAPCHAIN; }
-    IDXGISwapChain4* sc4 = NULL;
-    hr = sc1->QueryInterface(__uuidof(IDXGISwapChain4), (void**)&sc4);
-    sc1->Release();
-    if (FAILED(hr) || !sc4) { FgLog("host: shadow chain is not IDXGISwapChain4 0x%08X", (unsigned)hr); return FG_ERR_NO_SWAPCHAIN; }
-
-    Chain& c = H.c;
-    hr = DCompositionCreateDevice2(NULL, __uuidof(IDCompositionDevice), (void**)&c.dcomp);
-    if (SUCCEEDED(hr)) hr = c.dcomp->CreateTargetForHwnd(s.hwnd, TRUE, &c.target);
-    if (SUCCEEDED(hr)) hr = c.dcomp->CreateVisual(&c.visual);
-    if (SUCCEEDED(hr)) hr = c.visual->SetContent(sc4);
-    if (SUCCEEDED(hr)) hr = c.target->SetRoot(c.visual);
-    if (SUCCEEDED(hr)) hr = c.dcomp->Commit();
-    if (FAILED(hr)) {
-        FgLog("host: DirectComposition 0x%08X (device %p target %p visual %p)", (unsigned)hr, (void*)c.dcomp, (void*)c.target, (void*)c.visual);
-        SafeRelease(c.visual); SafeRelease(c.target); SafeRelease(c.dcomp);
-        sc4->Release();
-        return FG_ERR_NO_SWAPCHAIN;
-    }
-    c.scFlags = d.Flags;
-    c.chainKind = 2;
-    FgLog("host: composition chain %p on hwnd %p, flags 0x%X (tearing supported %d)", (void*)sc4, (void*)s.hwnd, d.Flags, (int)tearing);
     *out = sc4;
     return FG_OK;
 }
@@ -353,18 +286,19 @@ int FgHostCreateShadowSwapChain(const FgSetup& s, IDXGISwapChain4** out)
 
 int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
 {
+    if (!DestroyDetached(2000)) return FG_ERR_NO_SWAPCHAIN;   // the previous chain is still going: caller retries
     {
         Locked lk;
-        if (H.c.prov) return FG_OK;
-        if (H.pending) return FG_ERR_NO_SWAPCHAIN;     // the render thread still owes a teardown: caller retries
+        if (H.state == kLive) return FG_OK;
     }
     if (!g_unityD3D12) return FG_ERR_NOT_D3D12;
 
-    IDXGISwapChain3* app = FgAppSwapChain();
-    HWND hwnd = FgAppHwnd();
-    if (!app || !hwnd) return FG_ERR_NO_SWAPCHAIN;    // hook has not seen a Present yet: caller retries
+    HWND hwnd = NULL;
+    DXGI_SWAP_CHAIN_DESC1 ad1 = {};
+    IDXGISwapChain3* app = FgAppAcquire(&hwnd, &ad1);
+    if (!app || !hwnd) { SafeRelease(app); return FG_ERR_NO_SWAPCHAIN; }   // hook has not seen a Present yet: caller retries
     BOOL fullscreen = FALSE;
-    if (SUCCEEDED(app->GetFullscreenState(&fullscreen, NULL)) && fullscreen) return FG_ERR_NO_SWAPCHAIN;  // never over exclusive fullscreen
+    if (SUCCEEDED(app->GetFullscreenState(&fullscreen, NULL)) && fullscreen) { app->Release(); return FG_ERR_NO_SWAPCHAIN; }  // never over exclusive fullscreen
 
     IFgProvider* p = NULL;
     switch (provider) {
@@ -373,30 +307,22 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     case FG_PROVIDER_DLSS: p = MakeFgProviderStreamline(); break;
     default:               p = MakeFgProviderNone();       break;
     }
-    if (!p) { FgLog("host: provider %d not built yet - pass-through chain", provider); p = MakeFgProviderNone(); }
 
     H.device = g_unityD3D12->GetDevice();
     H.queue  = g_unityD3D12->GetCommandQueue();
-    if (!H.device || !H.queue) return FG_ERR_NOT_D3D12;
+    if (!H.device || !H.queue) { app->Release(); return FG_ERR_NOT_D3D12; }
 
-    // From here on H.c is being built on the main thread with H.c.prov == NULL: the render thread never pins it.
+    // From here on H.c is being built on the main thread in state kNone: the render thread never pins it.
     Chain& c = H.c;
+    c.app = app;                                       // the reference FgAppAcquire handed us
     HRESULT hr = CreateDXGIFactory2(0, __uuidof(IDXGIFactory2), (void**)&c.factory);
-    if (FAILED(hr)) { FgLog("host: CreateDXGIFactory2 0x%08X", (unsigned)hr); return FG_ERR_NO_SWAPCHAIN; }
+    if (FAILED(hr)) { FgLog("host: CreateDXGIFactory2 0x%08X", (unsigned)hr); ReleaseGpu(c); return FG_ERR_NO_SWAPCHAIN; }
 
-    DXGI_SWAP_CHAIN_DESC ad = {};
-    app->GetDesc(&ad);
     FgSetup s = {};
     s.device = H.device; s.queue = H.queue; s.factory = c.factory; s.hwnd = hwnd;
     s.multiplier = multiplier < 2 ? 2 : (multiplier > 4 ? 4 : multiplier);
     s.dllDir = dllDir;
-    const DXGI_SWAP_CHAIN_DESC1* a1 = FgAppDesc();
-    if (a1) s.desc = *a1;
-    else {
-        s.desc.Width = ad.BufferDesc.Width; s.desc.Height = ad.BufferDesc.Height;
-        s.desc.Format = ad.BufferDesc.Format;
-        s.desc.BufferCount = ad.BufferCount;
-    }
+    s.desc = ad1;
     s.desc.SampleDesc.Count = 1; s.desc.SampleDesc.Quality = 0;
     s.desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     s.desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;    // every FG SDK on disk requires the flip model
@@ -416,11 +342,11 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
         ReleaseGpu(c);
         H.lastError = rc;
         H.reason = rc == FG_ERR_UNSUPPORTED_MULTIPLIER ? "multiplier above what this provider supports on this GPU"
-                 : rc == FG_ERR_NO_PROVIDER ? "vendor DLLs missing from the mod folder" : NULL;
+                 : rc == FG_ERR_NO_PROVIDER ? "vendor DLLs missing from the mod folder"
+                 : rc == FG_ERR_PROVIDER_FAILED ? "vendor SDK init failed - see renderforge_fg.log" : NULL;
         return rc;
     }
     c.shadow = shadow;
-    c.app = app; app->AddRef();
     c.prep.Attach(H.device);
     c.copy.Attach(H.device);
     if (p->PresentQueue()) H.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&c.xfence));
@@ -430,18 +356,25 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     {
         Locked lk;
         c.prov = p;                                        // publish: the render thread may pin from here on
+        H.state = kLive;
     }
     FgLog("host: provider=%s multiplier=%u shadow=%p %ux%u flags=0x%X caps=0x%X",
           p->Name(), H.multiplier, (void*)c.shadow, H.outW, H.outH, c.scFlags, p->Caps());
     return FG_OK;
 }
 
+// Main thread. The flag under the lock, the provider's SDK call outside it (SetEnabled and Destroy are both
+// main-thread only, so the provider cannot go away underneath).
 void FgHostSetEnabled(int on)
 {
-    Locked lk;
-    H.enabled = on ? 1 : 0;
-    if (H.c.prov) H.c.prov->SetEnabled(on != 0);         // a flag write in every provider, fine under the lock
-    FgLog("host: enabled=%d", H.enabled);
+    IFgProvider* p = NULL;
+    {
+        Locked lk;
+        H.enabled = on ? 1 : 0;
+        if (H.state == kLive) p = H.c.prov;
+    }
+    if (p) p->SetEnabled(on != 0);
+    FgLog("host: enabled=%d", on ? 1 : 0);
 }
 
 // Single slot: the render thread copies it under the lock in Pin (a few hundred bytes), so a 4-deep ring and
@@ -464,7 +397,6 @@ void FgHostSetFrame(const FgFrame& f)
 
 void FgHostPrepare(void)
 {
-    FgHookSpike();                       // Task 1 probes; no-op after the first call
     if (!Pin()) return;
     // The pass-through provider has nothing to prepare. Nothing is declared to Unity: providers read the
     // shim-owned twins (COMMON at rest), never the Unity RTs - declaring those as NON_PIXEL_SHADER_RESOURCE made
@@ -500,29 +432,33 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
         Unpin(NULL);
         return false;
     }
-    static int firstLogged = 0;
-    if (!firstLogged) {
-        firstLogged = 1;
+    if (!c.logged) {
+        c.logged = 1;
         FgLog("host: first present: appIdx=%u shadowIdx=%u src=%p dst=%p sync=%u flags=0x%X generated=%d tid=%u",
               c.app->GetCurrentBackBufferIndex(), c.shadow->GetCurrentBackBufferIndex(), (void*)src, (void*)dst,
               syncInterval, flags, generated, (unsigned)GetCurrentThreadId());
     }
     bool copied = CopyBackBuffer(c, src, dst);
     src->Release(); dst->Release();
-    if (!copied) { Unpin(NULL); return false; }
+    // A queue/fence failure is the device going away: detach without presenting, the hook forwards Unity's frame.
+    if (!copied) { H.lastError = FG_ERR_NO_SWAPCHAIN; Unpin("back-buffer copy failed"); return false; }
     // A provider presenting on its own queue (DLSS-G) reads the back buffer we just wrote on ITS queues right after
     // Present, and nothing fences that read against our copy (measured with the debug layer on, DLSS-G 2x/3x/4x:
     // ~35-48/s id=1047 "fake-swapchain-buffer still referenced by cmdQ.dlssg / cmdQ.game" without this wait, 0 with
     // it, fps unchanged). So the copy retires on the CPU before Present - the same one-frame-in-flight cadence Reflex
     // low-latency imposes anyway. ponytail: a GPU-side handoff would need DLSS-G's own fence, which it does not expose.
-    if (c.prov->PresentQueue() && c.copy.fence) c.copy.WaitOn(c.copy.fence, c.copy.fenceVal);
+    if (c.prov->PresentQueue() && c.copy.fence && c.copy.WaitOn(c.copy.fence, c.copy.fenceVal) != WAIT_OBJECT_0) {
+        H.lastError = FG_ERR_NO_SWAPCHAIN;
+        Unpin("copy fence wait failed");
+        return false;
+    }
     c.prov->BeforePresent();                           // the copy is the last write into the shadow back buffer
 
     HRESULT hr = c.shadow->Present(syncInterval, pf);
     H.lastPresentHr = (long)hr;
     c.prov->AfterPresent(hr);
-    if (firstLogged == 1) {
-        firstLogged = 2;
+    if (c.logged == 1) {
+        c.logged = 2;
         FgLog("host: first shadow Present(%u, 0x%X) -> 0x%08X removed=0x%08X", syncInterval, pf, (unsigned)hr, (unsigned)H.device->GetDeviceRemovedReason());
         RfDbg::Removed(H.device, "FG first shadow Present");
     }
@@ -530,7 +466,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
         char why[64];
         _snprintf_s(why, sizeof(why), _TRUNCATE, "shadow Present 0x%08X", (unsigned)hr);
         H.lastError = FG_ERR_NO_SWAPCHAIN;
-        Unpin(why);                                    // torn down; the hook presents Unity's frame as usual
+        Unpin(why);                                    // detached; the hook presents Unity's frame as usual
         return false;
     }
     // Unity's chain MUST still be presented (by the hook, once): Unity 2019.4 tracks its own back-buffer index
@@ -548,7 +484,7 @@ void FgHostAfterUnityPresent(HRESULT hr)
         char why[64];
         _snprintf_s(why, sizeof(why), _TRUNCATE, "unity Present 0x%08X", (unsigned)hr);
         H.lastError = FG_ERR_NO_SWAPCHAIN;
-        RequestTeardown(why);
+        Detach(why);
     }
 }
 
@@ -556,37 +492,58 @@ void FgHostOnResize(unsigned w, unsigned h)
 {
     char why[64];
     _snprintf_s(why, sizeof(why), _TRUNCATE, "resize %ux%u", w, h);
-    RequestTeardown(why);                              // the managed driver rebuilds it (Fg_Alive -> 0)
+    Detach(why);                                       // the managed driver rebuilds it (Fg_Alive -> 0)
 }
 
-void FgHostTearDown(const char* why) { RequestTeardown(why); }
+void FgHostTearDown(const char* why) { Detach(why); }
 
-void FgHostShutdown(void)
+int FgHostPump(void)
 {
-    RequestTeardown("shutdown");
+    {
+        Locked lk;
+        // The hook forgot / rediscovered the app chain (WM_NCDESTROY): a chain built on the old one is dead.
+        if (H.state == kLive && !FgAppIs((IDXGISwapChain*)H.c.app)) { H.state = kDetached; H.enabled = 0; H.destroyTries = 0; strncpy_s(H.why, sizeof(H.why), "app chain changed", _TRUNCATE); }
+    }
+    return DestroyDetached(2000) ? 1 : 0;
+}
+
+int FgHostShutdown(void)
+{
+    Detach("shutdown");
+    int ok = DestroyDetached(10000) ? 1 : 0;
     Locked lk;
     H.enabled = 0;
     ReleaseSlotLocked();
+    return ok;
 }
 
-int FgHostAlive(void) { return H.c.prov ? 1 : 0; }
-unsigned FgHostCaps(void) { return H.c.prov ? H.c.prov->Caps() : H.lastCaps; }
-int FgHostProvider(void) { return H.c.prov ? H.c.prov->Id() : FG_PROVIDER_NONE; }
+int FgHostAlive(void) { Locked lk; return H.state == kLive ? 1 : 0; }
+unsigned FgHostCaps(void) { Locked lk; return H.state == kLive ? H.c.prov->Caps() : H.lastCaps; }
+int FgHostProvider(void) { Locked lk; return H.state == kLive ? H.c.prov->Id() : FG_PROVIDER_NONE; }
+const char* FgHostReason(void) { return H.reason ? H.reason : ""; }
 
 const char* FgHostStatus(void)
 {
     const FgWndProbe* w = FgWndProbeNow();
-    HWND game = FgAppHwnd();
+    HWND game = w->parent;
     const char* focus = !w->focus ? "none" : w->focus == game ? "game" : w->focus == w->child ? "child" : "other";
     unsigned long long frameId;
-    { Locked lk; frameId = H.slot.frameId; }
+    const char* prov; int state; void* shadow; void* child; unsigned scFlags; unsigned caps;
+    {
+        Locked lk;
+        frameId = H.slot.frameId;
+        prov = H.state == kLive ? H.c.prov->Name() : H.state == kDetached ? "detached" : "-";
+        state = H.state;
+        shadow = H.c.shadow; child = H.c.child; scFlags = H.c.scFlags;
+        caps = H.state == kLive ? H.c.prov->Caps() : H.lastCaps;
+    }
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
         "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu%s%s",
-        H.c.prov ? H.c.prov->Name() : "-", H.enabled, H.multiplier,
-        H.c.chainKind == 1 ? "child" : H.c.chainKind == 2 ? "comp" : "-", (void*)H.c.child, (unsigned)H.childHr, w->hit, focus,
+        prov, H.enabled, H.multiplier,
+        state == kNone ? "-" : "child", child, (unsigned)H.childHr, w->hit, focus,
         w->foreground == game ? 1 : 0,
-        (void*)H.c.shadow, H.outW, H.outH, H.c.scFlags,
-        FgHostCaps(), H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
+        shadow, H.outW, H.outH, scFlags,
+        caps, H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
         frameId, H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;
 }

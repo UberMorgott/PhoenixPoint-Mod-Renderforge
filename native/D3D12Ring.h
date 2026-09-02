@@ -106,10 +106,23 @@ struct D3D12Ring
     }
 
     // Blocks until every list we ever submitted has retired. Required before destroying anything a submitted
-    // list referenced (NGX feature handles - guide p.54 5.5 - or ffx contexts).
-    void WaitIdle()
+    // list referenced (NGX feature handles - guide p.54 5.5 - or ffx contexts). False = a slot timed out or a
+    // fence failed: something may still be executing (unless the device is gone - see Removed()).
+    bool WaitIdle()
     {
-        for (int i = 0; i < kRing; ++i) WaitSlot(i);
+        bool ok = true;
+        for (int i = 0; i < kRing; ++i) if (WaitSlot(i) != WAIT_OBJECT_0) ok = false;
+        return ok;
+    }
+
+    bool Removed() { return device && FAILED(device->GetDeviceRemovedReason()); }
+
+    // A slot whose retirement can no longer be tracked (fence Signal failed): never Reset or Release its
+    // allocator again - leak the pair, Begin() builds a fresh one.
+    void Quarantine(int i)
+    {
+        RfDbg::Log("ring: slot %d quarantined (fence Signal failed, removed=%d)", i, Removed() ? 1 : 0);
+        list[i] = NULL; alloc[i] = NULL; submitted[i] = 0; unityVal[i] = 0;
     }
 
     void ReleaseSlot(int i)
@@ -160,12 +173,10 @@ struct D3D12Ring
                        (unsigned long long)(fenceVal + 1));
         }
         if (q && fence && SUCCEEDED(q->Signal(fence, fenceVal + 1))) { submitted[i] = ++fenceVal; return true; }
-        // No queue or no fence: we have no way to know when this list retires, and resetting its allocator
-        // later would be the very bug above. Drop the pair instead - Begin() builds a fresh one, and a fresh
-        // allocator is always safe to reset.
-        ReleaseSlot(i);
-        submitted[i] = 0;
-        return true;
+        // No queue, no fence or a failed Signal: we have no way to know when this list retires, and resetting
+        // (or releasing) its allocator later would be the very bug above. Quarantine the pair.
+        Quarantine(i);
+        return false;
     }
 
     // End() for work that must NOT go through Unity (the FG host's backbuffer copy inside the Present hook,
@@ -181,17 +192,21 @@ struct D3D12Ring
         q->ExecuteCommandLists(1, lists);
         unityVal[i] = 0;
         if (fence && SUCCEEDED(q->Signal(fence, fenceVal + 1))) { submitted[i] = ++fenceVal; return true; }
-        ReleaseSlot(i);   // same reasoning as End(): an untracked allocator must never be reset
-        submitted[i] = 0;
-        return true;
+        Quarantine(i);    // same reasoning as End(): an untracked allocator must never be reset
+        return false;
     }
 
+    // Live objects are only destroyed once every submission retired; on a timeout with the device still alive
+    // (a hung GPU) they are leaked instead, since the GPU may still be reading them. A removed device executes
+    // nothing any more, so its objects can go.
     void Release()
     {
-        WaitIdle();
-        for (int i = 0; i < kRing; ++i) { ReleaseSlot(i); submitted[i] = 0; unityVal[i] = 0; }
+        bool idle = WaitIdle();
+        bool free = idle || Removed();
+        if (!idle) RfDbg::Log("ring: Release with %s", free ? "device removed - freeing" : "GPU still busy - leaking slots + fence");
+        for (int i = 0; i < kRing; ++i) { if (free) ReleaseSlot(i); else { list[i] = NULL; alloc[i] = NULL; } submitted[i] = 0; unityVal[i] = 0; }
         if (waitEvent) { CloseHandle(waitEvent); waitEvent = NULL; }
-        if (fence) { fence->Release(); fence = NULL; }
+        if (fence) { if (free) fence->Release(); fence = NULL; }
         fenceVal = 0; submissions = 0;
         ringIdx = 0; recording = 0; device = NULL; failCode = 0;
     }

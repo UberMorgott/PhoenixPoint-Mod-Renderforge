@@ -1,22 +1,14 @@
 // FgFsr.cpp - AMD FidelityFX frame generation (SDK 2.3) as an IFgProvider, D3D12 only.
 //
-// Two shapes, picked at Create:
-//
-//  * chain=child (default): the SDK's own frame-interpolation SWAPCHAIN, created with
-//    ffxCreateContextDescFrameGenerationSwapChainForHwndDX12 (ffx_api_framegeneration_dx12.h:52) on the host's child
-//    HWND (FgWnd.cpp) - the one window in this process where CreateSwapChainForHwnd is legal. The proxy IS the shadow
-//    chain the host presents: the host copies Unity's finished back buffer into proxy.GetBuffer(current) (a replacement
-//    buffer resting in PRESENT, FrameInterpolationSwapchainDX12.cpp:1808/:2234) and calls proxy->Present, inside which
-//    the SDK invokes our frameGenerationCallback (:1934) to dispatch the FG context into ITS interpolation list, then
-//    paces both frames from its own present thread (frame-interpolation-swap-chain.md:132-138). ffxConfigure per frame
-//    carries swapChain + frameID (ffx_provider_fsr3framegeneration.cpp:243 needs the proxy's ABI tag), presentCallback
-//    NULL = the SDK's default composition copy, HUDLessColor = the owned hud-less frame.
-//
-//  * chain=composition (RENDERFORGE_FG_CHAIN=composition, or the proxy refused): manual dispatch, the path the SDK
-//    documents for engines where presenting through the proxy is unsafe (frame-interpolation-api.md:281). ffxConfigure
-//    with FFX_FRAMEGENERATION_FLAG_NO_SWAPCHAIN_CONTEXT_NOTIFY (ffx_provider_fsr3framegeneration.cpp:240-241),
-//    ffxDispatchDescFrameGeneration in the Present hook with presentColor = Unity's back buffer and outputs[0] = our
-//    own UAV texture, copied into the host's composition chain and presented BEFORE the real frame - no pacing.
+// The SDK's own frame-interpolation SWAPCHAIN, created with ffxCreateContextDescFrameGenerationSwapChainForHwndDX12
+// (ffx_api_framegeneration_dx12.h:52) on the host's child HWND (FgWnd.cpp) - the one window in this process where
+// CreateSwapChainForHwnd is legal. The proxy IS the shadow chain the host presents: the host copies Unity's finished
+// back buffer into proxy.GetBuffer(current) (a replacement buffer resting in PRESENT,
+// FrameInterpolationSwapchainDX12.cpp:1808/:2234) and calls proxy->Present, inside which the SDK invokes our
+// frameGenerationCallback (:1934) to dispatch the FG context into ITS interpolation list, then paces both frames from
+// its own present thread (frame-interpolation-swap-chain.md:132-138). ffxConfigure per frame carries swapChain +
+// frameID (ffx_provider_fsr3framegeneration.cpp:243 needs the proxy's ABI tag), presentCallback NULL = the SDK's
+// default composition copy, HUDLessColor = the owned hud-less frame.
 //
 // Inputs are the shim-owned twins the running upscaler fills (D3D12Owned.h): depth/mv at render res, out = the
 // hud-less frame at output res, all resting in COMMON; passed with FFX_API_RESOURCE_STATE_COMMON so the ffx DX12
@@ -26,7 +18,6 @@
 // needs RDNA4 (frame-interpolation-ml.md:75) and would otherwise be the loader's silent pick.
 #include "Fg.h"
 #include "RenderforgeNative.h"
-#include "D3D12Ring.h"
 #include "D3D12Owned.h"
 #include "FfxLoader.h"
 
@@ -44,12 +35,10 @@ struct ProviderFsr : IFgProvider
 {
     const ffxFunctions* fn;
     ffxContext          fgCtx;
-    ffxContext          scCtx;         // the proxy swapchain context (chain=child), NULL on the manual path
+    ffxContext          scCtx;         // the proxy swapchain context
     IDXGISwapChain4*    proxy;         // owned by scCtx + the host (the host's Release is the last one)
     ID3D12Device*       device;
     ID3D12CommandQueue* queue;
-    D3D12Ring           ring;          // manual path: the generate list, executed straight on Unity's queue (EndDirect)
-    ID3D12Resource*     interp;        // manual path: outputs[0], display size, back-buffer format, UAV
     DXGI_FORMAT         backFmt;
     unsigned            outW, outH;
     int                 enabled;
@@ -73,10 +62,9 @@ struct ProviderFsr : IFgProvider
     ProviderFsr() { Zero(); }
     void Zero()
     {
-        fn = NULL; fgCtx = NULL; scCtx = NULL; proxy = NULL; device = NULL; queue = NULL; interp = NULL;
+        fn = NULL; fgCtx = NULL; scCtx = NULL; proxy = NULL; device = NULL; queue = NULL;
         backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; enabled = 0; lastRc = 0;
         preparedId = generatedId = ~0ull; generated = 0; hudlessWarned = 0; version[0] = 0; scVersion[0] = 0;
-        ring.Zero();
         memset(&descFg, 0, sizeof(descFg)); memset(&descVer, 0, sizeof(descVer));
         memset(&descBackend, 0, sizeof(descBackend)); memset(&descOverride, 0, sizeof(descOverride));
         memset(&descSc, 0, sizeof(descSc)); memset(&descScVer, 0, sizeof(descScVer)); memset(&scDesc, 0, sizeof(scDesc));
@@ -118,14 +106,14 @@ struct ProviderFsr : IFgProvider
         if (fn->Query(ctx, &pv.header) == FFX_API_RETURN_OK && pv.versionName) strncpy_s(out, n, pv.versionName, _TRUNCATE);
     }
 
-    // The SDK proxy swapchain on the host's child HWND. Returns the proxy or NULL (caller falls back to manual dispatch).
+    // The SDK proxy swapchain on the host's child HWND. Returns the proxy or NULL.
     IDXGISwapChain4* CreateProxy(const FgSetup& s)
     {
         HWND child = FgHostChildHwnd(s);
         if (!child) return NULL;
         scDesc = s.desc;                                   // FLIP_DISCARD, app format/size, >= 3 buffers, flags 0: the proxy
-        scDesc.Scaling = DXGI_SCALING_NONE;                // adds WAITABLE + ALLOW_TEARING to the real chain itself (:1245-1249)
-        scDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+        scDesc.Scaling = DXGI_SCALING_STRETCH;             // adds WAITABLE + ALLOW_TEARING to the real chain itself (:1245-1249);
+        scDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;    // STRETCH: child rect vs buffer size disagree for a frame on resize/DPI
         descScVer.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12;
         descScVer.version = FFX_FRAMEGENERATION_SWAPCHAIN_DX12_VERSION;
         descSc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12;
@@ -138,7 +126,12 @@ struct ProviderFsr : IFgProvider
         descSc.dxgiFactory = s.factory;
         descSc.gameQueue = s.queue;
         ffxReturnCode_t rc = fn->CreateContext(&scCtx, &descSc.header, NULL);
-        if (rc != FFX_API_RETURN_OK || !sc) { FgLog("fsr: swapchain context %u on child %p - manual dispatch on the host chain", rc, (void*)child); scCtx = NULL; return NULL; }
+        if (rc != FFX_API_RETURN_OK || !sc) {              // unwind whichever half came up
+            FgLog("fsr: swapchain context %u on child %p (chain %p)", rc, (void*)child, (void*)sc);
+            if (scCtx) { fn->DestroyContext(&scCtx, NULL); scCtx = NULL; }
+            if (sc) sc->Release();
+            return NULL;
+        }
         QueryVersion(&scCtx, scVersion, sizeof(scVersion));
         s.factory->MakeWindowAssociation(child, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
         FgLog("fsr: proxy swapchain %p on child hwnd %p, swapchain provider '%s'", (void*)sc, (void*)child, scVersion);
@@ -153,6 +146,7 @@ struct ProviderFsr : IFgProvider
         outW = s.desc.Width; outH = s.desc.Height; backFmt = s.desc.Format;
 
         proxy = CreateProxy(s);
+        if (!proxy) return FG_ERR_NO_SWAPCHAIN;
 
         descFg.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
         descFg.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;      // Unity D3D12 = reversed-Z (DlssDriver.cs:253)
@@ -173,24 +167,16 @@ struct ProviderFsr : IFgProvider
         if (rc != FFX_API_RETURN_OK) { FgLog("fsr: FG context %u", rc); fgCtx = NULL; return Fail(FG_ERR_PROVIDER_FAILED); }
         QueryVersion(&fgCtx, version, sizeof(version));
 
-        ring.Attach(device);
-        if (proxy) *out = proxy;
-        else {
-            interp = OwnedSet12::Make(device, outW, outH, backFmt, true, L"Renderforge FG interp");
-            if (!interp) return Fail(FG_ERR_PROVIDER_FAILED);
-            // Make() creates in COMMON; keep it there at rest (Generate barriers to UAV and back).
-            int hostRc = FgHostCreateShadowSwapChain(s, out);
-            if (hostRc != FG_OK) return Fail(hostRc);
-        }
-        FgLog("fsr: created, display %ux%u fmt %u, provider '%s' (override %llu), %s", outW, outH, (unsigned)backFmt, version,
-              (unsigned long long)descOverride.versionId, proxy ? "SDK swapchain (paced)" : "manual dispatch");
+        *out = proxy;
+        FgLog("fsr: created, display %ux%u fmt %u, provider '%s' (override %llu), SDK swapchain (paced)", outW, outH, (unsigned)backFmt, version,
+              (unsigned long long)descOverride.versionId);
         return FG_OK;
     }
 
     // Create failed after the proxy exists: the host never took its reference, so drop it here.
-    int Fail(int rc) { IDXGISwapChain4* p = proxy; Destroy(); if (p) p->Release(); return rc; }
+    int Fail(int rc) { IDXGISwapChain4* p = proxy; Destroy(true); if (p) p->Release(); return rc; }
 
-    // chain=child: the proxy calls this from inside its Present with its own interpolation list + output texture.
+    // The proxy calls this from inside its Present with its own interpolation list + output texture.
     static ffxReturnCode_t OnGenerate(ffxDispatchDescFrameGeneration* d, void* ctx)
     {
         ProviderFsr* p = (ProviderFsr*)ctx;
@@ -218,8 +204,8 @@ struct ProviderFsr : IFgProvider
         cfg.swapChain = proxy;
         cfg.frameGenerationEnabled = enabled != 0;
         cfg.allowAsyncWorkloads = false;                   // everything on Unity's queue, in frame order
-        cfg.flags = proxy ? 0 : FFX_FRAMEGENERATION_FLAG_NO_SWAPCHAIN_CONTEXT_NOTIFY;
-        if (proxy) { cfg.frameGenerationCallback = &OnGenerate; cfg.frameGenerationCallbackUserContext = this; }
+        cfg.flags = 0;
+        cfg.frameGenerationCallback = &OnGenerate; cfg.frameGenerationCallbackUserContext = this;
         cfg.generationRect.left = 0; cfg.generationRect.top = 0;
         cfg.generationRect.width = (int32_t)outW; cfg.generationRect.height = (int32_t)outH;
         cfg.frameID = f.frameId;
@@ -257,64 +243,14 @@ struct ProviderFsr : IFgProvider
         preparedId = f.frameId;
     }
 
-    // Manual path only: the proxy generates inside its own Present (OnGenerate), so nothing to do here for chain=child.
-    int Generate(const FgFrame& f, ID3D12Resource* src, IDXGISwapChain4* shadow, UINT sync, UINT pf)
-    {
-        if (proxy || !fgCtx || !enabled || !interp || f.frameId != preparedId || f.frameId == generatedId) return 0;
-        ID3D12GraphicsCommandList* l = ring.Begin();
-        if (!l) return 0;
-
-        OwnedSet12::Barrier(l, interp, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        ffxDispatchDescFrameGeneration dg = {};
-        dg.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
-        dg.commandList = l;
-        dg.presentColor = ffxApiGetResourceDX12(src, FFX_API_RESOURCE_STATE_PRESENT);   // Unity's finished frame, at Present
-        dg.outputs[0] = ffxApiGetResourceDX12(interp, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
-        dg.numGeneratedFrames = 1;
-        dg.reset = f.reset != 0;
-        dg.backbufferTransferFunction = FFX_API_BACKBUFFER_TRANSFER_FUNCTION_SRGB;      // SDR back buffer
-        dg.minMaxLuminance[0] = 0.0f; dg.minMaxLuminance[1] = 300.0f;
-        dg.generationRect.left = 0; dg.generationRect.top = 0;
-        dg.generationRect.width = (int32_t)outW; dg.generationRect.height = (int32_t)outH;
-        dg.frameID = f.frameId;
-        lastRc = (int)fn->Dispatch(&fgCtx, &dg.header);      // restores src -> PRESENT, interp -> UAV
-        if (lastRc != FFX_API_RETURN_OK) {
-            static int logged = 0;
-            if (!logged) { logged = 1; FgLog("fsr: dispatch %d", lastRc); }
-            OwnedSet12::Barrier(l, interp, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-            ring.EndDirect(queue);
-            return 0;
-        }
-
-        ID3D12Resource* dst = NULL;
-        if (FAILED(shadow->GetBuffer(shadow->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&dst)) || !dst) {
-            OwnedSet12::Barrier(l, interp, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-            ring.EndDirect(queue);
-            return 0;
-        }
-        OwnedSet12::Barrier(l, interp, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        OwnedSet12::Barrier(l, dst, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
-        l->CopyResource(dst, interp);
-        OwnedSet12::Barrier(l, dst, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
-        OwnedSet12::Barrier(l, interp, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
-        dst->Release();
-        if (!ring.EndDirect(queue)) return 0;
-
-        HRESULT hr = shadow->Present(sync, pf);
-        generatedId = f.frameId;
-        if (FAILED(hr)) {
-            static int logged = 0;
-            if (!logged) { logged = 1; FgLog("fsr: generated Present 0x%08X", (unsigned)hr); }
-            return 0;                                      // the host's real Present sees the same failure and tears down
-        }
-        return 1;
-    }
+    // The proxy generates inside its own Present (OnGenerate): nothing to do here.
+    int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT) { return 0; }
 
     void SetEnabled(bool on) { enabled = on ? 1 : 0; }    // applied by the next Prepare's Configure
 
-    void Destroy(void)
+    // Main thread, chain detached (the render thread no longer presents the proxy; the host's prep ring retired).
+    bool Destroy(bool force)
     {
-        ring.WaitIdle();                                   // no submitted list may still reference the context or interp
         if (fgCtx && proxy) {
             // Disable on the proxy first: this Configure waits for the presents that reference FG resources
             // (frame-interpolation-api.md:319-320), so DestroyContext never hits OBJECT_DELETED_WHILE_STILL_IN_USE.
@@ -328,12 +264,19 @@ struct ProviderFsr : IFgProvider
             wait.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12;
             fn->Dispatch(&scCtx, &wait.header);
         }
-        if (fgCtx) { fn->DestroyContext(&fgCtx, NULL); fgCtx = NULL; }
-        if (scCtx) { fn->DestroyContext(&scCtx, NULL); scCtx = NULL; }   // drops its ref; the host's Release is the last
-        if (interp) { interp->Release(); interp = NULL; }
-        ring.Release();
-        FgLog("fsr: destroyed (provider '%s', swapchain '%s', generated %lld)", version, scVersion, generated);
+        if (fgCtx) {
+            ffxReturnCode_t rc = fn->DestroyContext(&fgCtx, NULL);
+            if (rc != FFX_API_RETURN_OK && !force) { FgLog("fsr: DestroyContext(fg) %u - retained", rc); return false; }
+            fgCtx = NULL;
+        }
+        if (scCtx) {                                       // drops its ref; the host's Release is the last
+            ffxReturnCode_t rc = fn->DestroyContext(&scCtx, NULL);
+            if (rc != FFX_API_RETURN_OK && !force) { FgLog("fsr: DestroyContext(swapchain) %u - retained", rc); return false; }
+            scCtx = NULL;
+        }
+        FgLog("fsr: destroyed (provider '%s', swapchain '%s', generated %lld)%s", version, scVersion, generated, force ? " (forced)" : "");
         Zero();                                            // the AMD modules stay resident; FfxLoad is idempotent
+        return true;
     }
 };
 

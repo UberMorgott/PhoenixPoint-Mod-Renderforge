@@ -25,12 +25,19 @@ static IUnityInterfaces* g_unityIfaces = NULL;
 static IUnityGraphics* g_unityGfx = NULL;
 static int g_unityLoaded = 0;
 
+static void ShutdownBackend(void);
+
 static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType)
 {
     if (eventType == kUnityGfxDeviceEventInitialize) {
         if (g_unityIfaces && g_unityGfx && g_unityGfx->GetRenderer() == kUnityGfxRendererD3D12)
             g_unityD3D12 = g_unityIfaces->Get<IUnityGraphicsD3D12v5>();
     } else if (eventType == kUnityGfxDeviceEventShutdown) {
+        // Unity's render thread, no frame in flight: everything bound to the retiring device (FG chain, upscaler
+        // backend) goes BEFORE the interface is dropped, otherwise a later Init/Shutdown would touch a dead device.
+        // The one place a vendor Destroy runs off the main thread - the hook cannot be active here.
+        FgHostShutdown();
+        ShutdownBackend();
         g_unityD3D12 = NULL;
     }
 }
@@ -52,8 +59,16 @@ void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces
                g_unityGfx ? (int)g_unityGfx->GetRenderer() : -1, (void*)g_unityD3D12, (void*)existing);
 }
 
+// Main thread, app quit. Unity never FreeLibrary's a native plugin (Native.EnsureStaged relies on the mapped DLL
+// staying locked until the process ends), but nothing of ours may keep running into a torn-down engine: the chain
+// and providers go, the vtable slots we still own are restored, the window subclass and class are removed, and
+// only then does Unity stop telling us about the device.
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload(void)
 {
+    FgHostShutdown();
+    FgHookRemove();
+    FgWndUnload();
+    ShutdownBackend();
     if (g_unityGfx) g_unityGfx->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent);
     g_unityGfx = NULL; g_unityIfaces = NULL; g_unityD3D12 = NULL; g_unityLoaded = 0;
 }
@@ -73,6 +88,14 @@ static struct {
     int wantProvider;                   // what Dlss_SetProvider asked for
     float nearZ, farZ, fovY;            // Dlss_SetCamera cache, copied into every slot
 } S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0.1f, 1000.0f, 1.0471976f };
+
+static void ShutdownBackend(void)
+{
+    if (S.dev) S.dev->Shutdown();
+    S.dev = NULL;
+    S.lastSlot = NULL;
+    S.initCode = DLSS_ERR_NO_DEVICE;
+}
 
 NVSDK_NGX_PerfQuality_Value ToNgxQuality(int q)
 {
@@ -255,28 +278,7 @@ void __cdecl Dlss_ReleaseNow(void) { if (S.dev) S.dev->ReleaseFeature(); }
 
 // ---------------------------------------------------------------- frame generation (Phase 5)
 
-int __cdecl Fg_HookInstall(const wchar_t* logDir)
-{
-    if (!S.dev || S.dev->Api() != 12) return FG_ERR_NOT_D3D12;
-    if (!g_unityD3D12) return FG_ERR_NOT_D3D12;
-    FgLogInit(logDir);
-    return FgHookInstall(g_unityD3D12->GetCommandQueue()) ? FG_OK : FG_ERR_NO_HOOK;
-}
-
 int __cdecl Fg_PresentedFps(void) { return FgPresentedFps(); }
-
-const char* __cdecl Fg_SpikeStatus(void)
-{
-    static char buf[512];
-    const FgSpike* s = FgSpikeResult();
-    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
-        "installed=%d sawPresent=%d presents=%lld fps=%d %ux%u fmt=%u buffers=%u swapEffect=%u flags=0x%X "
-        "windowed=%d flip=%d waitable=%d secondSwapChain=0x%08X composition=0x%08X forwardedPresent=0x%08X",
-        s->installed, s->sawPresent, FgPresentCount(), FgPresentedFps(), s->width, s->height, s->format,
-        s->bufferCount, s->swapEffect, s->scFlags, s->windowed, s->flipModel, s->waitable,
-        (unsigned)s->secondSwapChainHr, (unsigned)s->compositionHr, (unsigned)s->forwardedPresentHr);
-    return buf;
-}
 
 int __cdecl Fg_Init(int provider, unsigned multiplier, const wchar_t* dllDir)
 {
@@ -323,16 +325,15 @@ const OwnedSet12* FgOwned12(void) { return S.dev ? S.dev->Owned12() : NULL; }
 unsigned __cdecl Fg_Caps(void) { return FgHostCaps(); }
 int __cdecl Fg_Provider(void) { return FgHostProvider(); }
 const char* __cdecl Fg_Status(void) { return FgHostStatus(); }
-void __cdecl Fg_Shutdown(void) { FgHostShutdown(); }
+const char* __cdecl Fg_Reason(void) { return FgHostReason(); }
+int __cdecl Fg_Shutdown(void) { return FgHostShutdown(); }
+int __cdecl Fg_Pump(void) { return FgHostPump(); }
 int __cdecl Fg_Alive(void) { return FgHostAlive(); }
 
-// The vtable patch stays for the process lifetime: Unity keeps presenting after Dlss_Shutdown, and the
+// The vtable patch stays until UnityPluginUnload: Unity keeps presenting after Dlss_Shutdown, and the
 // hook is inert once the host has no provider.
 void __cdecl Dlss_Shutdown(void)
 {
     FgHostShutdown();
-    if (S.dev) S.dev->Shutdown();
-    S.dev = NULL;
-    S.lastSlot = NULL;
-    S.initCode = DLSS_ERR_NO_DEVICE;
+    ShutdownBackend();
 }

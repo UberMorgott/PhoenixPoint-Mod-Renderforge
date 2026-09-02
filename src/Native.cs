@@ -133,16 +133,8 @@ namespace Renderforge
         public const int FG_PROVIDER_NONE = 0, FG_PROVIDER_FSR = 1, FG_PROVIDER_XESS = 2, FG_PROVIDER_DLSS = 3;
         public const int DLSS_EV_FG_PREPARE = 4;
 
-        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-        public static extern int Fg_HookInstall([MarshalAs(UnmanagedType.LPWStr)] string logDir);
-
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Fg_PresentedFps();
-
-        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Fg_SpikeStatus")]
-        private static extern IntPtr Fg_SpikeStatusPtr();
-
-        public static string Fg_SpikeStatus() => Marshal.PtrToStringAnsi(Fg_SpikeStatusPtr()) ?? "";
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         public static extern int Fg_Init(int provider, uint multiplier, [MarshalAs(UnmanagedType.LPWStr)] string dllDir);
@@ -170,8 +162,18 @@ namespace Renderforge
 
         public static string Fg_Status() => Marshal.PtrToStringAnsi(Fg_StatusPtr()) ?? "";
 
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Fg_Reason")]
+        private static extern IntPtr Fg_ReasonPtr();
+
+        public static string Fg_Reason() => Marshal.PtrToStringAnsi(Fg_ReasonPtr()) ?? "";
+
+        /// <summary>Synchronous: 1 = the chain is destroyed when this returns, 0 = still parked (the render thread never left it).</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
-        public static extern void Fg_Shutdown();
+        public static extern int Fg_Shutdown();
+
+        /// <summary>Every frame on the main thread: destroys a chain the shim's render/UI threads detached. 1 = nothing pending.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_Pump();
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Fg_Alive();

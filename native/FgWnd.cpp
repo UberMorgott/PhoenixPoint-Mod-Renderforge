@@ -4,10 +4,11 @@
 // shadow chain there. Same thread as the parent (created from inside a subclassed WndProc), so WM_NCHITTEST ->
 // HTTRANSPARENT hands every mouse message to Unity and keyboard focus never moves.
 //
-// The subclass stays installed for the window's lifetime, like the vtable patch (RenderforgeNative.cpp:329):
-// restoring GWLP_WNDPROC after someone else subclassed on top of us would cut their chain; WM_NCDESTROY drops
-// the state so a recreated Unity window is subclassed afresh. Destroying the child must happen on the window's
-// thread, so teardown posts a message; the render thread only hides it.
+// The subclass stays installed for the window's lifetime (restoring GWLP_WNDPROC after someone else subclassed on
+// top of us would cut their chain) except when the parent changes or the plugin unloads: then it is restored IF we
+// are still the top of the chain. WM_NCDESTROY drops the state so a recreated Unity window is subclassed afresh.
+// Destroying the child must happen on the window's thread, so teardown posts a message; other threads only hide it.
+// g_parent / g_child / g_origProc are touched from the UI, render and main threads: one SRWLOCK guards them.
 #include "Fg.h"
 
 namespace {
@@ -18,10 +19,20 @@ const UINT WM_RF_PROBE   = WM_APP + 0x53;   // samples hit-test + focus on the U
 
 const wchar_t kClass[] = L"RenderforgeFgWnd";
 
+SRWLOCK g_lock = SRWLOCK_INIT;
 HWND    g_parent = NULL;
 HWND    g_child = NULL;
 WNDPROC g_origProc = NULL;
 FgWndProbe g_probe = {};
+
+struct Locked
+{
+    Locked()  { AcquireSRWLockExclusive(&g_lock); }
+    ~Locked() { ReleaseSRWLockExclusive(&g_lock); }
+};
+
+HWND Parent() { Locked lk; return g_parent; }
+HWND Child()  { Locked lk; return g_child; }
 
 LRESULT CALLBACK ChildProc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
@@ -29,25 +40,28 @@ LRESULT CALLBACK ChildProc(HWND h, UINT m, WPARAM w, LPARAM l)
     case WM_NCHITTEST:     return HTTRANSPARENT;          // mouse goes to the parent (same thread)
     case WM_ERASEBKGND:    return 1;
     case WM_PAINT:         ValidateRect(h, NULL); return 0;
-    case WM_SETFOCUS:      if (g_parent) SetFocus(g_parent); return 0;
+    case WM_SETFOCUS:      { HWND p = Parent(); if (p) SetFocus(p); return 0; }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
-    case WM_DESTROY:       if (h == g_child) g_child = NULL; return 0;
+    case WM_DESTROY:       { Locked lk; if (h == g_child) g_child = NULL; return 0; }
     }
     return DefWindowProcW(h, m, w, l);
 }
 
 void FitChild()
 {
-    if (!g_child || !g_parent) return;
-    RECT r; GetClientRect(g_parent, &r);
-    SetWindowPos(g_child, HWND_TOP, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    HWND c = Child(), p = Parent();
+    if (!c || !p) return;
+    RECT r; GetClientRect(p, &r);
+    SetWindowPos(c, HWND_TOP, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
 LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
+    WNDPROC orig;
+    { Locked lk; orig = g_origProc; }
     switch (m) {
     case WM_RF_CREATE: {
-        if (g_child) return (LRESULT)g_child;
+        if (HWND c = Child()) return (LRESULT)c;
         WNDCLASSEXW wc = {};
         wc.cbSize = sizeof(wc);
         wc.style = CS_OWNDC;
@@ -57,11 +71,12 @@ LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
         RegisterClassExW(&wc);                              // duplicate registration is harmless
         SetWindowLongPtrW(h, GWL_STYLE, GetWindowLongPtrW(h, GWL_STYLE) | WS_CLIPCHILDREN);
         RECT r; GetClientRect(h, &r);
-        g_child = CreateWindowExW(WS_EX_NOPARENTNOTIFY, kClass, kClass, WS_CHILD | WS_VISIBLE,
-                                  0, 0, r.right - r.left, r.bottom - r.top, h, NULL, wc.hInstance, NULL);
-        g_probe.createErr = g_child ? 0 : GetLastError();
+        HWND c = CreateWindowExW(WS_EX_NOPARENTNOTIFY, kClass, kClass, WS_CHILD | WS_VISIBLE,
+                                 0, 0, r.right - r.left, r.bottom - r.top, h, NULL, wc.hInstance, NULL);
+        g_probe.createErr = c ? 0 : GetLastError();
+        { Locked lk; g_child = c; }
         FitChild();
-        return (LRESULT)g_child;
+        return (LRESULT)c;
     }
     case WM_RF_DESTROY:                                      // wParam = the exact child to destroy (a newer one may exist)
         if (w) DestroyWindow((HWND)w);
@@ -70,10 +85,11 @@ LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
         RECT r; GetClientRect(h, &r);
         POINT c = { (r.right - r.left) / 2, (r.bottom - r.top) / 2 };
         ClientToScreen(h, &c);
-        g_probe.hit = g_child ? (int)SendMessageW(g_child, WM_NCHITTEST, 0, MAKELPARAM(c.x, c.y)) : 0;
+        HWND child = Child();
+        g_probe.hit = child ? (int)SendMessageW(child, WM_NCHITTEST, 0, MAKELPARAM(c.x, c.y)) : 0;
         g_probe.focus = GetFocus();
         g_probe.foreground = GetForegroundWindow();
-        g_probe.child = g_child;
+        g_probe.child = child;
         return 0;
     }
     case WM_SIZE:
@@ -86,39 +102,51 @@ LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
         break;
     case WM_NCDESTROY: {
         // Unity is recreating its HWND: the child died with it (DestroyWindow destroys children first), the
-        // subclass dies here, and the chain built on this window goes with them. Detach only - never wait for
-        // the render thread from the UI thread.
-        WNDPROC orig = g_origProc;
+        // subclass dies here, and the chain built on this window goes with them. DETACH only - the main thread's
+        // pump destroys the chain; never a vendor teardown or a wait for the render thread on the UI thread.
         FgLog("wnd: parent %p WM_NCDESTROY", (void*)h);
-        g_child = NULL; g_parent = NULL; g_origProc = NULL;
+        { Locked lk; g_child = NULL; g_parent = NULL; g_origProc = NULL; }
         FgHostTearDown("parent WM_NCDESTROY");
         FgHookForgetApp();
         return CallWindowProcW(orig, h, m, w, l);
     }
     }
-    return CallWindowProcW(g_origProc, h, m, w, l);
+    return CallWindowProcW(orig, h, m, w, l);
 }
 
 // Bounded cross-thread SendMessage: direct call on the window's own thread, else waits at most `ms`.
 bool Send(UINT m, DWORD ms, LRESULT* out)
 {
     DWORD_PTR res = 0;
-    if (!g_parent) return false;
-    LRESULT ok = SendMessageTimeoutW(g_parent, m, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, ms, &res);
+    HWND p = Parent();
+    if (!p) return false;
+    LRESULT ok = SendMessageTimeoutW(p, m, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, ms, &res);
     if (out) *out = (LRESULT)res;
     return ok != 0;
+}
+
+// Put the parent's own WndProc back if we are still the top of its chain (a subclass on top of ours keeps it).
+void Unsubclass()
+{
+    HWND p; WNDPROC orig;
+    { Locked lk; p = g_parent; orig = g_origProc; g_parent = NULL; g_origProc = NULL; }
+    if (!p || !orig || !IsWindow(p)) return;
+    if ((WNDPROC)GetWindowLongPtrW(p, GWLP_WNDPROC) == ParentProc) { SetWindowLongPtrW(p, GWLP_WNDPROC, (LONG_PTR)orig); FgLog("wnd: restored WndProc of %p", (void*)p); }
+    else FgLog("wnd: %p subclassed on top of us - WndProc left alone", (void*)p);
 }
 
 } // namespace
 
 HWND FgWndCreate(HWND parent)
 {
-    if (g_parent && g_parent != parent) { FgWndDestroy(); g_origProc = NULL; }
-    g_parent = parent;
-    if (!g_origProc) {
-        g_origProc = (WNDPROC)SetWindowLongPtrW(parent, GWLP_WNDPROC, (LONG_PTR)ParentProc);
-        if (!g_origProc) { g_probe.createErr = GetLastError(); FgLog("wnd: subclass failed (%lu)", g_probe.createErr); g_parent = NULL; return NULL; }
-        FgLog("wnd: subclassed %p (orig %p) from tid %u, window tid %u", (void*)parent, (void*)g_origProc,
+    if (Parent() && Parent() != parent) { FgWndDestroy(); Unsubclass(); }
+    { Locked lk; g_parent = parent; }
+    WNDPROC orig; { Locked lk; orig = g_origProc; }
+    if (!orig) {
+        orig = (WNDPROC)SetWindowLongPtrW(parent, GWLP_WNDPROC, (LONG_PTR)ParentProc);
+        if (!orig) { g_probe.createErr = GetLastError(); FgLog("wnd: subclass failed (%lu)", g_probe.createErr); Locked lk; g_parent = NULL; return NULL; }
+        { Locked lk; g_origProc = orig; }
+        FgLog("wnd: subclassed %p (orig %p) from tid %u, window tid %u", (void*)parent, (void*)orig,
               (unsigned)GetCurrentThreadId(), (unsigned)GetWindowThreadProcessId(parent, NULL));
     }
     LRESULT h = 0;
@@ -129,18 +157,42 @@ HWND FgWndCreate(HWND parent)
 
 void FgWndDestroy(void)
 {
-    HWND c = g_child;
-    if (!c || !g_parent) return;
-    g_child = NULL;
+    HWND c, p;
+    { Locked lk; c = g_child; p = g_parent; g_child = NULL; }
+    if (!c || !p) return;
     ShowWindowAsync(c, SW_HIDE);                            // safe from any thread; the destroy runs on the UI thread
-    PostMessageW(g_parent, WM_RF_DESTROY, (WPARAM)c, 0);
+    if (!PostMessageW(p, WM_RF_DESTROY, (WPARAM)c, 0)) {
+        FgLog("wnd: WM_RF_DESTROY post failed (%lu) - child %p kept for the next destroy", GetLastError(), (void*)c);
+        Locked lk; if (!g_child) g_child = c;               // still ours: retried by the next FgWndDestroy
+    }
 }
 
-HWND FgWndChild(void) { return g_child; }
+HWND FgWndChild(void) { return Child(); }
+
+bool FgWndIsOurs(HWND h)
+{
+    wchar_t cls[64] = {};
+    return h && GetClassNameW(h, cls, 64) && wcscmp(cls, kClass) == 0;
+}
+
+// Plugin unload, main thread. The window's own thread is the main thread in a Unity player, so the child can go
+// synchronously; otherwise the bounded Send does the same from here.
+void FgWndUnload(void)
+{
+    HWND c, p;
+    { Locked lk; c = g_child; p = g_parent; g_child = NULL; }
+    if (c && p && IsWindow(c)) {
+        if (GetWindowThreadProcessId(p, NULL) == GetCurrentThreadId()) DestroyWindow(c);
+        else { DWORD_PTR r = 0; SendMessageTimeoutW(p, WM_RF_DESTROY, (WPARAM)c, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 2000, &r); }
+    }
+    Unsubclass();
+    UnregisterClassW(kClass, GetModuleHandleW(NULL));       // fails harmlessly while a window of the class still exists
+}
 
 const FgWndProbe* FgWndProbeNow(void)
 {
-    if (g_parent && g_origProc) Send(WM_RF_PROBE, 200, NULL);
-    g_probe.parent = g_parent;
+    bool live; { Locked lk; live = g_parent && g_origProc; }
+    if (live) Send(WM_RF_PROBE, 200, NULL);
+    g_probe.parent = Parent();
     return &g_probe;
 }

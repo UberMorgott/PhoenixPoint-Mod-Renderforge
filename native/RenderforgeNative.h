@@ -111,16 +111,12 @@ enum { FG_CAP_2X = 1, FG_CAP_3X = 2, FG_CAP_4X = 4 };
 // Provider ids (Fg_Init / Fg_Provider).
 enum { FG_PROVIDER_NONE = 0, FG_PROVIDER_FSR = 1, FG_PROVIDER_XESS = 2, FG_PROVIDER_DLSS = 3 };
 
-// Main thread. Patches the DXGI swapchain vtable so the shim sees Unity's Present. Idempotent.
-// Requires the D3D12 backend (Dlss_Api() == 12) because the hook needs Unity's command queue.
-DLSS_API int __cdecl Fg_HookInstall(const wchar_t* logDir);
 // Presented frames per second counted in the Present hook (includes generated frames). 0 = no data yet.
 DLSS_API int __cdecl Fg_PresentedFps(void);
-// Spike diagnostics as one flat line (static buffer, main thread only).
-DLSS_API const char* __cdecl Fg_SpikeStatus(void);
 
 // Main thread. Builds the FG chain: hook (if not yet), provider, shadow swapchain. Retry-safe: returns
-// FG_ERR_NO_SWAPCHAIN until the hook has seen at least one Present, so the caller may call it per frame.
+// FG_ERR_NO_SWAPCHAIN until the hook has seen at least one Present and while a previous chain is still being
+// destroyed, so the caller may call it per frame.
 DLSS_API int __cdecl Fg_Init(int provider, unsigned multiplier, const wchar_t* dllDir);
 // Main thread. Turns interpolation on/off without tearing the chain down.
 DLSS_API void __cdecl Fg_SetEnabled(int on);
@@ -139,10 +135,16 @@ DLSS_API unsigned __cdecl Fg_Caps(void);
 DLSS_API int __cdecl Fg_Provider(void);
 // One diagnostic line (static buffer, main thread only).
 DLSS_API const char* __cdecl Fg_Status(void);
-// Main thread, render idle. Destroys the chain; the Present hook stays installed and inert.
-DLSS_API void __cdecl Fg_Shutdown(void);
-// 1 while the chain exists. 0 once the shim tore it down itself (ResizeBuffers, shadow Present failure):
-// the managed side must drop `live` and call Fg_Init again.
+// Why the last Fg_Init failed, static text ("" when unknown / none): the picker's tooltip.
+DLSS_API const char* __cdecl Fg_Reason(void);
+// Main thread. Destroys the chain SYNCHRONOUSLY (waits for the render thread to leave it) and returns 1; 0 = the
+// render thread never left within the bound and the chain stays parked (Fg_Pump retries). The hook stays inert.
+DLSS_API int __cdecl Fg_Shutdown(void);
+// Main thread, every frame. The render/UI threads only DETACH a chain (resize, Present failure, window recreated);
+// this destroys it. Returns 1 when nothing is left to destroy.
+DLSS_API int __cdecl Fg_Pump(void);
+// 1 while the chain exists. 0 once the shim detached it itself (ResizeBuffers, shadow Present failure):
+// the managed side must drop `live`, keep pumping and call Fg_Init again.
 DLSS_API int __cdecl Fg_Alive(void);
 
 #ifdef __cplusplus

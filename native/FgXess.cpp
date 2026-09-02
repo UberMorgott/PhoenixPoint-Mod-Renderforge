@@ -45,6 +45,20 @@ HMODULE LoadFrom(const wchar_t* dir, const wchar_t* name)
     return LoadLibraryW(p);
 }
 
+// Both runtimes pinned ONCE per process (the managed driver retries a refused Create 4x/s: a LoadLibrary per try
+// would bump the loader refcounts forever). A partial load is rolled back so the next try starts clean.
+HMODULE g_xell, g_xefg;
+bool PinDlls(const wchar_t* dir)
+{
+    if (g_xell && g_xefg) return true;
+    if (!g_xell) g_xell = LoadFrom(dir, L"libxell.dll");
+    if (!g_xefg) g_xefg = LoadFrom(dir, L"libxess_fg.dll");
+    if (g_xell && g_xefg) return true;
+    if (g_xell) { FreeLibrary(g_xell); g_xell = NULL; }
+    if (g_xefg) { FreeLibrary(g_xefg); g_xefg = NULL; }
+    return false;
+}
+
 unsigned g_maxInterp;       // maxSupportedInterpolations once measured on this GPU (process lifetime), 0 = not yet
 unsigned CapsFor(unsigned maxInterp) { return FG_CAP_2X | (maxInterp >= 2 ? FG_CAP_3X : 0u) | (maxInterp >= 3 ? FG_CAP_4X : 0u); }
 
@@ -82,12 +96,12 @@ struct ProviderXess : IFgProvider
 
     // Create failed: the host never took the proxy reference, so drop it here (Destroy needs refcount 0). Caps survive
     // so the host can grey the refused multiplier.
-    int Fail(int rc) { unsigned c = caps; if (proxy) { proxy->Release(); proxy = NULL; } Destroy(); caps = c; return rc; }
+    int Fail(int rc) { unsigned c = caps; if (proxy) { proxy->Release(); proxy = NULL; } Destroy(true); caps = c; return rc; }
 
     int Create(const FgSetup& s, IDXGISwapChain4** out)
     {
         // Pin BEFORE the first xell*/xefg* call: that is what the delay-load helper binds to.
-        if (!LoadFrom(s.dllDir, L"libxell.dll") || !LoadFrom(s.dllDir, L"libxess_fg.dll")) {
+        if (!PinDlls(s.dllDir)) {
             FgLog("xess: libxell.dll / libxess_fg.dll not loadable from the mod folder");
             return FG_ERR_NO_PROVIDER;
         }
@@ -201,14 +215,18 @@ struct ProviderXess : IFgProvider
     // identifies this frame's tags (guide :1020-1022). The proxy generates inside its Present, so 0 here.
     int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT)
     {
-        if (!fg) return 0;
-        xefgSwapChainSetPresentId(fg, presentId);
-        if (!marked) {
-            marked = 1;
-            xellAddMarkerData(ll, presentId, XELL_RENDERSUBMIT_END);
-            xellAddMarkerData(ll, presentId, XELL_PRESENT_START);
-        }
+        if (fg) xefgSwapChainSetPresentId(fg, presentId);
         return 0;
+    }
+
+    // The host's back-buffer copy is submitted, Present is next: the submit closes and the present opens HERE (after
+    // the last write into the proxy's back buffer), the same place DLSS-G's markers live.
+    void BeforePresent()
+    {
+        if (!fg || marked) return;
+        marked = 1;
+        xellAddMarkerData(ll, presentId, XELL_RENDERSUBMIT_END);
+        xellAddMarkerData(ll, presentId, XELL_PRESENT_START);
     }
 
     void AfterPresent(HRESULT)
@@ -228,18 +246,24 @@ struct ProviderXess : IFgProvider
         if (fg) xefgSwapChainSetEnabled(fg, on ? 1u : 0u);       // thread-safe (guide :1098-1107)
     }
 
-    // Caller thread, chain detached. The host has already released its proxy reference (FgHost.cpp DestroyChain):
-    // xefgSwapChainDestroy refuses while any reference to the proxy is outstanding (guide :1076-1077).
-    void Destroy(void)
+    // Main thread, chain detached. The host has already released its proxy reference (FgHost.cpp DestroyChain):
+    // xefgSwapChainDestroy refuses while any reference to the proxy is outstanding (guide :1076-1077) - then BOTH
+    // handles are retained (XeLL after XeSS-FG, guide :1080) and the host retries on its next pump.
+    bool Destroy(bool force)
     {
         if (fg) {
             xefg_swapchain_result_t r = xefgSwapChainDestroy(fg);
-            if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) FgLog("xess: xefgSwapChainDestroy %d", (int)r);
+            if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) {
+                FgLog("xess: xefgSwapChainDestroy %d%s", (int)r, force ? " - forced, handles leaked" : " - retained");
+                if (!force) return false;
+            }
             fg = NULL;
         }
-        if (ll) { xellDestroyContext(ll); ll = NULL; }             // after XeSS-FG (guide :1080)
+        if (ll && !force) { xellDestroyContext(ll); }
+        ll = NULL;
         FgLog("xess: destroyed (XeSS-FG %s, generated %lld, lastRc %d)", version, generated, lastRc);
         Zero();                                                    // the Intel modules stay resident (delay-load bound)
+        return true;
     }
 };
 

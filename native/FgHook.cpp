@@ -1,6 +1,8 @@
 // FgHook.cpp - the DXGI vtable patch. All swapchains produced by one DXGI runtime share one vtable, so
 // patching the vtable read off a throwaway 8x8 swapchain of our own also patches Unity's. The hook
-// recognises the application swapchain as the first `this` whose OutputWindow is not our dummy window.
+// recognises the application swapchain as the first `this` that presents on a top-level window of this process
+// that is not one of ours (dummy / child class) on Unity's own device - overlays, other devices and the vendor
+// pacers' presents of OUR proxy chains never qualify.
 //
 // Vtable indices (IUnknown 0-2, IDXGIObject 3-6, IDXGIDeviceSubObject 7, IDXGISwapChain 8-17,
 // IDXGISwapChain1 18-...): Present = 8, SetFullscreenState = 10, ResizeBuffers = 13, Present1 = 22. Verified
@@ -25,26 +27,27 @@ typedef HRESULT (STDMETHODCALLTYPE *PfnSetFullscreen)(IDXGISwapChain*, BOOL, IDX
 
 const int kVtPresent = 8, kVtSetFullscreen = 10, kVtResizeBuffers = 13, kVtPresent1 = 22;
 const UINT kPassThrough = DXGI_PRESENT_TEST | DXGI_PRESENT_DO_NOT_SEQUENCE;
+const wchar_t kDummyClass[] = L"RenderforgeFgDummy";
 
 PfnPresent       g_origPresent = NULL;
 PfnPresent1      g_origPresent1 = NULL;
 PfnResizeBuffers g_origResize = NULL;
 PfnSetFullscreen g_origSetFullscreen = NULL;
 
-// Observed, not owned: only ever compared against `this`, never dereferenced outside NoteApp (where it IS `this`).
-// The host takes its own AddRef on it for as long as a chain is built on it (FgHost.cpp Chain::app).
+// The app chain: OWNED (AddRef'd) while latched, published under g_appLock. Holding the reference is what makes
+// the pointer compare in the hooks safe: the object cannot die and its address cannot be reused while latched.
+SRWLOCK          g_appLock = SRWLOCK_INIT;
 IDXGISwapChain3* g_app = NULL;
 HWND             g_appHwnd = NULL;
 DXGI_SWAP_CHAIN_DESC1 g_appDesc = {};
-int              g_appDescValid = 0;
+int              g_appGaveUp = 0;      // the first candidate was not IDXGISwapChain3: stop trying
 
 HWND             g_dummyHwnd = NULL;
 IDXGISwapChain1* g_dummy = NULL;
 ID3D12CommandQueue* g_queue = NULL;
+ID3D12Device*    g_device = NULL;      // g_queue's device, for the identity check (not owned)
 int              g_installed = 0;
-
-FgSpike          g_spike = {};
-int              g_spikeDone = 0;
+volatile LONG    g_inHook = 0;         // hooks in flight; FgHookRemove drains it
 
 // Presented-frame counter (0.5 s window).
 LARGE_INTEGER    g_freq = {};
@@ -54,6 +57,18 @@ long long        g_total = 0;
 volatile long    g_fps = 0;
 
 FILE*            g_log = NULL;
+
+struct AppLocked
+{
+    AppLocked()  { AcquireSRWLockExclusive(&g_appLock); }
+    ~AppLocked() { ReleaseSRWLockExclusive(&g_appLock); }
+};
+
+struct Entered
+{
+    Entered()  { InterlockedIncrement(&g_inHook); }
+    ~Entered() { InterlockedDecrement(&g_inHook); }
+};
 
 void CountPresent()
 {
@@ -67,40 +82,69 @@ void CountPresent()
     }
 }
 
-// Remember the application's swapchain the first time a foreign `this` presents. Our own chains (dummy, child)
-// are excluded by their window.
+bool IsOurWindow(HWND h)
+{
+    wchar_t cls[64] = {};
+    if (!GetClassNameW(h, cls, 64)) return false;
+    return wcscmp(cls, kDummyClass) == 0 || FgWndIsOurs(h);
+}
+
+// The chain a foreign `this` must be before it is latched as the app chain.
+bool Validate(IDXGISwapChain* sc, DXGI_SWAP_CHAIN_DESC* d)
+{
+    if (FAILED(sc->GetDesc(d)) || !d->OutputWindow || !IsWindow(d->OutputWindow)) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(d->OutputWindow, &pid);
+    if (pid != GetCurrentProcessId() || GetAncestor(d->OutputWindow, GA_ROOT) != d->OutputWindow) return false;
+    if (IsOurWindow(d->OutputWindow)) return false;
+    if (!d->BufferDesc.Width || !d->BufferDesc.Height || d->BufferDesc.Format == DXGI_FORMAT_UNKNOWN) return false;
+    ID3D12Device* dev = NULL;
+    if (FAILED(sc->GetDevice(__uuidof(ID3D12Device), (void**)&dev)) || !dev) return false;
+    bool same = dev == g_device;
+    dev->Release();
+    return same;
+}
+
+// Remember the application's swapchain the first time a valid foreign `this` presents.
 void NoteApp(IDXGISwapChain* sc)
 {
-    if (g_app) return;
+    { AppLocked lk; if (g_app || g_appGaveUp) return; }
     DXGI_SWAP_CHAIN_DESC d = {};
-    if (FAILED(sc->GetDesc(&d)) || d.OutputWindow == NULL || d.OutputWindow == g_dummyHwnd || d.OutputWindow == FgWndChild()) return;
+    if (!Validate(sc, &d)) return;
     IDXGISwapChain3* sc3 = NULL;
-    if (FAILED(sc->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&sc3))) {
+    if (FAILED(sc->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&sc3)) || !sc3) {
         FgLog("hook: app swapchain is not IDXGISwapChain3 - FG needs it, giving up on discovery");
+        g_appGaveUp = 1;
         return;
     }
-    sc3->Release();                 // observation only (see g_app); the host AddRefs while it builds on it
-    g_app = sc3;
-    g_appHwnd = d.OutputWindow;
-    IDXGISwapChain1* sc1 = NULL;
-    if (SUCCEEDED(sc->QueryInterface(__uuidof(IDXGISwapChain1), (void**)&sc1))) {
-        if (SUCCEEDED(sc1->GetDesc1(&g_appDesc))) g_appDescValid = 1;
-        sc1->Release();
+    DXGI_SWAP_CHAIN_DESC1 d1 = {};
+    if (FAILED(sc3->GetDesc1(&d1))) {
+        d1.Width = d.BufferDesc.Width; d1.Height = d.BufferDesc.Height; d1.Format = d.BufferDesc.Format;
+        d1.BufferCount = d.BufferCount; d1.SampleDesc = d.SampleDesc; d1.BufferUsage = d.BufferUsage;
+        d1.SwapEffect = d.SwapEffect; d1.Flags = d.Flags;
     }
-    g_spike.sawPresent = 1;
-    g_spike.format = (unsigned)d.BufferDesc.Format;
-    g_spike.bufferCount = d.BufferCount;
-    g_spike.swapEffect = (unsigned)d.SwapEffect;
-    g_spike.scFlags = d.Flags;
-    g_spike.width = d.BufferDesc.Width;
-    g_spike.height = d.BufferDesc.Height;
-    g_spike.windowed = d.Windowed ? 1 : 0;
-    g_spike.flipModel = (d.SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD || d.SwapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL) ? 1 : 0;
-    g_spike.waitable = (d.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) ? 1 : 0;
-    FgLog("hook: app swapchain %p hwnd %p %ux%u fmt %u buffers %u swapEffect %u flags 0x%X windowed %d flip %d waitable %d",
-          (void*)sc, (void*)g_appHwnd, g_spike.width, g_spike.height, g_spike.format,
-          g_spike.bufferCount, g_spike.swapEffect, g_spike.scFlags, g_spike.windowed,
-          g_spike.flipModel, g_spike.waitable);
+    {
+        AppLocked lk;
+        if (g_app) { sc3->Release(); return; }         // another thread won
+        g_app = sc3;                                   // keeps the reference
+        g_appHwnd = d.OutputWindow;
+        g_appDesc = d1;
+    }
+    FgLog("hook: app swapchain %p hwnd %p %ux%u fmt %u buffers %u swapEffect %u flags 0x%X windowed %d",
+          (void*)sc, (void*)d.OutputWindow, d.BufferDesc.Width, d.BufferDesc.Height, (unsigned)d.BufferDesc.Format,
+          d.BufferCount, (unsigned)d.SwapEffect, d.Flags, d.Windowed ? 1 : 0);
+}
+
+// The app chain, by pointer AND by window: a mismatch means the latch is stale - forget it, rediscover.
+bool IsApp(IDXGISwapChain* self)
+{
+    if (!FgAppIs(self)) return false;
+    DXGI_SWAP_CHAIN_DESC d = {};
+    HWND hwnd; { AppLocked lk; hwnd = g_appHwnd; }
+    if (SUCCEEDED(self->GetDesc(&d)) && d.OutputWindow == hwnd) return true;
+    FgLog("hook: app swapchain %p now on hwnd %p (latched %p) - forgetting", (void*)self, (void*)d.OutputWindow, (void*)hwnd);
+    FgHookForgetApp();
+    return false;
 }
 
 // Unity's Present flags once the shadow chain carried the frame: sync 0, only ALLOW_TEARING / RESTART kept.
@@ -108,34 +152,40 @@ UINT UnityFlags(UINT flags) { return flags & (DXGI_PRESENT_ALLOW_TEARING | DXGI_
 
 HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flags)
 {
+    Entered e;
     if (flags & kPassThrough) return g_origPresent(self, sync, flags);
     NoteApp(self);
-    if (self != (IDXGISwapChain*)g_app) return g_origPresent(self, sync, flags);
+    if (!IsApp(self)) return g_origPresent(self, sync, flags);
     bool fg = FgHostOnPresent(self, sync, flags);
     HRESULT hr = fg ? g_origPresent(self, 0, UnityFlags(flags)) : g_origPresent(self, sync, flags);
-    g_spike.forwardedPresentHr = (long)hr;
     if (fg) FgHostAfterUnityPresent(hr); else CountPresent();
     return hr;
 }
 
 HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* self, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* pp)
 {
+    Entered e;
     if (flags & kPassThrough) return g_origPresent1(self, sync, flags, pp);
     NoteApp(self);
-    if ((IDXGISwapChain*)self != (IDXGISwapChain*)g_app) return g_origPresent1(self, sync, flags, pp);
+    if (!IsApp(self)) return g_origPresent1(self, sync, flags, pp);
     bool fg = FgHostOnPresent((IDXGISwapChain*)self, sync, flags);
     HRESULT hr = fg ? g_origPresent1(self, 0, UnityFlags(flags), pp) : g_origPresent1(self, sync, flags, pp);
-    g_spike.forwardedPresentHr = (long)hr;
     if (fg) FgHostAfterUnityPresent(hr); else CountPresent();
     return hr;
 }
 
 HRESULT STDMETHODCALLTYPE HookResizeBuffers(IDXGISwapChain* self, UINT count, UINT w, UINT h, DXGI_FORMAT fmt, UINT flags)
 {
-    if (self == (IDXGISwapChain*)g_app) {
+    Entered e;
+    if (FgAppIs(self)) {
         FgLog("hook: app ResizeBuffers %ux%u count %u fmt %d flags 0x%X", w, h, count, (int)fmt, flags);
         FgHostOnResize(w, h);
-        g_appDescValid = 0;
+        AppLocked lk;
+        if (w) g_appDesc.Width = w;
+        if (h) g_appDesc.Height = h;
+        if (fmt != DXGI_FORMAT_UNKNOWN) g_appDesc.Format = fmt;
+        if (count) g_appDesc.BufferCount = count;
+        g_appDesc.Flags = flags;
     }
     return g_origResize(self, count, w, h, fmt, flags);
 }
@@ -144,7 +194,8 @@ HRESULT STDMETHODCALLTYPE HookResizeBuffers(IDXGISwapChain* self, UINT count, UI
 // (the managed driver retries Init, which refuses while GetFullscreenState says fullscreen). Never our own chains.
 HRESULT STDMETHODCALLTYPE HookSetFullscreenState(IDXGISwapChain* self, BOOL fullscreen, IDXGIOutput* target)
 {
-    if (self == (IDXGISwapChain*)g_app) {
+    Entered e;
+    if (FgAppIs(self)) {
         FgLog("hook: app SetFullscreenState(%d)", (int)fullscreen);
         if (fullscreen) FgHostTearDown("SetFullscreenState(TRUE)");
     }
@@ -172,12 +223,21 @@ Slot g_slots[] = {
 };
 const int kSlots = sizeof(g_slots) / sizeof(g_slots[0]);
 
-// Restore the first `n` patched slots (a partial install must never leave the vtable half ours).
+// Restore the first `n` patched slots - only those that still hold OUR function (someone hooking on top of us
+// keeps their chain; they forward to our saved original through their own copy of the slot).
 void UnpatchSlots(void** vt, int n)
 {
     for (int i = n - 1; i >= 0; --i) {
-        void* tmp = NULL;
-        if (*g_slots[i].orig) PatchSlot(vt, g_slots[i].idx, *g_slots[i].orig, &tmp);
+        void* orig = *g_slots[i].orig;
+        if (orig) {
+            DWORD old = 0;
+            if (VirtualProtect(&vt[g_slots[i].idx], sizeof(void*), PAGE_READWRITE, &old)) {
+                void* was = InterlockedCompareExchangePointer(&vt[g_slots[i].idx], orig, g_slots[i].fn);
+                if (was != g_slots[i].fn) FgLog("hook: slot %d is %p, not ours - left alone", g_slots[i].idx, was);
+                DWORD tmp = 0;
+                VirtualProtect(&vt[g_slots[i].idx], sizeof(void*), old, &tmp);
+            }
+        }
         *g_slots[i].orig = NULL;
     }
 }
@@ -185,15 +245,14 @@ void UnpatchSlots(void** vt, int n)
 // An 8x8 off-screen window that never becomes visible; the throwaway swapchain hangs off it.
 HWND MakeDummyWindow()
 {
-    static const wchar_t kClass[] = L"RenderforgeFgDummy";
     HINSTANCE inst = GetModuleHandleW(NULL);
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = inst;
-    wc.lpszClassName = kClass;
+    wc.lpszClassName = kDummyClass;
     RegisterClassExW(&wc);          // duplicate registration is harmless, we ignore the result
-    return CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClass, kClass, WS_POPUP,
+    return CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kDummyClass, kDummyClass, WS_POPUP,
                            0, 0, 8, 8, NULL, NULL, inst, NULL);
 }
 
@@ -226,6 +285,8 @@ bool FgHookInstall(ID3D12CommandQueue* queue)
     if (g_installed) return true;
     if (!queue) { FgLog("hook: no command queue"); return false; }
     g_queue = queue;
+    if (FAILED(queue->GetDevice(__uuidof(ID3D12Device), (void**)&g_device)) || !g_device) { FgLog("hook: queue has no device"); return false; }
+    g_device->Release();            // Unity's device outlives the hook; compared, never dereferenced
 
     g_dummyHwnd = MakeDummyWindow();
     if (!g_dummyHwnd) { FgLog("hook: dummy window failed (%lu)", GetLastError()); return false; }
@@ -256,7 +317,6 @@ bool FgHookInstall(ID3D12CommandQueue* queue)
     }
 
     g_installed = 1;
-    g_spike.installed = 1;
     FgLog("hook: installed (vtable %p, Present %p, Present1 %p, ResizeBuffers %p, SetFullscreenState %p)",
           (void*)vt, (void*)g_origPresent, (void*)g_origPresent1, (void*)g_origResize, (void*)g_origSetFullscreen);
     return true;
@@ -267,22 +327,48 @@ void FgHookRemove(void)
     if (!g_installed) return;
     void** vt = *(void***)g_dummy;
     UnpatchSlots(vt, kSlots);
+    // A hook that entered before the slot was restored may still be running: let it leave before anything it
+    // uses goes away (bounded: a Present blocked on vsync returns within a frame).
+    for (int i = 0; i < 2000 && g_inHook > 0; ++i) Sleep(1);
+    if (g_inHook > 0) FgLog("hook: %ld hook(s) still in flight after 2 s", (long)g_inHook);
+    FgHookForgetApp();
     g_dummy->Release(); g_dummy = NULL;
     DestroyWindow(g_dummyHwnd); g_dummyHwnd = NULL;
-    g_installed = 0; g_app = NULL; g_appHwnd = NULL; g_appDescValid = 0;
+    UnregisterClassW(kDummyClass, GetModuleHandleW(NULL));
+    g_installed = 0;
     FgLog("hook: removed");
 }
 
 void FgHookForgetApp(void)
 {
-    if (!g_app) return;
-    FgLog("hook: app swapchain %p on hwnd %p forgotten", (void*)g_app, (void*)g_appHwnd);
-    g_app = NULL; g_appHwnd = NULL; g_appDescValid = 0;
+    IDXGISwapChain3* old;
+    HWND hwnd;
+    {
+        AppLocked lk;
+        old = g_app; hwnd = g_appHwnd;
+        g_app = NULL; g_appHwnd = NULL;
+        memset(&g_appDesc, 0, sizeof(g_appDesc));
+    }
+    if (!old) return;
+    FgLog("hook: app swapchain %p on hwnd %p forgotten", (void*)old, (void*)hwnd);
+    old->Release();
 }
 
-IDXGISwapChain3* FgAppSwapChain(void) { return g_app; }
-HWND FgAppHwnd(void) { return g_appHwnd; }
-const DXGI_SWAP_CHAIN_DESC1* FgAppDesc(void) { return g_appDescValid ? &g_appDesc : NULL; }
+IDXGISwapChain3* FgAppAcquire(HWND* hwnd, DXGI_SWAP_CHAIN_DESC1* desc)
+{
+    AppLocked lk;
+    if (!g_app) return NULL;
+    g_app->AddRef();
+    if (hwnd) *hwnd = g_appHwnd;
+    if (desc) *desc = g_appDesc;
+    return g_app;
+}
+
+bool FgAppIs(IDXGISwapChain* sc)
+{
+    AppLocked lk;
+    return sc != NULL && sc == (IDXGISwapChain*)g_app;
+}
 
 void FgPresentedAdd(int n)
 {
@@ -291,47 +377,3 @@ void FgPresentedAdd(int n)
 
 int FgPresentedFps(void) { return (int)g_fps; }
 long long FgPresentCount(void) { return g_total; }
-const FgSpike* FgSpikeResult(void) { return &g_spike; }
-
-// The two probes decision 3 and decision 4a hang on. Runs once; safe to call every frame.
-void FgHookSpike(void)
-{
-    if (g_spikeDone || !g_app || !g_queue) return;
-    g_spikeDone = 1;
-
-    IDXGIFactory2* factory = NULL;
-    HRESULT hr = CreateDXGIFactory2(0, __uuidof(IDXGIFactory2), (void**)&factory);
-    if (FAILED(hr)) { FgLog("spike: CreateDXGIFactory2 0x%08X", (unsigned)hr); return; }
-
-    DXGI_SWAP_CHAIN_DESC1 d = {};
-    const DXGI_SWAP_CHAIN_DESC1* app = FgAppDesc();
-    if (app) d = *app; else {
-        d.Width = g_spike.width; d.Height = g_spike.height;
-        d.Format = (DXGI_FORMAT)g_spike.format; d.SampleDesc.Count = 1;
-        d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; d.BufferCount = 3;
-    }
-    d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;      // FG needs the flip model regardless of Unity's choice
-    d.Flags = 0;
-    if (d.BufferCount < 2) d.BufferCount = 3;
-    d.Scaling = DXGI_SCALING_STRETCH;
-    d.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-
-    // Probe 1 (decision 3): a second swapchain on the game's own HWND.
-    IDXGISwapChain1* second = NULL;
-    hr = factory->CreateSwapChainForHwnd(g_queue, g_appHwnd, &d, NULL, NULL, &second);
-    g_spike.secondSwapChainHr = (long)hr;
-    FgLog("spike: second CreateSwapChainForHwnd on game hwnd -> 0x%08X", (unsigned)hr);
-    if (second) { second->Release(); second = NULL; }
-
-    // Probe 2 (decision 4a): a composition swapchain, which never claims the HWND.
-    DXGI_SWAP_CHAIN_DESC1 c = d;
-    c.Scaling = DXGI_SCALING_STRETCH;
-    c.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
-    IDXGISwapChain1* comp = NULL;
-    hr = factory->CreateSwapChainForComposition(g_queue, &c, NULL, &comp);
-    g_spike.compositionHr = (long)hr;
-    FgLog("spike: CreateSwapChainForComposition -> 0x%08X", (unsigned)hr);
-    if (comp) comp->Release();
-
-    factory->Release();
-}
