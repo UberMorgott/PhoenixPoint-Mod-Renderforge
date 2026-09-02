@@ -8,3 +8,5 @@ nvngx_dlss.dll
 *.pdb
 Console.log
 .serena/
+nvngx*.log
+nvsdk_ngx.log
