@@ -11,3 +11,6 @@ Console.log
 .serena/
 nvngx*.log
 nvsdk_ngx.log
+
+docs/shots/darkfps/
+
