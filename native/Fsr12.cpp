@@ -36,13 +36,14 @@ uint32_t ToFfxQuality(int quality)
 
 // DLSS_F_* -> FfxApiCreateContextUpscaleFlags. DEPTH_INFINITE is deliberately never set: Unity's camera has a
 // finite far plane and the FSR debug checker warns when INFINITE is combined with a small cameraFar.
+// AUTO_EXPOSURE is always on regardless of DLSS_F_AUTO_EXPOSURE: the driver never hands us an exposure texture,
+// and ffx only allows omitting it when that flag is set (super-resolution-ml.md:111,167).
 uint32_t ToFfxCreateFlags(int rawFlags)
 {
-    uint32_t f = 0;
+    uint32_t f = FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
     if (rawFlags & DLSS_F_HDR)            f |= FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE;
     if (rawFlags & DLSS_F_DEPTH_INVERTED) f |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;       // Unity reversed-Z
     if (rawFlags & DLSS_F_MV_JITTERED)    f |= FFX_UPSCALE_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION;
-    if (rawFlags & DLSS_F_AUTO_EXPOSURE)  f |= FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
     // DLSS_F_MV_LOW_RES means "MVs are at render resolution", which is the ffx default; its ABSENCE is the flag.
     if (!(rawFlags & DLSS_F_MV_LOW_RES))  f |= FFX_UPSCALE_ENABLE_DISPLAY_RESOLUTION_MOTION_VECTORS;
     return f;
@@ -81,7 +82,7 @@ struct Fsr12 : IDevice
         memset(&descBackend, 0, sizeof(descBackend));
         ring.Zero();
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; initCode = 0;
-        sharpener = DLSS_SHARPEN_RCAS;   // FSR's own RCAS runs inside the dispatch; the shim's pass is skipped
+        sharpener = DLSS_SHARPEN_NONE;   // becomes RCAS per Evaluate when sharpness > 0; the shim's own pass is never used
         sharpenDead = 0;
     }
 
@@ -284,6 +285,7 @@ struct Fsr12 : IDevice
             d.upscaleSize.height = outH;
             d.enableSharpening = fp.sharpness > 0.0f;      // FSR's built-in RCAS; the shim's own pass is skipped
             d.sharpness        = fp.sharpness;
+            sharpener = d.enableSharpening ? DLSS_SHARPEN_RCAS : DLSS_SHARPEN_NONE;   // report what this frame runs
             d.frameTimeDelta   = fp.dtMs;                  // milliseconds (super-resolution-ml.md:280)
             d.preExposure      = fp.preExposure > 0.0f ? fp.preExposure : 1.0f;   // must be > 0
             d.reset            = fp.reset != 0;
