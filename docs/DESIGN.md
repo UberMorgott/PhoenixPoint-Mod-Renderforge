@@ -295,10 +295,18 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 - **Vulkan is DEAD**: `-force-vulkan` → `Forced GfxDevice 'Vulkan' was not built from editor,
   shaders will not be available` → `InitializeEngineGraphics failed`, exit 1. No SPIR-V in the
   build. Only D3D11 and D3D12 exist for this game; DX12 works because it reuses the DXBC blobs.
-- ONE breakage, spammed per frame: `ArgumentException: Kernel 'MultiScaleVODownsample1' not found.`
-  = PPv2 `AmbientOcclusion` in `MultiScaleVO` mode — its compute shader has no D3D12 platform data
-  in this build. Fix = under D3D12 switch the AO mode to `ScalableAmbientObscurance` (pixel shader)
-  or disable AO; trivial Harmony/PPv2-settings tweak.
+- RCA (live, PPCLI reflection): the washed-out look = PPv2 `PostProcessLayer` aborting every
+  frame, which also drops `PhoenixPoint.Tactical.FogOfWar.FogOfWarPostProcess` and grading.
+  Two compute shaders have no D3D12 kernels: `MultiScaleVODownsample1` (AO, MSVO mode) and,
+  once AO is off, `KGenLut3D_AcesTonemap` (HDR ColorGrading 3D-LUT baker). Control: on D3D11
+  `PostProcessLayer.enabled=false` reproduces the D3D12 look exactly. Verified fix on D3D12:
+  AO `enabled=false` + `PostProcessResources.computeShaders.lut3DBaker=null` (→ LDR 2D-LUT
+  path) → exceptions stop, dark cave + FoW back. Seam: `Base.Lighting.LightingManager
+  .ApplyPostProcessOptions` (`LightingManager.cs:163-187`, `:173` `EnableEffect<AmbientOcclusion>`).
+  `gradingMode` is re-blended from volume profiles every frame — patch resources/profile, not
+  the bundle. Residual: `Mesh can not have more than 65000 vertices` (8x), 3 idle crashes seen
+  during the RCA (cause unknown, measure after the fix). Full spec:
+  `docs\superpowers\specs\2026-09-02-multi-vendor-d3d12-design.md`.
 - Consequence: a D3D12 backend is viable → unlocks Frame Generation (DLSS-FG via Streamline,
   FSR FG, XeSS-FG — all D3D12-only) and official FSR 3.1/4 + cross-vendor XeSS (both D3D12-only
   in the current SDKs; the D3D11 XeSS DLL is Intel-Arc-only, FSR has NO official D3D11 backend).
