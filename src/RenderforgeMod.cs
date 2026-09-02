@@ -19,7 +19,7 @@ namespace Renderforge
         public static string ModDir { get; private set; }
         public DlssConfig Cfg => (DlssConfig)Config;
 
-        // Kept alive for the life of the mod: NGX holds the D3D11 device it was taken from.
+        // Kept alive for the life of the mod: NGX holds the D3D11/D3D12 device it was taken from.
         private static Texture2D probeTex;
         private bool patched;
 
@@ -29,9 +29,8 @@ namespace Renderforge
             ModDir = base.Instance?.Entry?.Directory ?? ".";
             Available = false;
             ApplyFrameRate();
-            // D3D11: the NGX path as before. D3D12: the mod stays alive for the pickers, the overlay and the
-            // PPv2 repair, but the native DLSS init is skipped (D3D12 upscaling is Phase 2).
-            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D11)
+            // D3D11 and D3D12 both go through the native shim; it picks its backend from the resource we hand it.
+            if (Availability.IsD3D11 || Availability.IsD3D12)
             {
                 try
                 {
@@ -52,15 +51,14 @@ namespace Renderforge
                     InitCode = Native.DLSS_ERR_INIT_FAILED;
                     Logger.LogError("Renderforge init THREW " + ex.Message);
                 }
-                Logger.LogInfo(Available ? "DLSS available" : "DLSS unavailable (code " + InitCode + "): " + Reason(InitCode));
+                Logger.LogInfo((Available ? "DLSS available" : "DLSS unavailable (code " + InitCode + "): " + Reason(InitCode))
+                               + " api=" + Native.Api() + " unityIface=" + Native.UnityIface() + " renderer=" + Availability.ApiName);
             }
             else
             {
                 InitCode = Native.DLSS_ERR_NOT_AVAILABLE;
-                // Phase 2 spike: load the shim so Unity gets a chance to call UnityPluginLoad, then report what arrived.
-                int iface = Native.Load(ModDir) ? Native.UnityIface() : -2;
                 Logger.LogInfo("Renderforge: " + SystemInfo.graphicsDeviceType + " - native DLSS init skipped ("
-                               + Availability.Reason(Feature.Dlss) + ") unityIface=" + iface);
+                               + Availability.Reason(Feature.Dlss) + ")");
             }
             try
             {
@@ -192,10 +190,11 @@ namespace Renderforge
         {
             switch (code)
             {
-                case Native.DLSS_ERR_NO_DEVICE: return "no D3D11 device behind the probe texture";
+                case Native.DLSS_ERR_NO_DEVICE: return "no D3D11/D3D12 device behind the probe texture";
                 case Native.DLSS_ERR_INIT_FAILED: return "NGX init failed (see nvsdk_ngx.log in the mod folder)";
                 case Native.DLSS_ERR_NOT_AVAILABLE: return "DLSS not supported on this GPU";
                 case Native.DLSS_ERR_NEEDS_DRIVER: return "NVIDIA driver too old for this DLSS";
+                case Native.DLSS_ERR_NO_UNITY_IFACE: return "Unity never handed the plugin its D3D12 interface (UnityPluginLoad did not run)";
                 default: return "unknown";
             }
         }
