@@ -49,7 +49,7 @@
 **Files:**
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\src\DlssConfig.cs:9-11` (enum block), `:42` (field block), `:57` (RU table)
 
-- [ ] **Step 1: Add the enum next to the existing config enums**
+- [x] **Step 1: Add the enum next to the existing config enums**
 
 In `src\DlssConfig.cs`, replace this block (currently lines 9-11):
 
@@ -71,7 +71,7 @@ with:
     public enum RendererMode { Auto, DirectX11, DirectX12 }
 ```
 
-- [ ] **Step 2: Add the persisted field**
+- [x] **Step 2: Add the persisted field**
 
 In the same file, immediately after the `DebugView` field (currently line 42, `public DebugView DebugView = DebugView.None;`), add:
 
@@ -80,7 +80,7 @@ In the same file, immediately after the `DebugView` field (currently line 42, `p
         public RendererMode Renderer = RendererMode.Auto;
 ```
 
-- [ ] **Step 3: Add the Russian label**
+- [x] **Step 3: Add the Russian label**
 
 In the `Ru` dictionary, after the `DebugView` entry (currently line 57), add:
 
@@ -88,7 +88,7 @@ In the `Ru` dictionary, after the `DebugView` entry (currently line 57), add:
             { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный, требуется перезапуск." } },
 ```
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run:
 
@@ -98,7 +98,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src\DlssConfig.cs
@@ -112,7 +112,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(config): RendererMode fie
 **Files:**
 - Create: `E:\DEV\PhoenixPoint\Renderforge\src\Availability.cs`
 
-- [ ] **Step 1: Write the file**
+- [x] **Step 1: Write the file**
 
 ```csharp
 using UnityEngine;
@@ -169,7 +169,7 @@ namespace Renderforge
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run:
 
@@ -179,7 +179,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src\Availability.cs
@@ -193,7 +193,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat: Availability oracle - on
 **Files:**
 - Create: `E:\DEV\PhoenixPoint\Renderforge\src\RendererSwitch.cs`
 
-- [ ] **Step 1: Write the file**
+- [x] **Step 1: Write the file**
 
 ```csharp
 using System;
@@ -323,7 +323,7 @@ namespace Renderforge
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run:
 
@@ -333,7 +333,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src\RendererSwitch.cs
@@ -347,7 +347,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat: RendererSwitch - relaunc
 **Files:**
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\src\GraphicsPanel.cs:160` (after `SetRaw`)
 
-- [ ] **Step 1: Add the two helpers**
+- [x] **Step 1: Add the two helpers**
 
 In `src\GraphicsPanel.cs`, immediately after the closing brace of `SetRaw` (currently line 160), before the class's closing brace, add:
 
@@ -388,7 +388,7 @@ In `src\GraphicsPanel.cs`, immediately after the closing brace of `SetRaw` (curr
         }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run:
 
@@ -398,7 +398,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src\GraphicsPanel.cs
@@ -412,7 +412,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(ui): reusable Grey()/Tip(
 **Files:**
 - Create: `E:\DEV\PhoenixPoint\Renderforge\src\Pickers.cs`
 
-- [ ] **Step 1: Write the file**
+- [x] **Step 1: Write the file**
 
 ```csharp
 using System;
@@ -638,7 +638,7 @@ namespace Renderforge
 }
 ```
 
-- [ ] **Step 2: Build (expected to FAIL — `SyncQuality` does not exist yet)**
+- [x] **Step 2: Build (expected to FAIL — `SyncQuality` does not exist yet)**
 
 Run:
 
@@ -648,7 +648,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `error CS0117: 'GraphicsPanel' does not contain a definition for 'SyncQuality'`. Task 6 adds it.
 
-- [ ] **Step 3: Do NOT commit yet** — the tree does not build. Commit happens at the end of Task 6.
+- [x] **Step 3: Do NOT commit yet** — the tree does not build. Commit happens at the end of Task 6.
 
 ---
 
@@ -657,7 +657,7 @@ Expected: `error CS0117: 'GraphicsPanel' does not contain a definition for 'Sync
 **Files:**
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\src\GraphicsPanel.cs:25-62` (the `Postfix`), and add `SyncQuality`
 
-- [ ] **Step 1: Replace the `Postfix` body**
+- [x] **Step 1: Replace the `Postfix` body**
 
 In `src\GraphicsPanel.cs`, replace the whole `Postfix` method (currently lines 25-62) with:
 
@@ -719,7 +719,7 @@ In `src\GraphicsPanel.cs`, replace the whole `Postfix` method (currently lines 2
         }
 ```
 
-- [ ] **Step 2: Add the `picker` field**
+- [x] **Step 2: Add the `picker` field**
 
 In the same file, in the field block (currently lines 19-23), replace:
 
@@ -738,7 +738,7 @@ with:
         private static Transform sharpValue;
 ```
 
-- [ ] **Step 3: Make `OnChanged` reuse `SyncQuality`**
+- [x] **Step 3: Make `OnChanged` reuse `SyncQuality`**
 
 Replace the whole `OnChanged` method (currently lines 64-80) with:
 
@@ -768,7 +768,7 @@ Replace the whole `OnChanged` method (currently lines 64-80) with:
         }
 ```
 
-- [ ] **Step 4: Drop the now-unused `Available` gate reference**
+- [x] **Step 4: Drop the now-unused `Available` gate reference**
 
 Confirm there is no remaining `RenderforgeMod.Available` reference in `src\GraphicsPanel.cs`:
 
@@ -778,7 +778,7 @@ Select-String -Path E:\DEV\PhoenixPoint\Renderforge\src\GraphicsPanel.cs -Patter
 
 Expected: no output (the availability decision now lives in `Availability.Reason`).
 
-- [ ] **Step 5: Build**
+- [x] **Step 5: Build**
 
 Run:
 
@@ -788,7 +788,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src\Pickers.cs src\GraphicsPanel.cs
@@ -803,7 +803,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(ui): Renderer/Upscaler/Fr
 - Create: `E:\DEV\PhoenixPoint\Renderforge\src\D3D12Fix.cs`
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\src\Patches.cs:22`
 
-- [ ] **Step 1: Write `D3D12Fix.cs`**
+- [x] **Step 1: Write `D3D12Fix.cs`**
 
 ```csharp
 using System;
@@ -876,7 +876,7 @@ namespace Renderforge
 }
 ```
 
-- [ ] **Step 2: Hook it into the existing `LightingManager` postfix**
+- [x] **Step 2: Hook it into the existing `LightingManager` postfix**
 
 In `src\Patches.cs`, replace line 22:
 
@@ -894,7 +894,7 @@ with:
         }
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run:
 
@@ -904,7 +904,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src\D3D12Fix.cs src\Patches.cs
@@ -918,7 +918,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "fix(d3d12): PPv2 repair - AO o
 **Files:**
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\src\RenderforgeMod.cs:26-59` (`OnModEnabled`), `:78` (`OnLevelStart`), `:140-150` (`AttachAndApply`)
 
-- [ ] **Step 1: Replace `OnModEnabled`**
+- [x] **Step 1: Replace `OnModEnabled`**
 
 In `src\RenderforgeMod.cs`, replace the whole `OnModEnabled` method (currently lines 26-59) with:
 
@@ -972,7 +972,7 @@ In `src\RenderforgeMod.cs`, replace the whole `OnModEnabled` method (currently l
         }
 ```
 
-- [ ] **Step 2: Apply the D3D12 fix on every level start too**
+- [x] **Step 2: Apply the D3D12 fix on every level start too**
 
 Replace line 78:
 
@@ -986,7 +986,7 @@ with:
         public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); }   // Reapply covers a level that starts with the generation still live
 ```
 
-- [ ] **Step 3: Show the overlay even without a driver**
+- [x] **Step 3: Show the overlay even without a driver**
 
 Replace `AttachAndApply` (currently lines 140-150) with:
 
@@ -1004,7 +1004,7 @@ Replace `AttachAndApply` (currently lines 140-150) with:
         }
 ```
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run:
 
@@ -1014,7 +1014,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src\RenderforgeMod.cs
@@ -1028,7 +1028,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat: keep the mod active unde
 **Files:**
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\src\Overlay.cs:15-16` (statics), `:144-150` (text build)
 
-- [ ] **Step 1: Add the `FgFps` field**
+- [x] **Step 1: Add the `FgFps` field**
 
 In `src\Overlay.cs`, replace lines 15-16:
 
@@ -1048,7 +1048,7 @@ with:
         public static int FgFps;
 ```
 
-- [ ] **Step 2: Replace the text build**
+- [x] **Step 2: Replace the text build**
 
 Replace lines 144-150 (from `float avg = dtSum / dts.Count;` through the `box.sizeDelta` assignment) with:
 
@@ -1066,7 +1066,7 @@ Replace lines 144-150 (from `float avg = dtSum / dts.Count;` through the `box.si
             box.sizeDelta = new Vector2(text.preferredWidth + 2f * Pad, text.preferredHeight + 2f * Pad);
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run:
 
@@ -1076,7 +1076,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PP
 
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src\Overlay.cs
