@@ -705,7 +705,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): DXGI Present hook sp
 
 The whole plumbing with **no vendor SDK involved**: a shadow swapchain of our own, a per-frame backbuffer copy, presents through the shadow, and the overlay reading real/presented fps. `FG_PROVIDER_NONE` presents 1:1, so if the picture, the HUD and the frame rate are unchanged the transport is correct and every later provider is a drop-in.
 
-- [x] **Step 1: Extend `native\Fg.h` with the provider seam**
+- [ ] **Step 1: Extend `native\Fg.h` with the provider seam**
 
 Append to `Fg.h` (after the hook declarations):
 
@@ -785,7 +785,7 @@ void FgHostOnResize(unsigned w, unsigned h);
 void FgPresentedAdd(int n);
 ```
 
-- [x] **Step 2: Write `native\FgHost.cpp`**
+- [ ] **Step 2: Write `native\FgHost.cpp`**
 
 ```cpp
 // FgHost.cpp - the presentation host. Owns the FG-owned "shadow" swapchain on the game's HWND, copies
@@ -1106,7 +1106,7 @@ const char* FgHostStatus(void)
 }
 ```
 
-- [x] **Step 3: Let the hook call the host — edit `native\FgHook.cpp`**
+- [ ] **Step 3: Let the hook call the host — edit `native\FgHook.cpp`**
 
 Replace the bodies of `HookPresent`, `HookPresent1` and `HookResizeBuffers` with:
 
@@ -1151,7 +1151,7 @@ void FgPresentedAdd(int n)
 }
 ```
 
-- [x] **Step 4: Exports in `native\RenderforgeNative.h`**
+- [ ] **Step 4: Exports in `native\RenderforgeNative.h`**
 
 Append after the `Fg_SpikeStatus` declaration from Task 1:
 
@@ -1180,7 +1180,7 @@ DLSS_API const char* __cdecl Fg_Status(void);
 DLSS_API void __cdecl Fg_Shutdown(void);
 ```
 
-- [x] **Step 5: Implement them in `native\RenderforgeNative.cpp`**
+- [ ] **Step 5: Implement them in `native\RenderforgeNative.cpp`**
 
 Append after `Fg_SpikeStatus`:
 
@@ -1241,7 +1241,7 @@ and change the `DLSS_EV_FG_PREPARE` arm added in Task 1 Step 4 from `FgHookSpike
 
 Also call `FgHostShutdown(); FgHookRemove();` at the top of `Dlss_Shutdown`.
 
-- [x] **Step 6: `native\CMakeLists.txt` — new source and the DirectComposition link (fallback 4a)**
+- [ ] **Step 6: `native\CMakeLists.txt` — new source and the DirectComposition link (fallback 4a)**
 
 ```cmake
 add_library(RenderforgeNative SHARED
@@ -1259,7 +1259,7 @@ target_include_directories(RenderforgeNative PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" d3d11 d3d12 dxgi dcomp d3dcompiler)
 ```
 
-- [x] **Step 7: Managed — the config field**
+- [ ] **Step 7: Managed — the config field**
 
 In `E:\DEV\PhoenixPoint\Renderforge\src\DlssConfig.cs`, add the enum next to `RendererMode`:
 
@@ -1537,7 +1537,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): Fg_* ABI, shadow-swa
 
 FSR-FG is the cross-vendor provider and the one that can be fully tested on the RTX 5070 Ti in this machine (through the analytical 3.1.6 model — the ML 4.0.1 model needs RDNA4 and stays untestable here). It ships **2x only**: `numGeneratedFrames = 1`, matching the SDK's own sample.
 
-- [x] **Step 1: Write `native\FgFsr.cpp`**
+- [ ] **Step 1: Write `native\FgFsr.cpp`**
 
 ```cpp
 // FgFsr.cpp - AMD FidelityFX frame generation. Two ffx-api contexts:
@@ -1813,7 +1813,7 @@ IFgProvider* MakeFgProviderFsr(void) { return &g_fsr; }
 
 > Every `FFX_API_..._DX12` macro above is verbatim from `Kits\FidelityFX\framegeneration\include\dx12\ffx_api_framegeneration_dx12.h` (`:33`, `:51`, `:71`, `:78`, `:85`, `:128`), as are `FFX_FRAMEGENERATION_VERSION` (`ffx_framegeneration.h:33`, = 4.0.1, the header/API handshake — the *model* is chosen separately by `ffxOverrideVersion`) and `FFX_FRAMEGENERATION_SWAPCHAIN_DX12_VERSION` (`ffx_api_framegeneration_dx12.h:31`, = 3.1.7).
 
-- [x] **Step 2: `native\CMakeLists.txt` — the FidelityFX headers**
+- [ ] **Step 2: `native\CMakeLists.txt` — the FidelityFX headers**
 
 Insert after the `NGX_LIB` check:
 
@@ -1833,7 +1833,7 @@ target_include_directories(RenderforgeNative PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}
             "${FFX_SDK}/api/include" "${FFX_SDK}/framegeneration/include")
 ```
 
-- [x] **Step 3: `build-native.ps1` — verify and stage the AMD DLLs**
+- [ ] **Step 3: `build-native.ps1` — verify and stage the AMD DLLs**
 
 Insert after the existing `nvngx_dlss.dll` signature block:
 
@@ -1861,7 +1861,7 @@ and after the existing `Copy-Item $ngxDll $outDir -Force`:
 foreach ($v in $vendorDlls) { Copy-Item $v.Path $outDir -Force }
 ```
 
-- [x] **Step 4: `deploy.ps1` — copy the vendor DLLs into the mod folder**
+- [ ] **Step 4: `deploy.ps1` — copy the vendor DLLs into the mod folder**
 
 Replace the `foreach ($file in ...)` block with:
 
@@ -1873,7 +1873,7 @@ foreach ($file in @((Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.j
 }
 ```
 
-- [x] **Step 5: `src\FrameGen.cs` — let PPCLI force a provider**
+- [ ] **Step 5: `src\FrameGen.cs` — let PPCLI force a provider**
 
 Replace `AutoProvider()` with an override-aware version and add the forcing entry point:
 
@@ -1917,14 +1917,14 @@ and in `src\RenderforgeMod.cs`, after `SetFrameGen`:
         }
 ```
 
-- [x] **Step 6: Build and deploy**
+- [ ] **Step 6: Build and deploy**
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\deploy.ps1"
 ```
 Expected: the two AMD lines (`amd_fidelityfx_loader_dx12.dll 2.3.0.2740 signed by Advanced Micro Devices`, `amd_fidelityfx_framegeneration_dx12.dll 4.0.1.2740 signed by ...`), `build-native: OK`, and the deploy listing now includes both AMD DLLs.
 
-- [x] **Step 7: Run FSR-FG in-game**
+- [ ] **Step 7: Run FSR-FG in-game**
 
 ```powershell
 Start-Process 'D:\PP-Instance2\PhoenixPointWin64.exe' -ArgumentList '-mods','-force-d3d12'
@@ -1960,7 +1960,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): FSR frame generation
 
 XeSS-FG only ever creates its own swapchain for us: `xefgSwapChainD3D12InitFromSwapChain` demands the application's swapchain have refcount 1 and then **destroys** it (`xess_fg_developer_guide_english.md:270-276`), which Unity's live reference makes impossible. So we go through `xefgSwapChainD3D12InitFromSwapChainDesc` with `pApplicationSwapChain = NULL` — the same shadow shape the host already expects. **XeLL is not optional**: without a XeLL context the proxy swapchain refuses to initialise (`:229-231`).
 
-- [x] **Step 1: Write `native\FgXess.cpp`**
+- [ ] **Step 1: Write `native\FgXess.cpp`**
 
 ```cpp
 // FgXess.cpp - Intel XeSS Frame Generation. The FG proxy swapchain is created from a DESC (not from Unity's
@@ -2166,7 +2166,7 @@ ProviderXess g_xess;
 IFgProvider* MakeFgProviderXess(void) { return &g_xess; }
 ```
 
-- [x] **Step 2: `native\CMakeLists.txt` — XeSS headers, import libs, delay load**
+- [ ] **Step 2: `native\CMakeLists.txt` — XeSS headers, import libs, delay load**
 
 Insert after the FidelityFX block:
 
@@ -2188,7 +2188,7 @@ target_link_libraries(RenderforgeNative PRIVATE
 target_link_options(RenderforgeNative PRIVATE "/DELAYLOAD:libxess_fg.dll" "/DELAYLOAD:libxell.dll")
 ```
 
-- [x] **Step 3: `build-native.ps1` — verify and stage the Intel DLLs**
+- [ ] **Step 3: `build-native.ps1` — verify and stage the Intel DLLs**
 
 Extend the `$vendorDlls` array:
 
@@ -2201,14 +2201,14 @@ $vendorDlls += @(
 ```
 (place this immediately after the array literal, before the `foreach` that verifies it).
 
-- [x] **Step 4: Build and deploy**
+- [ ] **Step 4: Build and deploy**
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\deploy.ps1"
 ```
 Expected: `libxess_fg.dll 1.3.1.78 signed by Intel Corporation`, `libxell.dll 1.3.2.10 signed by Intel Corporation`, `build-native: OK`, and both files listed in the deploy output.
 
-- [x] **Step 5: Run XeSS-FG in-game (cross-vendor path on the RTX)**
+- [ ] **Step 5: Run XeSS-FG in-game (cross-vendor path on the RTX)**
 
 ```powershell
 Start-Process 'D:\PP-Instance2\PhoenixPointWin64.exe' -ArgumentList '-mods','-force-d3d12'
@@ -2227,7 +2227,7 @@ Get-Content 'D:\PP-Instance2\Mods\Renderforge\renderforge_fg.log' -Tail 40
 ```
 Expected: `fg=live provider=XeSS-FG enabled=1 multiplier=2 caps=0x1 lastError=0`; the log shows `xess: maxSupportedInterpolations=1 -> caps 0x1` (1 is the documented value on every non-Intel GPU) and `xess: created <W>x<H> interpolated=1`, with **no** `xess: tag …` error lines and no `xess: frameGenResult` negatives. The screenshot shows `FG: XeSS 2x` and presented ≈ 2 × real.
 
-- [x] **Step 6: Also try 3x and confirm it is refused cleanly, not crashed**
+- [ ] **Step 6: Also try 3x and confirm it is refused cleanly, not crashed**
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetFrameGen","args":["X3"]}'
@@ -2236,7 +2236,7 @@ Get-Process PhoenixPointWin64 -ErrorAction SilentlyContinue | Where-Object { $_.
 ```
 Expected: `fg=off …` with the log line `xess: 3x asked, 2x supported` and `FG init XeSS 3x -> 6` (`FG_ERR_UNSUPPORTED_MULTIPLIER`); the process is alive and the picture is back to un-generated frames.
 
-- [x] **Step 7: Commit**
+- [ ] **Step 7: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -2255,7 +2255,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): XeSS-FG provider wit
 
 **The constraint that shapes this task:** an already-created swapchain **cannot** be upgraded post-hoc. `ProgrammingGuideManualHooking.md:208-215` shows exactly one supported path — `slUpgradeInterface` on the **DXGI factory**, then create the swapchain through that proxy factory — and `sl_hooks.h:48-50` marks `CreateSwapChain` / `CreateSwapChainForHwnd` / `CreateSwapChainForCoreWindow` as mandatory hooks. There is no API for adopting Unity's swapchain. This is precisely why the host builds a shadow swapchain: DLSS-G gets a swapchain it created itself, and Unity keeps its own untouched. Reflex + PCL markers are mandatory for DLSS-G (`ProgrammingGuideDLSS_G.md:676-681`, `DLSSGStatus::eFailReflexNotDetectedAtRuntime`).
 
-- [x] **Step 1: Write `native\FgStreamline.cpp`**
+- [ ] **Step 1: Write `native\FgStreamline.cpp`**
 
 ```cpp
 // FgStreamline.cpp - NVIDIA DLSS-G / MFG through Streamline 2.12.0 in MANUAL HOOKING mode.
@@ -2553,7 +2553,7 @@ ProviderSl g_sl;
 IFgProvider* MakeFgProviderStreamline(void) { return &g_sl; }
 ```
 
-- [x] **Step 2: `native\CMakeLists.txt` — Streamline headers**
+- [ ] **Step 2: `native\CMakeLists.txt` — Streamline headers**
 
 Insert after the XeSS block:
 
@@ -2567,7 +2567,7 @@ endif()
 
 add `FgStreamline.cpp` to the source list and `"${SL_SDK}/include"` to `target_include_directories`. No import lib: every Streamline entry point is `GetProcAddress`'d.
 
-- [x] **Step 3: `build-native.ps1` — verify and stage the NVIDIA FG DLLs**
+- [ ] **Step 3: `build-native.ps1` — verify and stage the NVIDIA FG DLLs**
 
 Extend `$vendorDlls` (after the Intel entries):
 
@@ -2592,7 +2592,7 @@ $dlssg = (Get-Item (Join-Path $root '..\refs\Streamline\latest-dll\nvngx_dlssg.d
 if ($dlssg -ne '310.7.129.0') { throw "nvngx_dlssg.dll is $dlssg, expected 310.7.129.0 - check the TechPowerUp DLL database before shipping a different build" }
 ```
 
-- [x] **Step 4: `src\Availability.cs` — real reasons for `Feature.FrameGen`**
+- [ ] **Step 4: `src\Availability.cs` — real reasons for `Feature.FrameGen`**
 
 Replace the shared `case Feature.Fsr: case Feature.Xess: case Feature.FrameGen:` arm with a dedicated FG arm (leave Fsr/Xess as they are for Phases 3/4):
 
@@ -2632,7 +2632,7 @@ and add the DLL check to `src\FrameGen.cs`:
         }
 ```
 
-- [x] **Step 5: `src\Pickers.cs` — the FG row actually applies, and 3x/4x grey per capability**
+- [ ] **Step 5: `src\Pickers.cs` — the FG row actually applies, and 3x/4x grey per capability**
 
 Replace `ShowFrameGen` and `OnFrameGen` with:
 
@@ -2679,14 +2679,14 @@ and set the row's opening value from the config instead of a hard 0 — in `Buil
             pendingFrameGen = (int)cfg.FrameGen;
 ```
 
-- [x] **Step 6: Build and deploy**
+- [ ] **Step 6: Build and deploy**
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\deploy.ps1"
 ```
 Expected: the five `sl.*.dll 2.12.0.0 signed by NVIDIA Corporation` lines plus `nvngx_dlssg.dll 310,7,129,0 signed by NVIDIA Corporation`, `build-native: OK`, and the deploy listing showing all six.
 
-- [x] **Step 7: Run DLSS-G 2x, then MFG 3x and 4x (this machine's RTX 5070 Ti can do all three)**
+- [ ] **Step 7: Run DLSS-G 2x, then MFG 3x and 4x (this machine's RTX 5070 Ti can do all three)**
 
 ```powershell
 Start-Process 'D:\PP-Instance2\PhoenixPointWin64.exe' -ArgumentList '-mods','-force-d3d12'
@@ -2723,7 +2723,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): DLSS-G/MFG provider 
 
 Never touch `D:\Steam\steamapps\common\Phoenix Point` — that is the user's own game. Everything here runs against the automation install. PPCLI usage is per `E:\DEV\PhoenixPoint\PPCLI\PLAYBOOK.md`.
 
-- [x] **Step 1: Deploy and take the no-FG baseline**
+- [ ] **Step 1: Deploy and take the no-FG baseline**
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\deploy.ps1"
@@ -2741,7 +2741,7 @@ Start-Sleep -Seconds 5
 ```
 Expected: `api=12 feature=1 lastError=0 | fg=off`, overlay reading `FPS: <n> (<ms>)` with no `/`.
 
-- [x] **Step 2: All three providers, one screenshot each**
+- [ ] **Step 2: All three providers, one screenshot each**
 
 ```powershell
 foreach ($p in 'Fsr','Xess','Dlss') {
@@ -2756,7 +2756,7 @@ foreach ($p in 'Fsr','Xess','Dlss') {
 ```
 Expected per provider: `fg=live provider=<FSR-FG 3.1.6|XeSS-FG|DLSS-G> enabled=1 multiplier=2 lastError=0` and a screenshot whose overlay reads `FPS: <real> / <presented>` with presented between 1.7× and 2.1× real.
 
-- [x] **Step 3: Read every screenshot and judge the picture**
+- [ ] **Step 3: Read every screenshot and judge the picture**
 
 Open `C:\Temp\rf\p5-baseline.png`, `p5-Fsr-2x.png`, `p5-Xess-2x.png`, `p5-Dlss-2x.png` with the Read tool. Check, in this order:
 1. **HUD not smeared.** Unit cards, action bar, the top status strip and the mod's own overlay text must be as sharp as in the baseline. A ghosted or doubled HUD means the hud-less contract failed — the provider is interpolating the composed backbuffer instead of `outRT`. Fix: `HUDLessColor` (FSR) / `XEFG_SWAPCHAIN_RES_HUDLESS_COLOR` tag (XeSS) / `kBufferTypeHUDLessColor` tag (DLSS) is not reaching the SDK; check `renderforge_fg.log` for a tag/configure error before touching anything else.
@@ -2764,7 +2764,7 @@ Open `C:\Temp\rf\p5-baseline.png`, `p5-Fsr-2x.png`, `p5-Xess-2x.png`, `p5-Dlss-2
 3. **No tear line, no black band, no half-frame.**
 4. Overlay `FG:` line names the right provider and multiplier.
 
-- [x] **Step 4: MFG 3x and 4x (DLSS only)**
+- [ ] **Step 4: MFG 3x and 4x (DLSS only)**
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetFgProvider","args":["Dlss"]}'
@@ -2777,7 +2777,7 @@ foreach ($m in 'X3','X4') {
 ```
 Expected: presented ≈ 3× and 4× real, `caps=0x7`.
 
-- [x] **Step 5: Prove the other two providers refuse 3x cleanly**
+- [ ] **Step 5: Prove the other two providers refuse 3x cleanly**
 
 ```powershell
 foreach ($p in 'Fsr','Xess') {
@@ -2789,7 +2789,7 @@ foreach ($p in 'Fsr','Xess') {
 ```
 Expected: `fg=off` with `FG init … 3x -> 6` in `Player.log`, the process alive and the picture un-generated. **A crash here is a bug, not an expected limitation.**
 
-- [x] **Step 6: 10-minute stability soak with FG on**
+- [ ] **Step 6: 10-minute stability soak with FG on**
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetFgProvider","args":["Fsr"]}'
@@ -2802,7 +2802,7 @@ Expected: `fg=off` with `FG init … 3x -> 6` in `Player.log`, the process alive
 ```
 Expected: ten answers, the process alive throughout, `lastError=0` every time, `presented=` growing monotonically, and the final screenshot indistinguishable from the 10-minute-earlier one.
 
-- [x] **Step 7: Three mission loads with FG live, then a renderer round trip**
+- [ ] **Step 7: Three mission loads with FG live, then a renderer round trip**
 
 ```powershell
 1..3 | ForEach-Object { .\ppcli.ps1 plan .\plans\start-mission.json '{"scene":"ALN_PLT_Nest_48x48_A","seed":12345}'; Start-Sleep -Seconds 15 }
@@ -2845,7 +2845,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "test(fg): FSR/XeSS/DLSS frame 
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\docs\DESIGN.md`
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\README.md`
 
-- [x] **Step 1: Write `E:\DEV\PhoenixPoint\docs\research\framegen-d3d12-contract.md`**
+- [ ] **Step 1: Write `E:\DEV\PhoenixPoint\docs\research\framegen-d3d12-contract.md`**
 
 ```markdown
 # Frame generation on D3D12 — the cross-vendor contract (2026-09-02, Renderforge Phase 5)
@@ -2937,7 +2937,7 @@ and the analytical one (3.1.6, typed UAV load + `R16G16B16A16_UNORM`, ≥60 fps 
   `state` (`sl_core_types.h:506-507`).
 ```
 
-- [x] **Step 2: Add the index entry to `E:\DEV\PhoenixPoint\docs\research\README.md`**
+- [ ] **Step 2: Add the index entry to `E:\DEV\PhoenixPoint\docs\research\README.md`**
 
 Add, in the same alphabetical/topical place the other graphics notes sit:
 
@@ -2947,7 +2947,7 @@ Add, in the same alphabetical/topical place the other graphics notes sit:
   shadow-swapchain shape, hud-less UI mode, per-frame contracts, multiplier gates, version traps.
 ```
 
-- [x] **Step 3: Add the Frame generation section to `E:\DEV\PhoenixPoint\Renderforge\docs\DESIGN.md`**
+- [ ] **Step 3: Add the Frame generation section to `E:\DEV\PhoenixPoint\Renderforge\docs\DESIGN.md`**
 
 Append after the "Renderer switch (Phase 1, 2026-09-02)" section:
 
@@ -2986,7 +2986,7 @@ Append after the "Renderer switch (Phase 1, 2026-09-02)" section:
   a greyed FRAME GENERATION row with "DLL missing: <name>".
 ```
 
-- [x] **Step 4: `README.md` — the player-facing lines**
+- [ ] **Step 4: `README.md` — the player-facing lines**
 
 Add frame generation to the feature list and a vendor-DLL note:
 
@@ -3012,7 +3012,7 @@ Frame generation adds latency and it can show artefacts on fast camera moves. It
 the one for your GPU if you prefer; anything missing simply greys the corresponding option.
 ```
 
-- [x] **Step 5: Commit both repos**
+- [ ] **Step 5: Commit both repos**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -3031,7 +3031,7 @@ Reach this task only when both probes in Task 1 failed: no second swapchain on t
 composition swapchain. In that case nothing in-process can own presentation, and the only remaining shape is
 the one all three SDKs were designed for — owning swapchain creation from process start.
 
-- [x] **Step 1: STOP and ask the user**
+- [ ] **Step 1: STOP and ask the user**
 
 Do not write a file. Report to the user, in these terms:
 
@@ -3044,7 +3044,7 @@ Do not write a file. Report to the user, in these terms:
 > Alternative: frame generation ships unavailable — the FRAME GENERATION row stays greyed with a reason,
 > everything else in Renderforge is unaffected.
 
-- [x] **Step 2: If the user says no — ship it unavailable**
+- [ ] **Step 2: If the user says no — ship it unavailable**
 
 In `src\FrameGen.cs` `MissingDll()`, return the localized string
 `"Frame generation needs the Renderforge presentation shim — see README"` /
@@ -3057,7 +3057,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge add -A
 git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): frame generation reported unavailable - DXGI refuses a second swapchain on the game window"
 ```
 
-- [x] **Step 3: If the user says yes — scope the shim as its own phase, do not improvise it here**
+- [ ] **Step 3: If the user says yes — scope the shim as its own phase, do not improvise it here**
 
 Write a new plan `docs/superpowers/plans/<date>-phase5b-dxgi-shim.md` covering, at minimum: the full export
 forwarder for `dxgi.dll` (every ordinal the game imports, generated from `dumpbin /exports` of the system
