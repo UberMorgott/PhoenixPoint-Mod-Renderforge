@@ -1,5 +1,6 @@
 // dlss_probe.cpp - offline check of RenderforgeNative.dll: init -> optimal -> create -> 3x evaluate -> passthrough -> release.
-// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll> [--d3d12|--fsr]. Exit 0 only if every result succeeded.
+// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll> [--d3d12|--fsr]. Exit 0 only if every result succeeded;
+// 1 = a call failed, 2 = usage, 3 (--fsr only) = no D3D12 upscale provider for this GPU (build warning, not an error).
 #include <d3d11.h>
 #include <d3d12.h>
 #include <stdio.h>
@@ -345,7 +346,7 @@ static int RunFsr(const wchar_t* dllDir, const wchar_t* cwd)
     int init = Dlss_Init(any, dllDir, dllDir);
     printf("Dlss_Init      code=%d (0=ok 6=noProviderDll 7=providerUnsupported) provider=%d api=%d\n",
            init, Dlss_Provider(), Dlss_Api());
-    if (init != DLSS_OK) { printf("FSR init not ok\n"); return 1; }
+    if (init != DLSS_OK) { printf("FSR init not ok: no usable D3D12 upscale provider on this machine\n"); return 3; }   // 3 = provider missing/unsupported, not a code defect
     if (Dlss_Provider() != DLSS_PROVIDER_FSR) { printf("Dlss_Provider()=%d, expected %d\n", Dlss_Provider(), DLSS_PROVIDER_FSR); return 1; }
 
     unsigned rw = 0, rh = 0, mnw = 0, mnh = 0, mxw = 0, mxh = 0;

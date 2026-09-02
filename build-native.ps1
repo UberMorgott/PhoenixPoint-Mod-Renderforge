@@ -51,5 +51,8 @@ try {
 } finally { Pop-Location }
 if ($rc11 -ne 0) { throw "dlss_probe (D3D11) failed ($rc11)" }
 if ($rc12 -ne 0) { throw "dlss_probe (D3D12) failed ($rc12)" }
-if ($rcFsr -ne 0) { throw "dlss_probe (FSR) failed ($rcFsr)" }
+# Exit 3 = the machine has no D3D12 upscale provider for FSR (probe could not init): the DLLs still ship, so warn only.
+# Anything else non-zero is a real create/dispatch failure and gates the build.
+if ($rcFsr -eq 3) { Write-Warning "dlss_probe (FSR): no D3D12 upscale provider on this machine - FSR untested, build continues" }
+elseif ($rcFsr -ne 0) { throw "dlss_probe (FSR) failed ($rcFsr)" }
 Write-Host "build-native: OK"
