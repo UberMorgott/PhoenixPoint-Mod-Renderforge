@@ -23,6 +23,7 @@
 
 #include <d3d12.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 
@@ -39,6 +40,14 @@ namespace {
 // Performance doubles thin edges in-game instead of resolving them.
 const float kJitterSignX = -1.0f;
 const float kJitterSignY =  1.0f;
+
+// Static-scene A/B knob: env "sx,sy" with each in {-1,1} overrides the jitter axis signs; anything else keeps the defaults.
+void ReadJitterSign(const char* env, float* sx, float* sy)
+{
+    char buf[32]; size_t n = 0; int x = 0, y = 0;
+    if (getenv_s(&n, buf, sizeof(buf), env) == 0 && n && sscanf_s(buf, "%d,%d", &x, &y) == 2
+        && (x == 1 || x == -1) && (y == 1 || y == -1)) { *sx = (float)x; *sy = (float)y; }
+}
 
 xess_quality_settings_t ToXessQuality(int quality)
 {
@@ -100,7 +109,8 @@ struct Xess12 : IDevice
     int initialised;                // xessD3D12Init succeeded on `ctx` for the current CreateParams
     unsigned outW, outH;
     float velScaleX, velScaleY;     // last values pushed with xessSetVelocityScale
-    char version[64];               // "2.0.2 DP4a" / "2.0.2 XMX"
+    float jitterSignX, jitterSignY; // kJitterSign* unless RENDERFORGE_XESS_JITTER_SIGN overrides
+    char version[64];              // "2.0.2 DP4a" / "2.0.2 XMX"
     wchar_t dllDir[MAX_PATH];
     ID3D12Resource* logged;
 
@@ -110,6 +120,7 @@ struct Xess12 : IDevice
     {
         device = NULL; lib = NULL; ctx = NULL; initialised = 0;
         outW = outH = 0; velScaleX = velScaleY = 0.0f; version[0] = 0; dllDir[0] = 0; logged = NULL;
+        jitterSignX = kJitterSignX; jitterSignY = kJitterSignY;
         ring.Zero();
         owned.Zero();
         sharpen.Zero();
@@ -187,6 +198,8 @@ struct Xess12 : IDevice
         ring.Attach(device);
         sharpen.Attach(device, this);
         RfDbg::Attach(device);
+        ReadJitterSign("RENDERFORGE_XESS_JITTER_SIGN", &jitterSignX, &jitterSignY);
+        RfDbg::Log("XeSS: jitterSign=%d,%d", (int)jitterSignX, (int)jitterSignY);
 
         if (inDllDir) wcsncpy_s(dllDir, inDllDir, _TRUNCATE);
         // Pin BEFORE the first xess* call: that is what the delay-load helper binds to.
@@ -322,8 +335,8 @@ struct Xess12 : IDevice
             ep.pVelocityTexture = owned.mv;
             ep.pDepthTexture    = owned.depth;
             ep.pOutputTexture   = doSharpen ? sharpen.target : owned.out;
-            ep.jitterOffsetX    = kJitterSignX * fp.jitterX;
-            ep.jitterOffsetY    = kJitterSignY * fp.jitterY;
+            ep.jitterOffsetX    = jitterSignX * fp.jitterX;
+            ep.jitterOffsetY    = jitterSignY * fp.jitterY;
             ep.exposureScale    = fp.preExposure > 0.0f ? fp.preExposure : 1.0f;
             ep.resetHistory     = fp.reset ? 1u : 0u;
             ep.inputWidth       = fp.renderW;

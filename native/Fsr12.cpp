@@ -14,8 +14,11 @@
 #include "D3D12Ring.h"
 #include "D3D12Owned.h"
 #include "FfxLoader.h"
+#include "D3D12Debug.h"
 
 #include <d3d12.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ffx_api_types.h"
@@ -57,6 +60,14 @@ void FfxMessage(uint32_t type, const wchar_t* message)
     OutputDebugStringW(L"\n");
 }
 
+// Static-scene A/B knob: env "sx,sy" with each in {-1,1} overrides the jitter axis signs; anything else keeps the defaults.
+void ReadJitterSign(const char* env, float* sx, float* sy)
+{
+    char buf[32]; size_t n = 0; int x = 0, y = 0;
+    if (getenv_s(&n, buf, sizeof(buf), env) == 0 && n && sscanf_s(buf, "%d,%d", &x, &y) == 2
+        && (x == 1 || x == -1) && (y == 1 || y == -1)) { *sx = (float)x; *sy = (float)y; }
+}
+
 struct Fsr12 : IDevice
 {
     ID3D12Device* device;
@@ -65,7 +76,8 @@ struct Fsr12 : IDevice
     const ffxFunctions* ffx;
     ffxContext context;
     unsigned outW, outH;                       // upscaleSize of the live context
-    char version[64];                          // provider version name, copied out of ffx global memory at once
+    float jitterSignX, jitterSignY;            // applied to fp.jitter in Evaluate; RENDERFORGE_FSR_JITTER_SIGN overrides
+    char version[64];                         // provider version name, copied out of ffx global memory at once
     wchar_t dllDir[MAX_PATH];
 
     // The create-descriptor chain MUST stay alive until ffxDestroyContext (ffx_api.h:140), so it lives here.
@@ -79,6 +91,7 @@ struct Fsr12 : IDevice
     {
         device = NULL; ffx = NULL; context = NULL;
         outW = outH = 0; version[0] = 0; dllDir[0] = 0;
+        jitterSignX = -1.0f; jitterSignY = 1.0f;
         memset(&descUpscale, 0, sizeof(descUpscale));
         memset(&descVersion, 0, sizeof(descVersion));
         memset(&descBackend, 0, sizeof(descBackend));
@@ -126,6 +139,9 @@ struct Fsr12 : IDevice
 
         if (!g_unityD3D12) { device->Release(); device = NULL; return DLSS_ERR_NO_UNITY_IFACE; }
         ring.Attach(device);
+        RfDbg::Attach(device);
+        ReadJitterSign("RENDERFORGE_FSR_JITTER_SIGN", &jitterSignX, &jitterSignY);
+        RfDbg::Log("FSR: jitterSign=%d,%d", (int)jitterSignX, (int)jitterSignY);
 
         if (inDllDir) wcsncpy_s(dllDir, inDllDir, _TRUNCATE);
         ffx = FfxLoad(dllDir);
@@ -277,8 +293,8 @@ struct Fsr12 : IDevice
             // Jitter. The driver applies proj[0,2] += 2*jx/w and proj[1,2] += 2*jy/h and hands us (-jx,-jy)
             // in NGX's convention. FSR composites as projX = 2*J.x/w and projY = -2*J.y/h
             // (super-resolution-ml.md:233), i.e. its Y is negated relative to X. So J = (-fp.jitterX, +fp.jitterY).
-            d.jitterOffset.x = -fp.jitterX;
-            d.jitterOffset.y =  fp.jitterY;
+            d.jitterOffset.x = jitterSignX * fp.jitterX;
+            d.jitterOffset.y = jitterSignY * fp.jitterY;
 
             // Motion vectors: Unity's texture is (current - previous) in UV space; the driver's negative scale
             // turns it into current->previous pixels, which is exactly FSR's convention and range
