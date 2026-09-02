@@ -19,13 +19,29 @@ Read this first in a fresh session. Everything below is committed on `main` of
 | Phase | State |
 |---|---|
 | 1 Renderer switch (D3D11/D3D12 picker, restart, PPv2 D3D12 fix, greyed rows + native tooltips, overlay `Renderer:`) | DONE, in-game tested (A–E PASS) |
-| 2 DLSS on D3D12 (IDevice seam, Device12, sharpen PSO, Plugins staging) | Code done, reviewed. Image correct. **Open: DEVICE_REMOVED after 1–5 min in tactical** — see below |
-| 3 FSR 4.1/3.1.5 via ffx-api | Code done + reviewed + fixes; probe OK (3.1.5 on RTX). In-game Task 10 NOT run |
-| 4 XeSS 3 (DP4a) | Code done + reviewed + fixes; probe OK. In-game Task 9 NOT run (jitter A/B open) |
+| 2 DLSS on D3D12 (IDevice seam, Device12, sharpen PSO, Plugins staging) | DONE. DEVICE_REMOVED fixed by `54af332` (owned resources, see below). Gate passed: DLAA 600 s + 3 loads, debug layer 0 mismatches on our lists |
+| 3 FSR 4.1/3.1.5 via ffx-api | DONE. In-game: FSR Quality 352 s soak + 1 load, `own-fsr.png` OK. Open: jitter-sign A/B (Task 10 step left unticked); `Fsr12::Init` lacks `RfDbg::Attach` (debug-layer count unmeasured in-game) |
+| 4 XeSS 3 (DP4a) | DONE. In-game: XeSS Quality 355 s + 1 load, `own-xess.png` OK. Open: jitter-sign A/B (Task 9) |
 | 5 Frame generation (FSR-FG, XeSS-FG, DLSS-G) | Plan only. Starts with the Present-hook / shadow-swapchain spike. Blocked on Phase 2 stability |
 | 6 Packaging | Tasks 1–6 DONE (`build\release.ps1`, per-vendor zips, README, RELEASING.md). Tasks 7–8 (GitHub release, Workshop) USER-GATED, not run |
 
-## The open D3D12 problem (critical path)
+## The D3D12 resource-state problem — SOLVED (`54af332`, `native\D3D12Owned.h`, DESIGN.md contract)
+
+- Measured with the debug layer: Unity 2019.4 v5 never transitions a RT to `expected`; each Unity RT
+  arrives in the state Unity's LAST use left it, deterministic per RT: `colorRT` RENDER_TARGET,
+  `depthRT` RENDER_TARGET, `mvRT` COPY_DEST, `outRT` GENERIC_READ.
+- Contract: shim owns typed twins (colorIn R8G8B8A8_UNORM, depthIn R32_FLOAT, mvIn R16G16_FLOAT,
+  out +UAV; created COMMON). Per list: Unity RT pre-state → COPY_SOURCE/COPY_DEST → pre-state
+  (declared `expected == current == pre-state`); owned inputs COMMON→COPY_DEST→NPSR→COMMON; owned
+  out COMMON→UAV→COPY_SOURCE→COMMON. Ring waits on its own fence AND Unity's frame fence.
+- Dead end (do not retry): `Texture2D.CreateExternalTexture` + `CommandBuffer.CopyTexture` —
+  Unity refuses the base-format mismatch, TYPELESS → device removal. Managed driver unchanged.
+- Unity's OWN lists still log ~1600 tracker mismatches/min under D3D12 (0 with the mod off) —
+  not fatal, not ours.
+- Leftover doc debt: `docs\research\fsr-ffx-api-d3d12-contract.md` and `xess-d3d12-contract.md`
+  still describe the old declared-state model — update to the owned-resource contract.
+
+## (history) The open D3D12 problem as it stood before the fix
 
 - Allocator/list reuse bug FIXED (`b16ca5e`: ring owns its own fence; debug ids 552/553 = 0).
 - Remaining root cause (measured with the D3D12 debug layer, `11d31e4`, comment in
@@ -71,7 +87,9 @@ Read this first in a fresh session. Everything below is committed on `main` of
 
 ## Next steps, in order
 
-1. Finish/verify the owned-resource fix; pass the D3D12 gates (DLSS, FSR, XeSS soaks + screenshots).
-2. Phase 3 Task 10 + Phase 4 Task 9 in-game (incl. jitter sign A/B for FSR/XeSS).
-3. Phase 5 (frame generation) per its plan: Task 1 spike first.
-4. Re-run `build\release.ps1`, then Phase 6 Tasks 7–8 with the user's explicit OK.
+1. Jitter-sign A/B for FSR and XeSS (Phase 3 Task 10 / Phase 4 Task 9 open steps, Ultra
+   Performance 4-way check); add `RfDbg::Attach` to `Fsr12::Init`; update the two contract notes.
+2. Phase 5 (frame generation) per its plan: Task 1 spike (Present hook / shadow swapchain) first.
+3. Re-run `build\release.ps1`, then Phase 6 Tasks 7–8 with the user's explicit OK.
+Note: `Player.log` is shared between Instance2 and Instance3 (same LocalLow profile dir?) — when
+ContentTool runs on Instance3 in parallel, prefer the mod's own log for evidence.
