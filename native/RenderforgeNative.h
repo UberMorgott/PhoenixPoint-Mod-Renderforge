@@ -12,7 +12,8 @@ extern "C" {
 #endif
 
 // Dlss_Init return codes.
-enum { DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4 };
+enum { DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4,
+       DLSS_ERR_NO_UNITY_IFACE = 5 };
 
 // Quality enum (ours), mapped to NVSDK_NGX_PerfQuality_Value inside.
 enum { DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMANCE = 3, DLSS_Q_ULTRA_PERFORMANCE = 4 };
@@ -29,8 +30,9 @@ enum { DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPE
 // Dlss_Sharpener: which sharpen shader is active. 0 = not compiled yet (first non-zero sharpness compiles it).
 enum { DLSS_SHARPEN_NONE = 0, DLSS_SHARPEN_NIS = 1, DLSS_SHARPEN_RCAS = 2, DLSS_SHARPEN_FAILED = -1 };
 
-// Main thread. anyD3D11Resource = ID3D11Resource* (Unity GetNativeTexturePtr). Idempotent.
-DLSS_API int __cdecl Dlss_Init(void* anyD3D11Resource, const wchar_t* dllDir, const wchar_t* logDir);
+// Main thread. anyNativeResource = ID3D11Resource* or ID3D12Resource* (Unity GetNativeTexturePtr); the API is
+// chosen by QueryInterface. Idempotent once it returned DLSS_OK.
+DLSS_API int __cdecl Dlss_Init(void* anyNativeResource, const wchar_t* dllDir, const wchar_t* logDir);
 // Main thread. Optimal render res + dynamic range for the mode. Returns NVSDK_NGX_Result (0x1 = success).
 DLSS_API int __cdecl Dlss_GetOptimal(unsigned outW, unsigned outH, int quality,
                                      unsigned* renderW, unsigned* renderH,
@@ -66,6 +68,14 @@ DLSS_API const char* __cdecl Dlss_ResultString(int ngxResult);
 DLSS_API void __cdecl Dlss_ReleaseNow(void);
 // Releases feature (if alive), params, NGX for this device, device ref. Main thread, render idle.
 DLSS_API void __cdecl Dlss_Shutdown(void);
+
+// Graphics API the shim bound to: 0 = none/not initialised, 11 = D3D11, 12 = D3D12. Main thread, always safe.
+DLSS_API int __cdecl Dlss_Api(void);
+// Diagnostics: bit0 = UnityPluginLoad ran, bit1 = IUnityGraphicsD3D12v5 acquired. 0 under D3D11 is expected.
+DLSS_API int __cdecl Dlss_UnityIface(void);
+// TEST ONLY (dlss_probe): injects a stand-in IUnityGraphicsD3D12v5 so the D3D12 backend can run without Unity.
+// Never called by the mod.
+DLSS_API void __cdecl Dlss_TestSetUnityD3D12(void* iface);
 
 #ifdef __cplusplus
 }
