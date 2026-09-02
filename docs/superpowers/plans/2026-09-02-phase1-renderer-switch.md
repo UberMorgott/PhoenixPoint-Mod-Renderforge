@@ -1477,7 +1477,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "test: switch back to DirectX 1
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\docs\DESIGN.md` (new section before `## Idea backlog`, currently line 316)
 - Modify: `E:\DEV\PhoenixPoint\Renderforge\README.md` (new subsection under `## Settings`, currently line 70)
 
-- [ ] **Step 1: Add the DESIGN.md section**
+- [x] **Step 1: Add the DESIGN.md section**
 
 Insert immediately before the `## Idea backlog (user, not scheduled)` heading:
 
@@ -1510,7 +1510,7 @@ Insert immediately before the `## Idea backlog (user, not scheduled)` heading:
   overlay says `Upscaler: off (DLSS on D3D12 comes in Phase 2)`.
 ```
 
-- [ ] **Step 2: Add the README paragraph**
+- [x] **Step 2: Add the README paragraph**
 
 Insert at the start of the `## Settings` section (immediately after the `## Settings` heading line):
 
@@ -1534,7 +1534,7 @@ DirectX 12 is experimental: expect the ACES HDR colour grading to fall back to t
 any crash with your `Player.log`.
 ```
 
-- [ ] **Step 3: Verify both files still render as intended**
+- [x] **Step 3: Verify both files still render as intended**
 
 ```powershell
 Select-String -Path E:\DEV\PhoenixPoint\Renderforge\docs\DESIGN.md -Pattern '^## ' | ForEach-Object { "$($_.LineNumber): $($_.Line)" }
@@ -1543,7 +1543,7 @@ Select-String -Path E:\DEV\PhoenixPoint\Renderforge\README.md -Pattern '^#{2,3} 
 
 Expected: `## Renderer switch (Phase 1, 2026-09-02)` appears before `## Idea backlog`, and `### Renderer` appears directly under `## Settings`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add docs\DESIGN.md README.md

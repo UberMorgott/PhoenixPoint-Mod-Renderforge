@@ -325,6 +325,49 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 now): after any SDK update, compare every `nvngx_*.dll` FileVersion against the TechPowerUp DLL
 databases and ship the newest NVIDIA-signed build, never the SDK copy blindly.
 
+## Renderer switch (Phase 1, 2026-09-02)
+
+- Config `DlssConfig.Renderer` (`RendererMode { Auto, DirectX11, DirectX12 }`, `Auto == DirectX11`) is the
+  DESIRED API; `SystemInfo.graphicsDeviceType` (`RendererSwitch.Running`) is the running one. They differ
+  only until the next launch.
+- UI: three cloned `ArrowPickerController` rows under TEXTURE QUALITY, built by `src\Pickers.cs` —
+  RENDERER, UPSCALER (Off/DLSS/FSR/XeSS), FRAME GENERATION (Off/2x/3x/4x). `GraphicsPanel` then places
+  its DLSS QUALITY row and the SHARPNESS slider after them, so the order lives in one place.
+- RENDERER is deferred like the panel's own settings: Harmony postfixes on
+  `UIModuleGraphicsOptionsPanel.HasChanges` (`:124`) / `Apply` (`:137`) light and commit it, `Deinit`
+  (`:107`) + `Init` (`:86`) reset the pending value from the config so a choice the user backed out of is
+  never committed later. `HasChanges` = picker ≠ config OR (picker moved AND picker ≠ running API) —
+  the second clause is what relights APPLY after a "No" to the restart dialog, when the config already
+  says DirectX 12 but the process still runs D3D11.
+- Apply → `RendererSwitch.Confirm`: the GAME'S dialog (`GameUtl.GetMessageBox().ShowSimplePrompt`,
+  `MessageBox.cs:77`, `MessageBoxButtons.YesNo`). Yes → `RendererSwitch.Restart`; No → the row keeps the
+  value and shows "(restart pending)". Shot: `docs\shots\renderer-restart-dialog.png`.
+- Relaunch = `powershell.exe -WindowStyle Hidden -Command "Wait-Process -Id <this pid>; Start-Process
+  <exe> -ArgumentList '<current argv minus -force-d3d1*, plus -force-d3d12 when DX12>'"` then
+  `Application.Quit()`. WHY the detour: the game is single-instance ("Another instance is already running"
+  fatal), so a child started while this process is still tearing down dies at once; the hidden shell waits
+  for the pid to vanish and only then starts the new one (~1 s after quit, no console flash with
+  `CreateNoWindow`). Args are re-quoted by MSVC rules (`RendererSwitch.Quote`); DirectX 11 = no flag.
+- A plain Steam launch cannot carry the flag, so when the config says DirectX 12 and the process runs
+  D3D11, `RendererSwitch.ArmStartupPrompt` offers the same dialog ONCE per session, as soon as the
+  MessageBox exists. The permanent alternative is Steam → Properties → Launch Options `-force-d3d12 -mods`.
+- Availability: `src\Availability.cs` is the ONLY place that decides whether DLSS/FSR/XeSS/FG can run and
+  why not. `Reason(f) == null` means available; anything else is shown as the greyed value's tooltip
+  (`UITooltipText`, the game's own component — never a custom overlay) and, for DLSS, in the overlay.
+  Picking an unavailable UPSCALER snaps the row back to the applied value and leaves the reason as its
+  tooltip. NVIDIA without DLSS (GTX) = `InitCode == DLSS_ERR_NOT_AVAILABLE` → "Requires an NVIDIA RTX GPU".
+  Shot: `docs\shots\renderer-tooltip.png`.
+- D3D12 PPv2 repair: `src\D3D12Fix.cs`, driven by the existing `LightingManager.ApplyPostProcessOptions`
+  postfix and by `OnLevelStart`. It nulls `PostProcessResources.computeShaders.lut3DBaker` (reached through
+  `PostProcessLayer`'s private `m_Resources`, `PostProcessLayer.cs:55`) so HDR ColorGrading routes to
+  `RenderHDRPipeline2D` (`ColorGradingRenderer.cs:33,44` — still HDR, 2D LUT via pixel shader instead of
+  the compute baker), and switches AO from MSVO (compute) to **SAO** (`ScalableAmbientObscurance`, pixel
+  shader). SAO decision: AO kept, not disabled — the SAO tactical shot matches D3D11 (dark cave + fog of war)
+  and `Player.log` has no kernel errors; `D3D12Fix.DisableAo` stays as the PPCLI-switchable fallback.
+  Shots: `docs\shots\d3d12-tactical.png` vs `docs\shots\d3d11-tactical.png`.
+- Under D3D12 the mod stays fully active (pickers, overlay, PPv2 fix) but the NGX init is skipped; the
+  overlay says `Upscaler: off (DLSS on D3D12 comes in Phase 2)`.
+
 ## Idea backlog (user, not scheduled)
 
 - **Color grading preset / LUT** (2026-09-02, "like Cyberpunk's natural-grey look"): PPv2 already

@@ -69,8 +69,30 @@ Do not place the files in an additional nested `Renderforge` directory.
 
 ## Settings
 
+### Renderer
+
+`Renderer` (Options → Graphics, or Mods → Renderforge) picks the graphics API: `DirectX 11` (default) or `DirectX 12 (experimental)`.
+DirectX 12 is what FSR, XeSS and frame generation will need — those entries stay greyed on DirectX 11 and
+tell you why when you hover them.
+
+Changing it needs a restart, because Unity picks the API from the command line. Press APPLY and answer
+`Yes`: the game closes and relaunches itself with `-force-d3d12` added to whatever it was started with.
+Answer `No` and the row shows "(restart pending)" until you restart yourself. If you launch from Steam
+instead, the mod offers the same restart once per session — or set it permanently in
+Steam → Library → right-click Phoenix Point → Properties → Launch Options:
+
+```
+-force-d3d12 -mods
+```
+
+DirectX 12 is experimental. Ambient occlusion runs in SAO mode there and HDR colour grading uses a 2D LUT
+(the game's 3D-LUT compute shader has no DirectX 12 build); DLSS itself is not available under DirectX 12
+yet. To go back, set `Renderer` to `DirectX 11` and restart (or remove `-force-d3d12` from your launch
+options). Report any crash with your `Player.log`.
+
 | Setting | Location | Default |
 |---|---|---:|
+| Renderer | Options → Graphics; Mods → Renderforge | Auto (= DirectX 11) |
 | DLSS mode | Options → Graphics; Mods → Renderforge | Auto |
 | Sharpness | Options → Graphics; Mods → Renderforge | 40 |
 | Frame rate limit | Options → Screen; Mods → Renderforge | Off |
