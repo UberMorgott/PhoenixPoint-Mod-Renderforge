@@ -15,6 +15,10 @@ namespace Renderforge
         private static Overlay inst;
         private static string upscaler;
 
+        /// <summary>Presented (frame-generated) fps. 0 = frame generation off, which is every Phase-1 build;
+        /// Phase 5's FG provider writes it and the FPS line turns into "real / presented".</summary>
+        public static int FgFps;
+
         private RectTransform box;
         private Text text;
         private OverlayCorner corner;
@@ -142,11 +146,15 @@ namespace Renderforge
                    : l.antialiasingMode == PostProcessLayer.Antialiasing.SubpixelMorphologicalAntialiasing ? "SMAA" : l.antialiasingMode.ToString();
             }
             float avg = dtSum / dts.Count;
-            // Format ready for a future "FG: x fps" line.
-            text.text = "Upscaler: " + (live ? upscaler : "off")
+            string dlssReason = Availability.Reason(Feature.Dlss);
+            string fps = "FPS: " + Mathf.RoundToInt(1f / avg)
+                       + (FgFps > 0 ? " / " + FgFps : "")
+                       + " (" + (avg * 1000f).ToString("F1") + " ms)";
+            text.text = "Renderer: " + Availability.ApiName
+                      + "\nUpscaler: " + (live ? upscaler : "off" + (dlssReason != null ? " (" + dlssReason + ")" : ""))
                       + "\nMode: " + mode
                       + "\nAA: " + aa
-                      + "\nFPS: " + Mathf.RoundToInt(1f / avg) + " (" + (avg * 1000f).ToString("F1") + " ms)";
+                      + "\n" + fps;
             box.sizeDelta = new Vector2(text.preferredWidth + 2f * Pad, text.preferredHeight + 2f * Pad);
         }
 
