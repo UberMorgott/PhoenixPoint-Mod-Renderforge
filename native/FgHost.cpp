@@ -1,7 +1,7 @@
 // FgHost.cpp - the presentation host. Owns the FG-owned "shadow" swapchain, copies Unity's finished
-// backbuffer into it every frame, drives one IFgProvider and presents. Unity's own swapchain is never
-// presented again while FG is on; Unity keeps rendering into its buffer 0, which is exactly what it does
-// anyway because our interception freezes its back-buffer index.
+// backbuffer into it every frame, drives one IFgProvider and presents. Unity's own swapchain is STILL
+// presented every frame (sync 0, hidden under the DComp visual) so its back-buffer index keeps rotating in
+// step with Unity's own tracking - see FgHostOnPresent.
 //
 // The shadow chain is a COMPOSITION swapchain shown through a DirectComposition target on the game's HWND
 // (decision 4a). A second CreateSwapChainForHwnd on a window that already owns a flip-model chain fails
@@ -285,6 +285,9 @@ void FgHostPrepare(void)
     Locked lk;
     if (!H.prov || !H.enabled) return;
     H.cur = H.frames[H.frameIdx & 3];
+    // The pass-through provider has nothing to prepare; declaring hudless/depth/mv as NON_PIXEL_SHADER_RESOURCE
+    // here would make Unity transition them under the upscaler's own barriers (debug layer id=527 on every frame).
+    if (H.prov->Id() == FG_PROVIDER_NONE) return;
     if (!H.cur.hudless || !H.cur.depth || !H.cur.mv) return;
 
     ID3D12GraphicsCommandList* l = H.prep.Begin();
@@ -316,6 +319,13 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags, HRESULT
         if (dst) dst->Release();
         return false;
     }
+    static int firstLogged = 0;
+    if (!firstLogged) {
+        firstLogged = 1;
+        FgLog("host: first present: appIdx=%u shadowIdx=%u src=%p dst=%p sync=%u flags=0x%X tid=%u",
+              app3->GetCurrentBackBufferIndex(), H.shadow->GetCurrentBackBufferIndex(), (void*)src, (void*)dst,
+              syncInterval, flags, (unsigned)GetCurrentThreadId());
+    }
     bool copied = CopyBackBuffer(src, dst);
     src->Release(); dst->Release();
     if (!copied) return false;
@@ -328,6 +338,18 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags, HRESULT
     H.prov->BeforePresent(H.cur);
     HRESULT hr = H.shadow->Present(syncInterval, pf);
     H.lastPresentHr = (long)hr;
+    if (firstLogged == 1) {
+        firstLogged = 2;
+        FgLog("host: first shadow Present(%u, 0x%X) -> 0x%08X removed=0x%08X", syncInterval, pf, (unsigned)hr, (unsigned)H.device->GetDeviceRemovedReason());
+        RfDbg::Removed(H.device, "FG first shadow Present");
+    }
+    // Unity's chain MUST still be presented: Unity 2019.4 tracks its own back-buffer index and renders the next
+    // frame into buffer (i+1)%n, while a flip-model chain only advances its index on Present. Skipping it made
+    // Unity write to a non-current back buffer (debug layer id=907) and DXGI removed the device with
+    // DXGI_ERROR_ACCESS_DENIED (0x887A002B) on the second frame. Sync 0 (+ tearing iff Unity asked for it), so it
+    // never waits on vblank - the shadow Present above carries the pacing and the DComp visual hides this one.
+    HRESULT uhr = FgOriginalPresent(app, 0, flags & DXGI_PRESENT_ALLOW_TEARING);
+    if (FAILED(uhr)) hr = uhr;
     if (FAILED(hr) || hr == DXGI_STATUS_OCCLUDED) {
         char why[64];
         _snprintf_s(why, sizeof(why), _TRUNCATE, "shadow Present 0x%08X", (unsigned)hr);

@@ -1509,7 +1509,7 @@ powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\
 ```
 Expected: `build-native: OK`, then `Deployed Renderforge to D:\PP-Instance2\Mods\Renderforge`.
 
-- [ ] **Step 14: The null-FG go/no-go run**
+- [x] **Step 14: The null-FG go/no-go run**
 
 ```powershell
 Start-Process 'D:\PP-Instance2\PhoenixPointWin64.exe' -ArgumentList '-mods','-force-d3d12'
@@ -1588,7 +1588,27 @@ The two failure modes to watch for and their documented answers:
 > on the same thread that owns the device, so the chain's buffers are unbound; (3) `DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING`
 > (`flags=0x800`) with a `SyncInterval` that is not 0. Steps 14-16 stay **unticked**; no source edits made in this run.
 
-- [ ] **Step 15: Turn it off again and confirm a clean teardown**
+> **2026-09-02 RCA + FIX on `D:\PP-Instance3` (`-mods -force-d3d12 -force-d3d12-debug`, `RENDERFORGE_D3D12_DEBUG=1`, same scene/seed, 1280x720): PASS.**
+> Measured, not guessed. The shadow Present itself was fine: `host: first shadow Present(0, 0x200) -> 0x00000000 removed=0x00000000`.
+> First debug-layer error after `host: enabled=1` (tid = Unity's submit thread, one frame later):
+> `D3D12 ERROR cat=6 id=907: ID3D12CommandQueue1::ExecuteCommandLists: A command list, which writes to a swapchain back buffer, may only be executed when that back buffer is the back buffer that will be presented during the next call to Present*.`
+> then `DEVICE REMOVED at Evaluate: reason 0x887A002B` = `DXGI_ERROR_ACCESS_DENIED` (the plan's `887a002b` was misread as INVALID_CALL).
+> **Root cause = hypothesis (b):** the hook returned `true` and never called Unity's Present, so the flip-model chain's
+> `GetCurrentBackBufferIndex()` froze (`appIdx=2` every frame) while Unity 2019.4 keeps its own index and renders the next frame
+> into buffer `(i+1)%3` — a non-current back buffer, which DXGI punishes with device removal on the 2nd frame. None of (a)/(c)/(d)/(e)
+> were involved: the copy list was clean (0 debug-layer errors on `Renderforge ring *` lists in every run), tearing flag `0x800` + `DXGI_PRESENT_ALLOW_TEARING` on the composition chain is accepted, DComp with a NULL device is fine.
+> Bisect (env `RENDERFORGE_FG_BISECT`, removed before commit): `''` → dead ≤10 s (id=907 → 0x887A002B); `forward` (shadow Present + Unity's original Present) → alive, id=907 gone, **but** a second defect surfaced:
+> `id=838 Command lists must be successfully closed before execution` + `CORRUPTION id=18 Two threads were found to be executing methods associated with the same CommandList` (render thread vs submit thread) → `RemoveDevice DXGI_ERROR_INVALID_CALL` after ~15 s. That one came from `FgHostPrepare` submitting a state-declaring `prep` list for the pass-through provider, which declares hudless/depth/mv as `NON_PIXEL_SHADER_RESOURCE` and makes Unity transition them under the upscaler's own barriers (`id=527` on `Renderforge ring 2/3`). `forward` + no prep for `FG_PROVIDER_NONE` → alive 30 s, 0 errors on our lists.
+> **Fix (`native\FgHost.cpp`):** `FgHostOnPresent` now always calls `FgOriginalPresent(app, 0, flags & DXGI_PRESENT_ALLOW_TEARING)` after the shadow Present (sync 0 → no vblank wait; the shadow Present carries the pacing, the topmost DComp visual hides Unity's chain); a failed Unity Present HRESULT wins over the shadow one. `FgHostPrepare` returns before recording when the provider is `FG_PROVIDER_NONE`. One-shot `host: first present …` / `host: first shadow Present …` log lines kept as the cheap diagnostic.
+> Gate (debug layer ON, so fps is the debug-layer fps): before `fg=off provider=- enabled=0 … presented=0 fps=0 frameId=0`;
+> `SetFrameGen ["X2"]` → `frameGen=X2 off …` (pre-arm snapshot); +5 s `fg=live provider=none enabled=1 multiplier=2 shadow=000001A3C9991AC0 out=1280x720 flags=0x800 caps=0x1 lastError=0 presentHr=0x00000000 presented=519 fps=104 frameId=1083`;
+> +10 s `… presentHr=0x00000000 presented=1038 fps=102 frameId=1602`; +60 s alive, `… presented=6209 fps=101 frameId=6773`;
+> `SetFrameGen ["Off"]` → `frameGen=Off off provider=- enabled=0 multiplier=2 shadow=0000000000000000 … presented=6358 fps=106 frameId=6921`, process alive; `SetFrameGen ["X2"]` again → `frameGen=X2 live provider=none enabled=1 … shadow=000001A3C9991AC0 …`, +5 s `presented=7217 fps=105 frameId=7781`, +10 s `presented=7751 fps=106 frameId=8315`, alive at end.
+> Debug layer over the whole run: 0 errors on `Renderforge ring *` lists, 0 back-buffer / device-removed / corruption messages; the remaining `id=527/538/1315` are Unity's own `Unnamed` lists (present with FG off too).
+> Shots: `docs\shots\fg-null3-on.png` (`connect screenshot`, Unity's read-back) and `docs\shots\fg-null3-on-desktop.png` (`PrintWindow(PW_CLIENTONLY|PW_RENDERFULLCONTENT)` of the `UnityWndClass` HWND = the DWM-composed output incl. the DComp visual; `CopyFromScreen` was useless because `SetForegroundWindow` is refused from a background shell) — both show the live scene, HUD, overlay `FG: none 2x`, `FPS: 118 / 120`. The TFTV error dialog in both is TFTV's own, raised by the `start-mission` plan, unrelated to Renderforge.
+> `renderforge_fg.log` of the run: `host: composition chain … flags 0x800 (tearing supported 1)` / `host: enabled=1` / `host: first present: appIdx=0 shadowIdx=0 … sync=0 flags=0x200` / `host: first shadow Present(0, 0x200) -> 0x00000000 removed=0x00000000` / `host: enabled=0` / `host: teardown (shutdown)` and the same block again for the re-enable. Steps 14-16 ticked; ModConfig `FrameGen` reset to 0.
+
+- [x] **Step 15: Turn it off again and confirm a clean teardown**
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetFrameGen","args":["Off"]}'
@@ -1598,7 +1618,7 @@ Get-Process PhoenixPointWin64 -ErrorAction SilentlyContinue | Where-Object { $_.
 ```
 Expected: `fg=off provider=- enabled=0`, the screenshot identical to `fg-off.png`, the process still alive and responsive.
 
-- [ ] **Step 16: Commit**
+- [x] **Step 16: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A

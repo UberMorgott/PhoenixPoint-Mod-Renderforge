@@ -123,8 +123,9 @@ int  FgHostCreateShadowSwapChain(const FgSetup& s, IDXGISwapChain4** out);
 int  FgHostProvider(void);
 const char* FgHostStatus(void);
 
-// Called from the Present hook. Returns true when the host presented the frame itself (the hook must
-// then NOT call the original Present) and writes the HRESULT to *outHr.
+// Called from the Present hook. Returns true when the host presented the frame itself - shadow chain plus a
+// sync-0 original Present of Unity's chain, so the hook must NOT call the original again - and writes the
+// HRESULT to *outHr.
 bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags, HRESULT* outHr);
 // Called from the ResizeBuffers hook before the original runs.
 void FgHostOnResize(unsigned w, unsigned h);
