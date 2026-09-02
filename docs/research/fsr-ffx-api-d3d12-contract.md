@@ -27,6 +27,7 @@ Chain: `ffxCreateContextDescUpscale` → `ffxCreateContextDescUpscaleVersion` �
   `FFX_UPSCALE_ENABLE_DEBUG_CHECKING`, and add that flag while debugging — it names the bad parameter.
 - Context creation needs **no command list** (unlike `NGX_D3D12_CREATE_DLSS_EXT`), so it does not go through the
   ring: the probe counts `ExecuteCommandList` calls = dispatches only.
+- `RfDbg::Attach(device)` is called in `Fsr12::Init` (after `ring.Attach`) for D3D12 debug-layer message routing.
 
 ## 3. Flag mapping (Unity/BiRP → ffx)
 
@@ -48,8 +49,10 @@ Chain: `ffxCreateContextDescUpscale` → `ffxCreateContextDescUpscaleVersion` �
 - **Jitter**: unit pixel space, composited as `projX = 2*J.x/renderWidth`, `projY = -2*J.y/renderHeight`
   (`super-resolution-ml.md:233`). **Y is negated relative to X, and relative to NGX.** Renderforge's driver applies
   `proj[0,2] += 2*jx/w`, `proj[1,2] += 2*jy/h` and stores NGX's `(-jx, -jy)`, so the ffx dispatch gets
-  `jitterOffset = (-fp.jitterX, +fp.jitterY)`. Getting this wrong doubles thin edges instead of resolving them.
-  **UNVERIFIED in-game** until the Phase 3 screenshots land — the sign was derived, not observed.
+  `jitterOffset = (jitterSignX * fp.jitterX, jitterSignY * fp.jitterY)` with defaults `(-1, +1)`. Getting this wrong
+  doubles thin edges instead of resolving them. **UNVERIFIED in-game** until the Phase 3 screenshots land — the sign
+  was derived, not observed. Env override `RENDERFORGE_FSR_JITTER_SIGN` = `"sx,sy"` (each in {-1,1}), read once at
+  `Fsr12::Init`, logged `FSR: jitterSign=%d,%d`.
 - **Jitter phase count**: `ffxQueryDescUpscaleGetJitterPhaseCount` / `...GetJitterOffset` are available (null-context
   queries) but unused — the driver's own Halton(2,3) with `phases = 8*ratio²` matches the documented sequence
   lengths (Quality 18, Balanced 23, Performance 32, Ultra Performance 72).
@@ -57,12 +60,25 @@ Chain: `ffxCreateContextDescUpscale` → `ffxCreateContextDescUpscaleVersion` �
 - **`frameTimeDelta` is MILLISECONDS** (~16.6 at 60 fps); `preExposure` must be `> 0`.
 - **Camera**: `cameraNear`, `cameraFar`, `cameraFovAngleVertical` (radians) are required dispatch fields; they reach
   the shim through `Dlss_SetCamera` (cached, copied into every frame slot by `Dlss_SetFrame`).
-- **Resource states**: every input in `D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE`, output UAV
-  (`super-resolution-ml.md:104`). Declare exactly those in `FfxApiResource.state` via `ffxApiGetResourceDX12`
-  (`FFX_API_RESOURCE_STATE_COMPUTE_READ` / `FFX_API_RESOURCE_STATE_UNORDERED_ACCESS`).
-- **State restoration is guaranteed**: `UnregisterResourcesDX12` (`backend/dx12/ffx_dx12.cpp:2413-2426`) walks every
-  app-provided resource back to the `state` we declared and flushes the barriers into our command list. So
-  `expected == current` in Unity's `UnityGraphicsD3D12ResourceState[]` is correct, exactly as with NGX.
+- **Owned-resource model** (D3D12, `D3D12Owned.h`): the shim OWNS the four textures ffx touches
+  (`colorIn` R8G8B8A8_UNORM, `depthIn` R32_FLOAT, `mvIn` R16G16_FLOAT, `out` +UAV, same-family typed twin of the
+  Unity RT). Unity RenderTextures are only the SOURCE or DESTINATION of a `CopyResource` in our list — never handed
+  to ffx. Why: Unity 2019.4's D3D12 state tracker varied the pre-state of a RT per frame (measured debug-layer
+  id=527, 2026-09-02), so every barrier the SDK recorded on it mismatched.
+- **Measured Unity RT pre-states** (deterministic per RT, 614-628 frames sampled):
+  `colorRT` RENDER_TARGET, `depthRT` RENDER_TARGET, `mvRT` COPY_DEST, `outRT` GENERIC_READ.
+  Our list transitions each Unity RT from its pre-state to COPY_SOURCE/COPY_DEST for the copy and puts it BACK;
+  `OwnedSet12::Declare` sets `expected == current == pre-state` so Unity's tracker agrees.
+- **Per-frame barrier sequence** (one ring list):
+  Unity colorRT/depthRT/mvRT: pre-state -> COPY_SOURCE (copy in) -> pre-state.
+  Unity outRT: GENERIC_READ -> COPY_DEST (copy out) -> GENERIC_READ.
+  Owned colorIn/depthIn/mvIn: COMMON -> COPY_DEST (copy in) -> NON_PIXEL_SHADER_RESOURCE (ffx) -> COMMON.
+  Owned out: COMMON -> UNORDERED_ACCESS (ffx) -> COPY_SOURCE (copy out) -> COMMON.
+  Every owned resource starts and ends in COMMON (the state it was created in).
+- **State restoration by ffx is still guaranteed**: `UnregisterResourcesDX12` (`ffx_dx12.cpp:2413-2426`) walks every
+  app-provided resource back to the `state` declared in `FfxApiResource` and flushes the barriers. The owned inputs
+  are declared `FFX_API_RESOURCE_STATE_COMPUTE_READ`, owned output `FFX_API_RESOURCE_STATE_UNORDERED_ACCESS`, so
+  `OwnedSet12::Leave` starts from those SDK states.
 - **Optional inputs**: exposure, reactive and transparency-and-composition masks are optional for FSR 3.1 and FSR 4
   (`super-resolution-ml.md:154`); `ffxQueryDescUpscaleGetResourceRequirements` reports what a given provider really
   wants. Renderforge passes none.

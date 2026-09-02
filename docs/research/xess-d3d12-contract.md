@@ -70,7 +70,9 @@ Per-context knobs set once at create: `xessSetJitterScale(1,1)`, `xessSetExposur
   `proj[1,2] += 2*jy/H` and stores NGX's `(-jx, -jy)`, so XeSS gets `jitterOffset = (-fp.jitterX, +fp.jitterY)` —
   the same `(-X, +Y)` flip FSR needed. Compile-time constants `kJitterSignX = -1`, `kJitterSignY = +1` in
   `Xess12.cpp`. **DERIVED, NOT MEASURED**: the guide itself says to settle it empirically ("try +1/-1"); the
-  in-game static-scene A/B at Ultra Performance decides (doubled thin edges = wrong sign).
+  in-game static-scene A/B at Ultra Performance decides (doubled thin edges = wrong sign). Env override
+  `RENDERFORGE_XESS_JITTER_SIGN` = `"sx,sy"` (each in {-1,1}), read once at `Xess12::Init`, logged
+  `XeSS: jitterSign=%d,%d`.
 - **Depth**: `R32_FLOAT`, render resolution, smaller = closer unless `INVERTED_DEPTH`.
 - **Colour**: only `UNORM` integer formats are accepted as colour input; output must be the same format/colour space
   as the input (`ARGB32` in, `ARGB32` out — matches).
@@ -81,10 +83,24 @@ Per-context knobs set once at create: `xessSetJitterScale(1,1)`, `xessSetExposur
 
 ## 6. Resource states & sharpening
 
-- Inputs `D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE`, output `UNORDERED_ACCESS` (`xess_d3d12.h:33-47`);
-  "XeSS-SR does not perform any memory synchronization" and never promises to restore states. Renderforge declares
-  Unity's resources `COMMON` in the `ExecuteCommandList` state array and issues its own COMMON→in/out→COMMON
-  barriers around the execute, exactly as `Device12` does for NGX after the 2026-09-02 device-removed bisect.
+- **Owned-resource model** (D3D12, `D3D12Owned.h`): the shim OWNS the four textures XeSS touches
+  (`colorIn` R8G8B8A8_UNORM, `depthIn` R32_FLOAT, `mvIn` R16G16_FLOAT, `out` +UAV, same-family typed twin of the
+  Unity RT). Unity RenderTextures are only the SOURCE or DESTINATION of a `CopyResource` in our list — never handed
+  to XeSS. Why: Unity 2019.4's D3D12 state tracker varied the pre-state of a RT per frame (measured debug-layer
+  id=527, 2026-09-02), so every barrier the SDK recorded on it mismatched.
+- **Measured Unity RT pre-states** (deterministic per RT, 614-628 frames sampled):
+  `colorRT` RENDER_TARGET, `depthRT` RENDER_TARGET, `mvRT` COPY_DEST, `outRT` GENERIC_READ.
+  Our list transitions each Unity RT from its pre-state to COPY_SOURCE/COPY_DEST for the copy and puts it BACK;
+  `OwnedSet12::Declare` sets `expected == current == pre-state` so Unity's tracker agrees.
+- **Per-frame barrier sequence** (one ring list):
+  Unity colorRT/depthRT/mvRT: pre-state -> COPY_SOURCE (copy in) -> pre-state.
+  Unity outRT: GENERIC_READ -> COPY_DEST (copy out) -> GENERIC_READ.
+  Owned colorIn/depthIn/mvIn: COMMON -> COPY_DEST (copy in) -> NON_PIXEL_SHADER_RESOURCE (XeSS) -> COMMON.
+  Owned out: COMMON -> UNORDERED_ACCESS (XeSS) -> COPY_SOURCE (copy out) -> COMMON.
+  Every owned resource starts and ends in COMMON (the state it was created in).
+- Required SDK states: inputs `NON_PIXEL_SHADER_RESOURCE`, output `UNORDERED_ACCESS` (`xess_d3d12.h:33-47`);
+  "XeSS-SR does not perform any memory synchronization" and never promises to restore states — `OwnedSet12::Leave`
+  transitions them back to COMMON ourselves.
 - XeSS has **no sharpness**: the shim's NIS/RCAS pass (`native\D3D12Sharpen.h`, `SharpenPass12`, shared with
   `Device12`) runs on the same list right after the execute — XeSS writes `sharpen.target`, the pass writes Unity's
   RT. `Dlss_Sharpener()` reports NIS (1). XeSS binds its own heap/root signature/PSO; the pass re-binds all three.
