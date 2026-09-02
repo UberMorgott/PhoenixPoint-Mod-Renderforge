@@ -10,6 +10,10 @@ namespace Renderforge
 
     public enum OverlayCorner { TopLeft, TopCenter, TopRight, BottomCenter }
 
+    /// <summary>Which graphics API the game should be launched with. Auto == DirectX11 (the game's own default);
+    /// DirectX12 needs "-force-d3d12" on the command line, i.e. a restart (RendererSwitch).</summary>
+    public enum RendererMode { Auto, DirectX11, DirectX12 }
+
     /// <summary>Public fields = the in-game mod settings UI + ModConfig.json (ModConfig.GetConfigFields).
     /// [ConfigField] = the English label; GetConfigFields swaps in Russian when the game runs in Russian
     /// (same shape as PerkOracle's OracleConfig.GetConfigFields, minus the CSV: two languages, inline).</summary>
@@ -40,6 +44,8 @@ namespace Renderforge
         public int FrameRateLimit = 60;                 // used only when LimitFrameRate, clamped 30..300
         [ConfigField("Debug view", "Developer: Passthrough / Depth / Motion vectors")]
         public DebugView DebugView = DebugView.None;
+        [ConfigField("Renderer", "Auto = DirectX 11. DirectX 12 is experimental and needs a restart.")]
+        public RendererMode Renderer = RendererMode.Auto;
 
         // field ID -> (RU label, RU description); English comes from the attribute above.
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
@@ -55,6 +61,7 @@ namespace Renderforge
             { nameof(LimitFrameRate), new[] { "Ограничение частоты кадров", "Выкл = без ограничения. Также в Настройки → Экран." } },
             { nameof(FrameRateLimit), new[] { "Макс. FPS", "30 … 300, действует при включённом ограничении" } },
             { nameof(DebugView), new[] { "Отладочный вид", "Для разработчика: Passthrough / Depth / Motion vectors" } },
+            { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный, требуется перезапуск." } },
         };
 
         /// <summary>True while the game runs in Russian (I2 LocalizationManager.CurrentLanguage, "English"/"Russian"/…).</summary>
