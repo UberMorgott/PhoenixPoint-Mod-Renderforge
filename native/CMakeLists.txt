@@ -47,6 +47,7 @@ add_library(RenderforgeNative SHARED
     Device12.cpp
     D3D12Ring.h
     D3D12Sharpen.h
+    D3D12Owned.h
     D3D12Debug.h
     D3D12Debug.cpp
     Fsr12.cpp

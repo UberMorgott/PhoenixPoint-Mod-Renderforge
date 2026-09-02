@@ -50,11 +50,13 @@ void Log(const char* fmt, ...)
 {
     if (!On() || !g_f) return;
     va_list ap; va_start(ap, fmt);
+    _lock_file(g_f);                       // the InfoQueue1 callback logs from other threads
     fprintf(g_f, "[%8u] ", GetTickCount());
     vfprintf(g_f, fmt, ap);
     fputc('\n', g_f);
-    va_end(ap);
     fflush(g_f);
+    _unlock_file(g_f);
+    va_end(ap);
 }
 
 void EarlyEnable()
@@ -83,6 +85,20 @@ void EarlyEnable()
 #endif
 }
 
+static int g_callback = 0;   // ID3D12InfoQueue1 message callback registered: Drain() no longer logs (it would duplicate)
+
+#ifdef __ID3D12InfoQueue1_INTERFACE_DEFINED__
+// Logged on the thread that raised the message, so the thread id tells whose call it was (our Evaluate logs its
+// own tid; anything else is Unity's render/worker thread).
+static void CALLBACK OnMessage(D3D12_MESSAGE_CATEGORY cat, D3D12_MESSAGE_SEVERITY sev, D3D12_MESSAGE_ID id, LPCSTR desc, void*)
+{
+    if (sev > D3D12_MESSAGE_SEVERITY_WARNING) return;   // INFO/MESSAGE: noise
+    Log("D3D12 %s cat=%d id=%d tid=%u: %s",
+        sev == D3D12_MESSAGE_SEVERITY_CORRUPTION ? "CORRUPTION" : sev == D3D12_MESSAGE_SEVERITY_ERROR ? "ERROR" : "WARNING",
+        (int)cat, (int)id, (unsigned)GetCurrentThreadId(), desc ? desc : "");
+}
+#endif
+
 void Attach(ID3D12Device* dev)
 {
     if (!On() || g_attached || !dev) return;
@@ -91,11 +107,21 @@ void Attach(ID3D12Device* dev)
     Log("Attach: device=%p InfoQueue hr=0x%08X (%s; without Unity's -force-d3d12-debug the debug layer is off)",
         (void*)dev, (unsigned)hr, g_iq ? "available" : "unavailable");
     if (g_iq) g_iq->SetMuteDebugOutput(FALSE);
+#ifdef __ID3D12InfoQueue1_INTERFACE_DEFINED__
+    ID3D12InfoQueue1* iq1 = NULL;
+    if (g_iq && SUCCEEDED(g_iq->QueryInterface(__uuidof(ID3D12InfoQueue1), (void**)&iq1)) && iq1) {
+        DWORD cookie = 0;
+        g_callback = SUCCEEDED(iq1->RegisterMessageCallback(&OnMessage, D3D12_MESSAGE_CALLBACK_FLAG_NONE, NULL, &cookie)) ? 1 : 0;
+        iq1->Release();
+    }
+    Log("Attach: InfoQueue1 message callback %s", g_callback ? "registered (messages carry tid=)" : "unavailable");
+#endif
 }
 
 void Drain()
 {
     if (!On() || !g_iq) return;
+    if (g_callback) { if (g_iq->GetNumStoredMessages()) g_iq->ClearStoredMessages(); return; }
     UINT64 n = g_iq->GetNumStoredMessages();
     for (UINT64 i = 0; i < n; ++i) {
         SIZE_T len = 0;
@@ -120,7 +146,7 @@ void Removed(ID3D12Device* dev, const char* where)
     HRESULT hr = dev->GetDeviceRemovedReason();
     if (hr == S_OK || hr == g_lastRemoved) return;
     g_lastRemoved = hr;
-    Log("DEVICE REMOVED at %s: reason 0x%08X", where, (unsigned)hr);
+    Log("DEVICE REMOVED at %s: reason 0x%08X tid=%u", where, (unsigned)hr, (unsigned)GetCurrentThreadId());
     Drain();
 #ifdef __ID3D12DeviceRemovedExtendedData_INTERFACE_DEFINED__
     ID3D12DeviceRemovedExtendedData* dred = NULL;

@@ -1,14 +1,13 @@
 // Device12.cpp - NGX DLSS on D3D12.
 //
 // Submission model: we record NGX's work into our own DIRECT command list and hand it to Unity via
-// IUnityGraphicsD3D12v5::ExecuteCommandList together with the resource states NGX requires. Unity owns the
-// queue and tracks the state of its own RenderTextures, so it inserts the transition barriers for us and
-// orders our list against its own rendering of colorRT and its present blit of outRT. A private queue would
-// race with both. Slot reuse waits on the fence value ExecuteCommandList returned (Unity's frame fence).
+// IUnityGraphicsD3D12v5::ExecuteCommandList, which orders it against Unity's own copies into / out of the
+// resources we own (D3D12Owned.h has the resource-state contract). A private queue would race with those copies.
+// Slot reuse waits on our own fence AND Unity's frame fence (D3D12Ring.h).
 //
 // Required states (DLSS Programming Guide p.14 3.4): colour/depth/motion vectors in
 // D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, output in D3D12_RESOURCE_STATE_UNORDERED_ACCESS.
-// The guide also states DLSS "always transitions buffers back to these known states", so expected == current.
+// The guide also states DLSS "always transitions buffers back to these known states".
 #include "Device.h"
 #include "RenderforgeNative.h"
 
@@ -19,6 +18,7 @@
 #include "unity/IUnityGraphicsD3D12.h"
 #include "D3D12Ring.h"
 #include "D3D12Sharpen.h"
+#include "D3D12Owned.h"
 #include "D3D12Debug.h"
 #include "nvsdk_ngx_helpers.h"
 
@@ -35,6 +35,7 @@ struct Device12 : IDevice
     wchar_t dllDir[MAX_PATH];
 
     D3D12Ring ring;               // command allocators/lists + Unity fence waits (D3D12Ring.h)
+    OwnedSet12 owned;             // the resources NGX actually touches; Unity's RTs are only copied (D3D12Owned.h)
     SharpenPass12 sharpen;        // our own NIS/RCAS pass; NGX writes sharpen.target when it runs (D3D12Sharpen.h)
 
     ID3D12Resource* logged;        // RENDERFORGE_D3D12_DEBUG: output whose descs were already logged
@@ -46,6 +47,7 @@ struct Device12 : IDevice
         device = NULL; params = NULL; feature = NULL;
         ngxInitialized = 0; initCode = 0; needsDriver = 0; minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
         ring.Zero();
+        owned.Zero();
         sharpen.Zero();
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; sharpener = 0; sharpenDead = 0;
         logged = NULL;
@@ -63,25 +65,6 @@ struct Device12 : IDevice
     }
     bool End(int n) { return ring.End(n); }
     void WaitIdle() { ring.WaitIdle(); }
-
-    // Declare the state a Unity resource must be in for the list; `current` == `expected` because NGX restores
-    // what it found. We issue NO barrier of our own on a Unity resource - measured with the debug layer, its
-    // pre-state is not a constant (RENDER_TARGET, GENERIC_READ, COPY_DEST and DEPTH_WRITE all observed on the
-    // same RTs across frames), so any StateBefore we could hard-code is wrong some of the time.
-    // KNOWN OPEN ISSUE: this still leaves id=527 mismatches on Unity's own lists and a DEVICE_REMOVED after
-    // 1-5 min - Unity 2019.4 appears not to perform the `expected` transition before running our list.
-    static void Declare(UnityGraphicsD3D12ResourceState* st, int& n, ID3D12Resource* res, D3D12_RESOURCE_STATES s)
-    {
-        st[n].resource = res;
-        st[n].expected = st[n].current = s;
-        ++n;
-    }
-
-    static void Barrier(ID3D12GraphicsCommandList* cl, ID3D12Resource* res,
-                        D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to)
-    {
-        SharpenPass12::Barrier(cl, res, from, to);
-    }
 
     // ---- IDevice -----------------------------------------------------------
 
@@ -193,24 +176,26 @@ struct Device12 : IDevice
         ID3D12GraphicsCommandList* cl = Begin();
         if (!cl) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; return; }   // Begin() set lastError
 
+        // Unity's RTs are only copy sources / the copy destination of this list (declared so); NGX sees the owned set.
+        ID3D12Resource* depth = (ID3D12Resource*)fp.depth;
+        ID3D12Resource* mv    = (ID3D12Resource*)fp.mv;
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
-        int n = 0;
+        int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            Declare(st, n, color,  D3D12_RESOURCE_STATE_COPY_SOURCE);
-            Declare(st, n, output, D3D12_RESOURCE_STATE_COPY_DEST);
-            cl->CopyResource(output, color);
+            OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
+        } else if (!owned.Ensure(device, ring, color, output)) {
+            lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
-            // With sharpening on, NGX writes our own target and the sharpen pass produces Unity's RT; that keeps
-            // every resource-state transition on a resource we own (see D3D12Sharpen.h).
-            bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(output, ring);
+            // With sharpening on, NGX writes sharpen.target and the sharpen pass produces owned.out (D3D12Sharpen.h).
+            bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(owned.out, ring);
 
             NVSDK_NGX_D3D12_DLSS_Eval_Params ep = {};
-            ep.Feature.pInColor = color;
-            ep.Feature.pInOutput = doSharpen ? sharpen.target : output;
+            ep.Feature.pInColor = owned.color;
+            ep.Feature.pInOutput = doSharpen ? sharpen.target : owned.out;
             ep.Feature.InSharpness = 0;   // deprecated in SDK 310; our own pass uses fp.sharpness
-            ep.pInDepth = (ID3D12Resource*)fp.depth;
-            ep.pInMotionVectors = (ID3D12Resource*)fp.mv;
+            ep.pInDepth = owned.depth;
+            ep.pInMotionVectors = owned.mv;
             ep.InJitterOffsetX = fp.jitterX;
             ep.InJitterOffsetY = fp.jitterY;
             ep.InRenderSubrectDimensions.Width = fp.renderW;
@@ -221,20 +206,17 @@ struct Device12 : IDevice
             ep.InPreExposure = fp.preExposure;
             ep.InFrameTimeDeltaInMsec = fp.dtMs;
 
-            ID3D12Resource* depth = (ID3D12Resource*)fp.depth;
-            ID3D12Resource* mv    = (ID3D12Resource*)fp.mv;
-            const D3D12_RESOURCE_STATES kIn = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-            Declare(st, n, color, kIn); Declare(st, n, depth, kIn); Declare(st, n, mv, kIn);
-            Declare(st, n, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-
+            owned.Enter(cl, color, depth, mv);
+            // NGX "always transitions buffers back to these known states" (guide p.14 3.4), so Leave starts from them.
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
-            else if (doSharpen) sharpen.Run(cl, output, fp.sharpness, ring.ringIdx);
+            else if (doSharpen) sharpen.Run(cl, owned.out, fp.sharpness, ring.ringIdx);
+            owned.Leave(cl, output);
         }
         if (RfDbg::On() && logged != output) {
             logged = output;
-            RfDbg::Log("Evaluate: passthrough=%d render=%ux%u jitter=%.3f,%.3f mvScale=%.1f,%.1f reset=%d sharp=%.2f",
-                       (int)passthrough, fp.renderW, fp.renderH, fp.jitterX, fp.jitterY, fp.mvScaleX, fp.mvScaleY, fp.reset, fp.sharpness);
+            RfDbg::Log("Evaluate: tid=%u passthrough=%d render=%ux%u jitter=%.3f,%.3f mvScale=%.1f,%.1f reset=%d sharp=%.2f",
+                       (unsigned)GetCurrentThreadId(), (int)passthrough, fp.renderW, fp.renderH, fp.jitterX, fp.jitterY, fp.mvScaleX, fp.mvScaleY, fp.reset, fp.sharpness);
             RfDbg::Resource("color", color);
             RfDbg::Resource("depth", (ID3D12Resource*)fp.depth);
             RfDbg::Resource("mv", (ID3D12Resource*)fp.mv);
@@ -252,12 +234,14 @@ struct Device12 : IDevice
         WaitIdle();                       // guide p.54 5.5: no command list using the feature may still be in flight
         NVSDK_NGX_D3D12_ReleaseFeature(feature);
         feature = NULL;
+        owned.Release();                  // idle above; a new generation re-creates the set at its own size
     }
 
     void Shutdown() override
     {
         ReleaseFeature();
         ring.Release();
+        owned.Release();
         sharpen.Release();
         if (params) { NVSDK_NGX_D3D12_DestroyParameters(params); params = NULL; }
         if (ngxInitialized) { NVSDK_NGX_D3D12_Shutdown1(device); ngxInitialized = 0; }

@@ -6,8 +6,8 @@
 // Submission is identical to Device12: xessD3D12Execute RECORDS into our own DIRECT command list (no GPU work of
 // its own), which goes to Unity through IUnityGraphicsD3D12v5::ExecuteCommandList. Required states (guide
 // "Resource States", xess_d3d12.h:33-47): inputs NON_PIXEL_SHADER_RESOURCE, output UNORDERED_ACCESS - the same as
-// NGX, so the Unity declaration (COMMON) and our own in/out barriers are copied from Device12 verbatim. XeSS does no
-// memory synchronisation and never promises to restore states, which is why we transition back ourselves.
+// NGX. The resources are the shim's own (D3D12Owned.h); XeSS does no memory synchronisation and never promises to
+// restore states, which is why OwnedSet12::Leave transitions them back to COMMON ourselves.
 //
 // XeSS has no sharpness of its own, so the shim's NIS/RCAS pass (D3D12Sharpen.h) runs after the execute exactly as
 // it does after NGX: XeSS writes sharpen.target, the pass writes Unity's RT.
@@ -18,6 +18,7 @@
 #include "RenderforgeNative.h"
 #include "D3D12Ring.h"
 #include "D3D12Sharpen.h"
+#include "D3D12Owned.h"
 #include "D3D12Debug.h"
 
 #include <d3d12.h>
@@ -92,6 +93,7 @@ struct Xess12 : IDevice
 {
     ID3D12Device* device;
     D3D12Ring ring;
+    OwnedSet12 owned;               // the resources XeSS touches; Unity's RTs are only copied (D3D12Owned.h)
     SharpenPass12 sharpen;
     HMODULE lib;                    // libxess.dll pinned from the mod folder; stays resident (delay-load bound to it)
     xess_context_handle_t ctx;      // NULL until needed; destroyed by ReleaseFeature/Shutdown
@@ -109,6 +111,7 @@ struct Xess12 : IDevice
         device = NULL; lib = NULL; ctx = NULL; initialised = 0;
         outW = outH = 0; velScaleX = velScaleY = 0.0f; version[0] = 0; dllDir[0] = 0; logged = NULL;
         ring.Zero();
+        owned.Zero();
         sharpen.Zero();
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; initCode = 0;
         sharpener = 0; sharpenDead = 0;
@@ -164,6 +167,7 @@ struct Xess12 : IDevice
         xessDestroyContext(ctx);
         ctx = NULL;
         initialised = 0;
+        owned.Release();                       // idle above; the next execute re-creates the set at its own size
     }
 
     // ---- IDevice -----------------------------------------------------------
@@ -274,14 +278,6 @@ struct Xess12 : IDevice
         return da.Width == db.Width && da.Height == db.Height;
     }
 
-    // Unity hands its RenderTextures over in COMMON and tracks them itself (see Device12::Declare).
-    static void Declare(UnityGraphicsD3D12ResourceState* st, int& n, ID3D12Resource* res, D3D12_RESOURCE_STATES s)
-    {
-        st[n].resource = res;
-        st[n].expected = st[n].current = s;
-        ++n;
-    }
-
     void Evaluate(const FrameParams& fp, bool passthrough) override
     {
         ID3D12Resource* color  = (ID3D12Resource*)fp.color;
@@ -300,15 +296,18 @@ struct Xess12 : IDevice
         ID3D12GraphicsCommandList* cl = ring.Begin();
         if (!cl) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = ring.failCode; return; }
 
+        // Unity's RTs are only copy sources / the copy destination of this list (declared so); XeSS sees the owned set.
+        ID3D12Resource* depth = (ID3D12Resource*)fp.depth;
+        ID3D12Resource* mv    = (ID3D12Resource*)fp.mv;
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
-        int n = 0;
+        int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            Declare(st, n, color,  D3D12_RESOURCE_STATE_COPY_SOURCE);
-            Declare(st, n, output, D3D12_RESOURCE_STATE_COPY_DEST);
-            cl->CopyResource(output, color);
+            OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
+        } else if (!owned.Ensure(device, ring, color, output)) {
+            lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
-            bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(output, ring);
+            bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(owned.out, ring);
 
             // Motion vectors: Unity's texture is (current - previous) in UV space; the driver's negative scale
             // turns it into "current -> previous in pixels", which is exactly XeSS's convention (guide "Motion
@@ -319,10 +318,10 @@ struct Xess12 : IDevice
             }
 
             xess_d3d12_execute_params_t ep = {};
-            ep.pColorTexture    = color;
-            ep.pVelocityTexture = (ID3D12Resource*)fp.mv;
-            ep.pDepthTexture    = (ID3D12Resource*)fp.depth;
-            ep.pOutputTexture   = doSharpen ? sharpen.target : output;
+            ep.pColorTexture    = owned.color;
+            ep.pVelocityTexture = owned.mv;
+            ep.pDepthTexture    = owned.depth;
+            ep.pOutputTexture   = doSharpen ? sharpen.target : owned.out;
             ep.jitterOffsetX    = kJitterSignX * fp.jitterX;
             ep.jitterOffsetY    = kJitterSignY * fp.jitterY;
             ep.exposureScale    = fp.preExposure > 0.0f ? fp.preExposure : 1.0f;
@@ -331,19 +330,15 @@ struct Xess12 : IDevice
             ep.inputHeight      = fp.renderH;
             // Every *Base coordinate stays (0,0): our RTs are exactly the input/output resolution.
 
-            ID3D12Resource* depth = (ID3D12Resource*)fp.depth;
-            ID3D12Resource* mv    = (ID3D12Resource*)fp.mv;
-            const D3D12_RESOURCE_STATES kIn = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-            Declare(st, n, color, kIn); Declare(st, n, depth, kIn); Declare(st, n, mv, kIn);
-            Declare(st, n, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-
+            // XeSS neither transitions nor restores (xess_d3d12.h:33-47): the resources are in the SDK states from
+            // Enter to Leave, and Leave puts them back at rest.
+            owned.Enter(cl, color, depth, mv);
             xess_result_t r = xessD3D12Execute(ctx, cl, &ep);
             lastEval = Map(r);
             if (r != XESS_RESULT_SUCCESS) { lastError = DLSS_ERR_XESS; RfDbg::Log("XeSS Execute: failed %d", (int)r); }
             // XeSS binds its own heap/root signature/PSO on this list; the sharpen pass re-binds all three.
-            else if (doSharpen) sharpen.Run(cl, output, fp.sharpness, ring.ringIdx);
-
-            // No barrier back: XeSS restores the incoming states, so `current` == `expected` (see Device12.cpp).
+            else if (doSharpen) sharpen.Run(cl, owned.out, fp.sharpness, ring.ringIdx);
+            owned.Leave(cl, output);
         }
         if (RfDbg::On() && logged != output) {
             logged = output;
@@ -368,6 +363,7 @@ struct Xess12 : IDevice
     {
         DestroyContext();
         ring.Release();
+        owned.Release();
         sharpen.Release();
         if (device) { device->Release(); device = NULL; }
         Zero();                 // libxess.dll stays resident: the delay-load thunks are bound to it

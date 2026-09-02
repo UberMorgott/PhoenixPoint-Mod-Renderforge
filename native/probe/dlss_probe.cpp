@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <wchar.h>
 #include <string.h>
+#include <stdlib.h>
 #include "RenderforgeNative.h"
 #include "unity/IUnityInterface.h"
 #include "unity/IUnityGraphicsD3D12.h"
@@ -122,10 +123,16 @@ static int RunD3D11(const wchar_t* dllDir, const wchar_t* cwd)
 // ---------------------------------------------------------------- D3D12
 
 // Stand-in for Unity: owns a direct queue and a fence and behaves like IUnityGraphicsD3D12v5.
-// Every resource below is created in the state DLSS requires and the guide says NGX restores those
-// states, so no transition is ever recorded here - but the declared state array is VALIDATED against
-// the state the probe knows each resource is in (Unity would insert barriers from exactly that array).
+// The resources play Unity's RenderTextures, which the shim's list only copies from / into (D3D12Owned.h), so they
+// are created in the measured pre-states the shim transitions from: colour/depth RENDER_TARGET, motion vectors
+// COPY_DEST, output GENERIC_READ. The declared array is VALIDATED against the state the probe knows each resource is
+// in, and the D3D12 debug layer (when installed) counts every resource-state mismatch (id 527/538) - on the stand-in
+// RTs or on the shim's own resources - as a failure.
 static ID3D12Device* g_dev12 = NULL;
+static const D3D12_RESOURCE_STATES kColorRest = D3D12_RESOURCE_STATE_RENDER_TARGET;
+static const D3D12_RESOURCE_STATES kDepthRest = D3D12_RESOURCE_STATE_RENDER_TARGET;
+static const D3D12_RESOURCE_STATES kMvRest    = D3D12_RESOURCE_STATE_COPY_DEST;
+static const D3D12_RESOURCE_STATES kOutRest   = D3D12_RESOURCE_STATE_GENERIC_READ;
 static ID3D12CommandQueue* g_queue = NULL;
 static ID3D12Fence* g_fence = NULL;
 static UINT64 g_fenceValue = 0;
@@ -181,8 +188,7 @@ static ID3D12Resource* MakeTex12(unsigned w, unsigned h, DXGI_FORMAT fmt, bool u
     d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     d.Width = w; d.Height = h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.Format = fmt;
     d.SampleDesc.Count = 1; d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    // ALLOW_RENDER_TARGET always: Unity's RenderTextures have it, and RENDER_TARGET is the state the D3D12
-    // backends now declare for them, which a resource without the flag cannot legally be created in.
+    // Unity's RTs are render targets (and the output one a UAV too); RENDER_TARGET is not a legal state otherwise.
     d.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     if (uav) d.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     ID3D12Resource* t = NULL;
@@ -202,10 +208,38 @@ static void WaitGpu()
 }
 
 static IUnityGraphicsD3D12v5 stub;
+static int g_debugLayer = 0;
+
+// Debug-layer verdict: any resource-state mismatch (527 = barrier before-state, 538 = state invalid for the use)
+// is a contract violation in the shim's own lists, since the probe's stub records no barrier of its own.
+static void CheckStateErrors(void)
+{
+    if (!g_debugLayer) { printf("Debug layer    not installed (Windows Graphics Tools): state mismatches not checked\n"); return; }
+    ID3D12InfoQueue* iq = NULL;
+    if (FAILED(g_dev12->QueryInterface(IID_PPV_ARGS(&iq))) || !iq) { printf("Debug layer    InfoQueue unavailable\n"); return; }
+    UINT64 n = iq->GetNumStoredMessages();
+    int bad = 0, shown = 0;
+    for (UINT64 i = 0; i < n; ++i) {
+        SIZE_T len = 0;
+        if (FAILED(iq->GetMessage(i, NULL, &len)) || !len) continue;
+        D3D12_MESSAGE* m = (D3D12_MESSAGE*)malloc(len);
+        if (!m) continue;
+        if (SUCCEEDED(iq->GetMessage(i, m, &len)) && (m->ID == 527 || m->ID == 538)) {
+            ++bad;
+            if (shown++ < 4) printf("  D3D12 id=%d: %.300s\n", (int)m->ID, m->pDescription ? m->pDescription : "");
+        }
+        free(m);
+    }
+    iq->Release();
+    printf("Debug layer    %llu messages, %d resource-state mismatches (expect 0)\n", (unsigned long long)n, bad);
+    if (bad) g_failed = 1;
+}
 
 // Creates g_dev12/g_queue/g_fence and installs the stand-in IUnityGraphicsD3D12v5. 0 on success.
 static int InitD3D12(void)
 {
+    ID3D12Debug* dbg = NULL;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dbg))) && dbg) { dbg->EnableDebugLayer(); dbg->Release(); g_debugLayer = 1; }
     HRESULT hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&g_dev12));
     if (FAILED(hr) || !g_dev12) { printf("D3D12CreateDevice failed hr=0x%08X\n", (unsigned)hr); return 1; }
     D3D12_COMMAND_QUEUE_DESC qd = {};
@@ -243,10 +277,10 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     printf("  3840x2160 Quality -> render %ux%u  range [%ux%u .. %ux%u]\n", rw, rh, mnw, mnh, mxw, mxh);
 
     const unsigned RW = 1920, RH = 1080, OW = 3840, OH = 2160;
-    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, kColorRest);
+    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT, false, kDepthRest);
+    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT, false, kMvRest);
+    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, kOutRest);
     if (g_failed) return 1;
 
     RenderEventFn ev = (RenderEventFn)Dlss_GetRenderEventFunc();
@@ -268,7 +302,7 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     }
     // sRGB output: Unity's sRGB RenderTextures are TYPELESS resources viewed as *_UNORM_SRGB; a UAV cannot be
     // sRGB, so the sharpen pass must view the output as R8G8B8A8_UNORM (SharpenViewFormat).
-    ID3D12Resource* outSrgb = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_TYPELESS, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12Resource* outSrgb = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_TYPELESS, true, kOutRest);
     if (!outSrgb) return 1;
     {
         void* slot = Dlss_GetFrameSlot();
@@ -284,17 +318,16 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
            Dlss_Sharpener(), Dlss_LastError(), DLSS_ERR_SHARPEN);
     if (Dlss_LastError() != 0 || Dlss_Sharpener() != DLSS_SHARPEN_NIS) g_failed = 1;
 
-    // Passthrough: same-size copy, no NGX. out2 = render-res copy target.
-    ID3D12Resource* out2 = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_COPY_DEST);
-    ID3D12Resource* colorCopySrc = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    // Passthrough: same-size copy, no NGX. out2 = render-res copy target, at the output rest state like `out`.
+    ID3D12Resource* out2 = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, kOutRest);
     Dlss_Passthrough(1);
     {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, colorCopySrc, NULL, NULL, out2, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, color, NULL, NULL, out2, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         Report("Passthrough", e);
-        Dlss_SetFrame(slot, colorCopySrc, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         printf("Passthrough size mismatch -> lastError=%d (expect %d)\n", Dlss_LastError(), DLSS_ERR_PASSTHROUGH_SIZE);
         if (Dlss_LastError() != DLSS_ERR_PASSTHROUGH_SIZE) g_failed = 1;
@@ -309,7 +342,8 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
 
     Dlss_Shutdown();
     WaitGpu();
-    colorCopySrc->Release(); out2->Release(); outSrgb->Release();
+    CheckStateErrors();
+    out2->Release(); outSrgb->Release();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
     g_fence->Release(); g_queue->Release(); g_dev12->Release();
     return g_failed ? 1 : 0;
@@ -362,10 +396,10 @@ static int RunFsr(const wchar_t* dllDir, const wchar_t* cwd)
     if (rw != 1280 || rh != 720) { printf("  <-- unexpected render resolution\n"); g_failed = 1; }
 
     const unsigned RW = 1280, RH = 720, OW = 1920, OH = 1080;
-    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, kColorRest);
+    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT, false, kDepthRest);
+    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT, false, kMvRest);
+    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, kOutRest);
     if (g_failed) return 1;
 
     RenderEventFn ev = (RenderEventFn)Dlss_GetRenderEventFunc();
@@ -404,6 +438,7 @@ static int RunFsr(const wchar_t* dllDir, const wchar_t* cwd)
 
     Dlss_Shutdown();
     WaitGpu();
+    CheckStateErrors();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
     g_fence->Release(); g_queue->Release(); g_dev12->Release();
     return g_failed ? 1 : 0;
@@ -431,7 +466,7 @@ static void PrintXessVersions(ID3D12Device* dev, const wchar_t* dir)
 }
 
 // Colour/output are R8G8B8A8_UNORM: the game's D3D12 colour RT is Unity ARGB32 and XeSS is told so with
-// XESS_INIT_FLAG_LDR_INPUT_COLOR (no DLSS_F_HDR). Every Unity resource is declared COMMON like Device12 does.
+// XESS_INIT_FLAG_LDR_INPUT_COLOR (no DLSS_F_HDR). Copy states as in D3D12Owned.h, like the other D3D12 runs.
 static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
 {
     if (InitD3D12() != 0) return 1;
@@ -468,10 +503,10 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
     if (uqW <= rw || uqW >= 1920) g_failed = 1;
 
     const unsigned RW = rw, RH = rh, OW = 1920, OH = 1080;
-    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT,     false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT,  false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R8G8B8A8_UNORM, false, kColorRest);
+    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT,     false, kDepthRest);
+    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT,  false, kMvRest);
+    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_UNORM, true, kOutRest);
     if (g_failed) return 1;
 
     RenderEventFn ev = (RenderEventFn)Dlss_GetRenderEventFunc();
@@ -514,6 +549,7 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
 
     Dlss_Shutdown();
     WaitGpu();
+    CheckStateErrors();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
     g_fence->Release(); g_queue->Release(); g_dev12->Release();
     return g_failed ? 1 : 0;

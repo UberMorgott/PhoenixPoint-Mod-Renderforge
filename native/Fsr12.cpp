@@ -1,10 +1,10 @@
 // Fsr12.cpp - AMD FSR Super Resolution (FidelityFX SDK 2.3 ffx-api) as an IDevice provider, D3D12 only.
 //
 // Submission is identical to Device12: ffxDispatch records into our own DIRECT command list, which goes to
-// Unity through IUnityGraphicsD3D12v5::ExecuteCommandList with the resource states FSR requires
-// (inputs NON_PIXEL_SHADER_RESOURCE, output UNORDERED_ACCESS - super-resolution-ml.md:104). The ffx DX12
-// backend restores every app-provided resource to the state we declared in FfxApiResource at the end of the
-// dispatch (ffx_dx12.cpp:2413-2426 UnregisterResourcesDX12), so expected == current in Unity's state array.
+// Unity through IUnityGraphicsD3D12v5::ExecuteCommandList. The resources are the shim's own (D3D12Owned.h):
+// we barrier them from their rest state to what FSR requires (inputs NON_PIXEL_SHADER_RESOURCE, output
+// UNORDERED_ACCESS - super-resolution-ml.md:104) and back; the ffx DX12 backend restores every app-provided
+// resource to the state named in FfxApiResource at the end of the dispatch (ffx_dx12.cpp:2413-2426).
 //
 // Version: no ffxOverrideVersion is used. The upscaler DLL picks the newest provider the GPU supports
 // (4.1.1 needs an AMD RX 7000/9000-class GPU, super-resolution-ml.md:325; everything else lands on 3.1.5),
@@ -12,6 +12,7 @@
 #include "Device.h"
 #include "RenderforgeNative.h"
 #include "D3D12Ring.h"
+#include "D3D12Owned.h"
 #include "FfxLoader.h"
 
 #include <d3d12.h>
@@ -60,6 +61,7 @@ struct Fsr12 : IDevice
 {
     ID3D12Device* device;
     D3D12Ring ring;
+    OwnedSet12 owned;                          // the resources ffx touches; Unity's RTs are only copied (D3D12Owned.h)
     const ffxFunctions* ffx;
     ffxContext context;
     unsigned outW, outH;                       // upscaleSize of the live context
@@ -81,6 +83,7 @@ struct Fsr12 : IDevice
         memset(&descVersion, 0, sizeof(descVersion));
         memset(&descBackend, 0, sizeof(descBackend));
         ring.Zero();
+        owned.Zero();
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; initCode = 0;
         sharpener = DLSS_SHARPEN_NONE;   // becomes RCAS per Evaluate when sharpness > 0; the shim's own pass is never used
         sharpenDead = 0;
@@ -180,6 +183,7 @@ struct Fsr12 : IDevice
         ffx->DestroyContext(&context, NULL);
         context = NULL;
         version[0] = 0;
+        owned.Release();                       // idle above; the next Create's first dispatch re-creates the set
     }
 
     void Create(const CreateParams& cp) override
@@ -249,21 +253,24 @@ struct Fsr12 : IDevice
         ID3D12GraphicsCommandList* cl = ring.Begin();
         if (!cl) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = ring.failCode; return; }
 
+        // Unity's RTs are only copy sources / the copy destination of this list (declared so); ffx sees the owned set.
+        ID3D12Resource* depth = (ID3D12Resource*)fp.depth;
+        ID3D12Resource* mv    = (ID3D12Resource*)fp.mv;
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
-        int n = 0;
+        int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            st[n].resource = color;  st[n].expected = D3D12_RESOURCE_STATE_COPY_SOURCE; st[n].current = D3D12_RESOURCE_STATE_COPY_SOURCE; ++n;
-            st[n].resource = output; st[n].expected = D3D12_RESOURCE_STATE_COPY_DEST;   st[n].current = D3D12_RESOURCE_STATE_COPY_DEST;   ++n;
-            cl->CopyResource(output, color);
+            OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
+        } else if (!owned.Ensure(device, ring, color, output)) {
+            lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
             struct ffxDispatchDescUpscale d = {};
             d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
             d.commandList = cl;
-            d.color         = ffxApiGetResourceDX12(color,                      FFX_API_RESOURCE_STATE_COMPUTE_READ);
-            d.depth         = ffxApiGetResourceDX12((ID3D12Resource*)fp.depth,  FFX_API_RESOURCE_STATE_COMPUTE_READ);
-            d.motionVectors = ffxApiGetResourceDX12((ID3D12Resource*)fp.mv,     FFX_API_RESOURCE_STATE_COMPUTE_READ);
-            d.output        = ffxApiGetResourceDX12(output,                     FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
+            d.color         = ffxApiGetResourceDX12(owned.color, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+            d.depth         = ffxApiGetResourceDX12(owned.depth, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+            d.motionVectors = ffxApiGetResourceDX12(owned.mv,    FFX_API_RESOURCE_STATE_COMPUTE_READ);
+            d.output        = ffxApiGetResourceDX12(owned.out,   FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
             // exposure / reactive / transparencyAndComposition stay empty: AUTO_EXPOSURE is on and both masks
             // are optional for FSR 3.1 and FSR 4 (super-resolution-ml.md:154).
 
@@ -295,14 +302,13 @@ struct Fsr12 : IDevice
             d.viewSpaceToMetersFactor = 1.0f;
             d.flags = 0;
 
-            st[n].resource = color;                       st[n].expected = st[n].current = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; ++n;
-            st[n].resource = (ID3D12Resource*)fp.depth;   st[n].expected = st[n].current = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; ++n;
-            st[n].resource = (ID3D12Resource*)fp.mv;      st[n].expected = st[n].current = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; ++n;
-            st[n].resource = output;                      st[n].expected = st[n].current = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;          ++n;
-
+            // The ffx DX12 backend restores each resource to the state named in FfxApiResource after the dispatch
+            // (ffx_dx12.cpp UnregisterResourcesDX12), so Leave starts from the SDK states we entered.
+            owned.Enter(cl, color, depth, mv);
             ffxReturnCode_t rc = ffx->Dispatch(&context, &d.header);
             lastEval = Map(rc);
             if (rc != FFX_API_RETURN_OK) lastError = DLSS_ERR_FFX;
+            owned.Leave(cl, output);
         }
         if (!ring.End(n)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
     }
@@ -313,6 +319,7 @@ struct Fsr12 : IDevice
     {
         DestroyContext();
         ring.Release();
+        owned.Release();
         if (device) { device->Release(); device = NULL; }
         Zero();                 // the loaded AMD modules stay resident; FfxLoad is idempotent by design
     }

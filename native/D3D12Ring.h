@@ -1,10 +1,8 @@
 // D3D12Ring.h - the shared command-list ring for every D3D12 backend (NGX DLSS, FSR, later XeSS).
 //
-// We never own a queue: Unity owns it and tracks the state of its own RenderTextures, so a recorded list is
-// handed to IUnityGraphicsD3D12v5::ExecuteCommandList together with the resource states the vendor SDK needs.
-// Unity inserts the transition barriers and orders our list against its own rendering. ExecuteCommandList
-// returns the value that will be signalled on Unity's frame fence; a slot is reused only after that value
-// has been reached.
+// We never own a queue: Unity owns it, so a recorded list is handed to IUnityGraphicsD3D12v5::ExecuteCommandList,
+// which orders it against Unity's own copies into / out of the resources we own (D3D12Owned.h). A slot is reused
+// only after both our own fence and the frame-fence value ExecuteCommandList returned have retired.
 //
 // Unity keeps up to 3 frames in flight; one spare so a create + evaluate in the same frame never waits.
 // More than kRing submissions in ONE frame would block in Begin() on Unity's frame fence, which only
@@ -15,6 +13,7 @@
 #include <string.h>
 #include <d3d12.h>
 #include "RenderforgeNative.h"
+#include "D3D12Debug.h"
 #include "unity/IUnityInterface.h"
 #include "unity/IUnityGraphicsD3D12.h"
 
@@ -41,6 +40,12 @@ struct D3D12Ring
     // previous executions". That is the DXGI_ERROR_DEVICE_REMOVED / INVALID_CALL (2026-09-02).
     ID3D12Fence* fence;
     UINT64 fenceVal;
+    // Unity's frame-fence value ExecuteCommandList returned for that slot. Unity submits our list on a worker
+    // thread, so our own Signal (issued from the render thread) can land on the queue BEFORE the list itself and
+    // retire early; the frame fence is signalled by that worker after the frame's lists. A slot is reused only
+    // when BOTH have retired (measured 2026-09-02: see the "REUSE" log line in Begin()).
+    UINT64 unityVal[kRing];
+    UINT64 submissions;           // total End() count, for the debug log
     int ringIdx;
     int recording;                // a list is open; End() must be reached on every path
     HANDLE waitEvent;
@@ -58,8 +63,8 @@ struct D3D12Ring
     void Zero()
     {
         device = NULL;
-        for (int i = 0; i < kRing; ++i) { alloc[i] = NULL; list[i] = NULL; submitted[i] = 0; }
-        fence = NULL; fenceVal = 0;
+        for (int i = 0; i < kRing; ++i) { alloc[i] = NULL; list[i] = NULL; submitted[i] = 0; unityVal[i] = 0; }
+        fence = NULL; fenceVal = 0; submissions = 0;
         ringIdx = 0; recording = 0; waitEvent = NULL; failCode = 0;
         memset(states, 0, sizeof(states));
     }
@@ -73,24 +78,38 @@ struct D3D12Ring
         if (device && !fence) device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
     }
 
-    // WAIT_OBJECT_0 once `value` has retired (0 = never submitted, retired by definition), else the
+    // WAIT_OBJECT_0 once `value` has retired on `f` (0 = never submitted, retired by definition), else the
     // WaitForSingleObject result (WAIT_TIMEOUT / WAIT_FAILED). Callers must not touch the slot otherwise.
-    DWORD WaitFence(UINT64 value)
+    DWORD WaitOn(ID3D12Fence* f, UINT64 value)
     {
         if (!value) return WAIT_OBJECT_0;
-        if (!fence) return WAIT_FAILED;
-        if (fence->GetCompletedValue() >= value) return WAIT_OBJECT_0;
+        if (!f) return WAIT_FAILED;
+        if (f->GetCompletedValue() >= value) return WAIT_OBJECT_0;
         if (!waitEvent) waitEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
         if (!waitEvent) return WAIT_FAILED;
-        if (FAILED(fence->SetEventOnCompletion(value, waitEvent))) return WAIT_FAILED;
+        if (FAILED(f->SetEventOnCompletion(value, waitEvent))) return WAIT_FAILED;
         return WaitForSingleObject(waitEvent, kFenceWaitMs);
+    }
+
+    // Slot `i` fully retired: our own fence AND Unity's frame fence (see unityVal).
+    DWORD WaitSlot(int i)
+    {
+        DWORD r = WaitOn(fence, submitted[i]);
+        if (r != WAIT_OBJECT_0) return r;
+        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        ID3D12Fence* ff = unity ? unity->GetFrameFence() : NULL;
+        if (!ff || !unityVal[i]) return WAIT_OBJECT_0;
+        if (ff->GetCompletedValue() < unityVal[i])
+            RfDbg::Log("REUSE slot=%d: own fence %llu retired but Unity frame fence %llu < %llu - waiting",
+                       i, (unsigned long long)submitted[i], (unsigned long long)ff->GetCompletedValue(), (unsigned long long)unityVal[i]);
+        return WaitOn(ff, unityVal[i]);
     }
 
     // Blocks until every list we ever submitted has retired. Required before destroying anything a submitted
     // list referenced (NGX feature handles - guide p.54 5.5 - or ffx contexts).
     void WaitIdle()
     {
-        for (int i = 0; i < kRing; ++i) WaitFence(submitted[i]);
+        for (int i = 0; i < kRing; ++i) WaitSlot(i);
     }
 
     void ReleaseSlot(int i)
@@ -105,13 +124,15 @@ struct D3D12Ring
         if (!device || !g_unityD3D12 || recording) { failCode = DLSS_ERR_NO_CONTEXT; return NULL; }
         int i = ringIdx;
         // An in-flight allocator must never be reset: on timeout/failure leave the slot alone and bail.
-        if (WaitFence(submitted[i]) != WAIT_OBJECT_0) { failCode = DLSS_ERR_FENCE_TIMEOUT; return NULL; }
+        if (WaitSlot(i) != WAIT_OBJECT_0) { failCode = DLSS_ERR_FENCE_TIMEOUT; return NULL; }
         if (!alloc[i] || !list[i]) {
             ReleaseSlot(i);   // a half-built pair from an earlier failure
             if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc[i]))) ||
                 FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc[i], NULL, IID_PPV_ARGS(&list[i])))) {
                 ReleaseSlot(i); failCode = DLSS_ERR_NO_CONTEXT; return NULL;
             }
+            static const wchar_t* const names[kRing] = { L"Renderforge ring 0", L"Renderforge ring 1", L"Renderforge ring 2", L"Renderforge ring 3" };
+            list[i]->SetName(names[i]);      // so debug-layer messages name OUR list, not "Unnamed ID3D12GraphicsCommandList"
             list[i]->Close();
         }
         if (FAILED(alloc[i]->Reset()) || FAILED(list[i]->Reset(alloc[i], NULL))) { failCode = DLSS_ERR_NO_CONTEXT; return NULL; }
@@ -129,8 +150,15 @@ struct D3D12Ring
         ringIdx = (ringIdx + 1) % kRing;
         IUnityGraphicsD3D12v5* unity = g_unityD3D12;
         if (FAILED(list[i]->Close()) || !unity) return false;
-        unity->ExecuteCommandList(list[i], stateCount, stateCount ? states[i] : NULL);
+        unityVal[i] = unity->ExecuteCommandList(list[i], stateCount, stateCount ? states[i] : NULL);
         ID3D12CommandQueue* q = unity->GetCommandQueue();
+        if (++submissions <= 16 && RfDbg::On()) {
+            ID3D12Fence* ff = unity->GetFrameFence();
+            RfDbg::Log("submit #%llu slot=%d states=%d unityRet=%llu unityNext=%llu unityDone=%llu own=%llu",
+                       (unsigned long long)submissions, i, stateCount, (unsigned long long)unityVal[i],
+                       (unsigned long long)unity->GetNextFrameFenceValue(), (unsigned long long)(ff ? ff->GetCompletedValue() : 0),
+                       (unsigned long long)(fenceVal + 1));
+        }
         if (q && fence && SUCCEEDED(q->Signal(fence, fenceVal + 1))) { submitted[i] = ++fenceVal; return true; }
         // No queue or no fence: we have no way to know when this list retires, and resetting its allocator
         // later would be the very bug above. Drop the pair instead - Begin() builds a fresh one, and a fresh
@@ -143,10 +171,10 @@ struct D3D12Ring
     void Release()
     {
         WaitIdle();
-        for (int i = 0; i < kRing; ++i) { ReleaseSlot(i); submitted[i] = 0; }
+        for (int i = 0; i < kRing; ++i) { ReleaseSlot(i); submitted[i] = 0; unityVal[i] = 0; }
         if (waitEvent) { CloseHandle(waitEvent); waitEvent = NULL; }
         if (fence) { fence->Release(); fence = NULL; }
-        fenceVal = 0;
+        fenceVal = 0; submissions = 0;
         ringIdx = 0; recording = 0; device = NULL; failCode = 0;
     }
 };
