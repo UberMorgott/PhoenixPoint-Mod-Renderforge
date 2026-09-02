@@ -151,7 +151,9 @@ namespace Renderforge
                        + (FgFps > 0 ? " / " + FgFps : "")
                        + " (" + (avg * 1000f).ToString("F1") + " ms)";
             text.text = "Renderer: " + Availability.ApiName
-                      + "\nUpscaler: " + (live ? upscaler : "off" + (dlssReason != null ? " (" + dlssReason + ")" : ""))
+                      + "\nUpscaler: " + (live ? upscaler
+                                          : Availability.NeedsRestart ? "off (restart required)"
+                                          : "off" + (dlssReason != null ? " (" + dlssReason + ")" : ""))
                       + "\nMode: " + mode
                       + "\nAA: " + aa
                       + "\n" + fps;

@@ -21,15 +21,58 @@ namespace Renderforge
 
         public static IntPtr Handle { get; private set; }
 
-        public static bool Load(string modDir)
+        private const string DllName = "RenderforgeNative.dll";
+
+        /// <summary><game>_Data\Plugins\x86_64 — Application.dataPath is `<install>\PhoenixPointWin64_Data` in a standalone player.</summary>
+        public static string PluginsDir => Path.Combine(Path.Combine(Application.dataPath, "Plugins"), "x86_64");
+        public static string StagedPath => Path.Combine(PluginsDir, DllName);
+
+        /// <summary>Same build = same length and last-write time (File.Copy preserves the timestamp on Windows).</summary>
+        private static bool SameFile(string a, string b)
+        {
+            var fa = new FileInfo(a); var fb = new FileInfo(b);
+            return fa.Exists && fb.Exists && fa.Length == fb.Length && fa.LastWriteTimeUtc == fb.LastWriteTimeUtc;
+        }
+
+        /// <summary>Copies the mod's shim into Plugins\x86_64 (Unity calls UnityPluginLoad only for modules it resolves
+        /// from there; the D3D12 backend needs the IUnityInterfaces that call delivers). Nobody runs deploy.ps1 on a
+        /// Workshop install, so the mod stages the file itself. A loaded (locked) target gets a `.new` marker beside it
+        /// and is replaced on the next run, when the process is fresh and nothing holds it. Never throws.</summary>
+        public static void EnsureStaged(string modDir, Action<string> log)
+        {
+            try
+            {
+                string src = Path.Combine(modDir, DllName), dst = StagedPath, pending = dst + ".new";
+                if (!File.Exists(src)) return;
+                if (SameFile(src, dst)) { if (File.Exists(pending)) File.Delete(pending); return; }
+                Directory.CreateDirectory(PluginsDir);
+                try
+                {
+                    File.Copy(src, dst, true);
+                    if (File.Exists(pending)) File.Delete(pending);
+                    log("[Renderforge] staged native shim into Plugins\\x86_64 (takes effect after restart)");
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // ponytail: the .new file is a marker, not the replacement source — the next run copies from the mod folder again.
+                    File.Copy(src, pending, true);
+                    log("[Renderforge] Plugins\\x86_64\\" + DllName + " is in use; wrote " + DllName + ".new, replaced on the next start");
+                }
+            }
+            catch (Exception ex) { log("[Renderforge] native shim staging failed: " + ex.Message); }
+        }
+
+        public static bool Load(string modDir, Action<string> log)
         {
             if (Handle != IntPtr.Zero) return true;
-            // Unity calls UnityPluginLoad only for modules it resolves out of <game>_Data\Plugins\x86_64, and the
-            // D3D12 backend needs the IUnityInterfaces that call delivers. Prefer that copy; fall back to the mod folder.
-            string plugins = Path.Combine(Path.Combine(Application.dataPath, "Plugins"), "x86_64");
-            string candidate = Path.Combine(plugins, "RenderforgeNative.dll");
-            if (File.Exists(candidate)) Handle = LoadLibraryW(candidate);
-            if (Handle == IntPtr.Zero) Handle = LoadLibraryW(Path.Combine(modDir, "RenderforgeNative.dll"));
+            string mine = Path.Combine(modDir, DllName), staged = StagedPath;
+            // Prefer the Plugins copy (UnityPluginLoad) — but only when it is this build; a stale one would mismatch the ABI.
+            if (File.Exists(staged))
+            {
+                if (SameFile(mine, staged)) Handle = LoadLibraryW(staged);
+                else log("[Renderforge] Plugins\\x86_64\\" + DllName + " is stale — loading the mod copy; restart to pick up the staged one");
+            }
+            if (Handle == IntPtr.Zero) Handle = LoadLibraryW(mine);
             return Handle != IntPtr.Zero;
         }
 

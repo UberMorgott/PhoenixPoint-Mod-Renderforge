@@ -29,12 +29,14 @@ namespace Renderforge
             ModDir = base.Instance?.Entry?.Directory ?? ".";
             Available = false;
             ApplyFrameRate();
+            // Every API: harmless under D3D11, and the switch to D3D12 always goes through a restart, so the copy is there by then.
+            Native.EnsureStaged(ModDir, s => Logger.LogInfo(s));
             // D3D11 and D3D12 both go through the native shim; it picks its backend from the resource we hand it.
             if (Availability.IsD3D11 || Availability.IsD3D12)
             {
                 try
                 {
-                    if (!Native.Load(ModDir))
+                    if (!Native.Load(ModDir, s => Logger.LogWarning(s)))
                     {
                         InitCode = Native.DLSS_ERR_INIT_FAILED;
                         Logger.LogInfo("DLSS unavailable (code " + InitCode + "): RenderforgeNative.dll failed to load from " + ModDir);

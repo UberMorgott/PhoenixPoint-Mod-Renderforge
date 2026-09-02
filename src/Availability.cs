@@ -24,6 +24,15 @@ namespace Renderforge
             get { return IsD3D11 ? "D3D11" : IsD3D12 ? "D3D12" : Api.ToString(); }
         }
 
+        /// <summary>D3D12 but Unity never called UnityPluginLoad (bit0 of Dlss_UnityIface): the shim was loaded from the mod
+        /// folder, not from Plugins\x86_64 — Native.EnsureStaged has copied it there and a restart picks it up.</summary>
+        internal static bool NeedsRestart { get { return IsD3D12 && Native.Handle != System.IntPtr.Zero && Native.UnityIface() == 0; } }
+
+        private static string RestartReason
+        {
+            get { return DlssConfig.Loc("Native plugin staged — restart the game", "Плагин установлен — перезапустите игру"); }
+        }
+
         internal static string Reason(Feature feature)
         {
             switch (feature)
@@ -34,13 +43,15 @@ namespace Renderforge
                     if (!IsNvidia)
                         return DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется видеокарта NVIDIA RTX");
                     if (RenderforgeMod.Available) return null;
+                    if (NeedsRestart) return RestartReason;
                     return RenderforgeMod.InitCode == Native.DLSS_ERR_NOT_AVAILABLE   // NVIDIA without tensor cores (GTX)
                         ? DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется NVIDIA RTX")
                         : DlssConfig.Loc("DLSS init failed — see the log", "Не удалось инициализировать DLSS — смотрите лог");
                 case Feature.Fsr:
                 case Feature.Xess:
                 case Feature.FrameGen:
-                    return IsD3D12
+                    return NeedsRestart ? RestartReason
+                        : IsD3D12
                         ? DlssConfig.Loc("Not implemented yet", "Пока не реализовано")
                         : DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
                 default:
