@@ -30,7 +30,10 @@ Copy-Item $ngxDll $outDir -Force
 Push-Location $outDir
 try {
     & (Join-Path $outDir 'dlss_probe.exe') $outDir
-    $rc = $LASTEXITCODE
+    $rc11 = $LASTEXITCODE
+    & (Join-Path $outDir 'dlss_probe.exe') $outDir --d3d12
+    $rc12 = $LASTEXITCODE
 } finally { Pop-Location }
-if ($rc -ne 0) { throw "dlss_probe failed ($rc)" }
+if ($rc11 -ne 0) { throw "dlss_probe (D3D11) failed ($rc11)" }
+if ($rc12 -ne 0) { throw "dlss_probe (D3D12) failed ($rc12)" }
 Write-Host "build-native: OK"
