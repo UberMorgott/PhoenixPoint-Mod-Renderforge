@@ -87,6 +87,35 @@ Offline check: `native\probe\dlss_probe.exe` — creates a bare D3D11 device, ru
 (1920×1080→3840×2160, Quality) → Release, prints NGX status. Fails loudly if SDK/link/driver
 is wrong before we ever touch the game.
 
+### Upscaler providers
+
+The shim carries one `IDevice` implementation per (API, vendor) pair. `Dlss_SetProvider(int)` picks one **before**
+`Dlss_Init`; the choice is latched for the process, so changing the UPSCALER row needs a restart. `Dlss_Provider()`
+reports the latched id, `Dlss_ProviderVersion(char*,int)` the live provider's version string, `Dlss_SetCamera(near,far,fovY)`
+feeds the frustum FSR/XeSS need (copied into every frame slot; NGX ignores it).
+
+| Provider | id | API | Backend | SDK | Quality modes | Sharpening |
+|---|---|---|---|---|---|---|
+| DLSS SR / DLAA | 0 | D3D11 + D3D12 | `Device11`, `Device12` (NGX) | DLSS 3.10.7, `nvngx_dlss.dll` 310.7.129 | DLAA, Quality, Balanced, Performance, Ultra Performance | the shim's own NIS pass (RCAS fallback) |
+| FSR | 1 | D3D12 only | `Fsr12` (ffx-api) | FidelityFX SDK 2.3, `amd_fidelityfx_{loader,upscaler}_dx12.dll` | Native AA, Quality, Balanced, Performance, Ultra Performance | FSR's built-in RCAS (`enableSharpening`) |
+| XeSS | 2 | D3D12 only | Phase 4 | XeSS 3.0.x | — | — |
+
+Both D3D12 providers share `D3D12Ring` (`native\D3D12Ring.h`: 4 command allocators/lists, submitted through
+`IUnityGraphicsD3D12v5::ExecuteCommandList` with a resource-state array, slots recycled on Unity's frame fence).
+
+The AMD ffx-api is loaded at **runtime** (`FfxLoader.cpp`: `LoadLibraryW` of both DLLs by absolute path from the
+mod folder, then `ffxLoadFunctions`). No AMD import library is linked, so `RenderforgeNative.dll` loads and DLSS
+works even when the AMD DLLs are absent. `amd_fidelityfx_upscaler_dx12.dll` holds FSR 4.1.1 (ML, needs an AMD
+RX 7000/9000-class GPU) and the 3.1.5 / 2.3.4 legacy providers; the shim does **not** force a version — it lets
+the DLL choose and reports the result through `Dlss_ProviderVersion` (`ffxQueryGetProviderVersion`), which the
+overlay prints as `Upscaler: FSR 4.1.1` / `FSR 3.1.5`. Observed on the dev RTX 5070 Ti (`dlss_probe --fsr`,
+2026-09-02): version list `3.1.5 2.3.4` (no 4.x entry on a non-AMD device), context created on **3.1.5**.
+
+Managed side: `UpscalerKind { Off, Auto, DLSS, FSR, XeSS }` (`src\Upscaler.cs`), config field `Upscaler`. Auto
+resolves from hardware facts before init (D3D11: NVIDIA → DLSS; D3D12: NVIDIA → DLSS, else FSR when the AMD DLLs are
+present); if DLSS init fails under D3D12 with Auto, the mod calls `Dlss_Shutdown` and retries with FSR.
+Contract note: `docs\research\fsr-ffx-api-d3d12-contract.md`.
+
 ### Renderforge.dll (C#, ~700 LOC)
 
 - `RenderforgeMod : ModMain` — `OnModEnabled`: probe NVIDIA (native init on a 1×1 `Texture2D`), if
@@ -334,7 +363,7 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 
 | SDK | Tag / date | Folder | Runtime DLLs (FileVersion, Authenticode Valid) |
 |---|---|---|---|
-| AMD FidelityFX SDK | v2.3.0 / 2026-06-24 | `refs\FidelityFX-SDK\` (shallow clone; release zip is samples-only) | `Kits\FidelityFX\signedbin\amd_fidelityfx_loader_dx12.dll` 2.3.0.2740; `amd_fidelityfx_upscaler_dx12.dll` 4.1.1.2740 (27 MB, FSR 4.1.1 + 3.1.5 fallback); `amd_fidelityfx_framegeneration_dx12.dll` 4.0.1.2740 (38 MB). Headers `Kits\FidelityFX\api\include\`, licence `docs\license.md` |
+| AMD FidelityFX SDK | v2.3.0 / 2026-06-24 | `refs\FidelityFX-SDK\` (shallow clone; release zip is samples-only) | `Kits\FidelityFX\signedbin\amd_fidelityfx_loader_dx12.dll` 2.3.0.2740; `amd_fidelityfx_upscaler_dx12.dll` 4.1.1.2740 (27 MB, FSR 4.1.1 + 3.1.5 fallback); `amd_fidelityfx_framegeneration_dx12.dll` 4.0.1.2740 (38 MB). Headers `Kits\FidelityFX\api\include\`, licence `docs\license.md` — **integrated in Phase 3** (upscaling only; frame generation stays Phase 5) |
 | Intel XeSS SDK | v3.0.2 / 2026-07-24 | `refs\XeSS-sdk\` | `bin\libxess.dll` 2.0.2.68 (74 MB, D3D12 cross-vendor); `bin\libxess_fg.dll` 1.3.1.78 (22 MB); `bin\libxell.dll` 1.3.2.10. `inc\`, `LICENSE.txt` |
 | NVIDIA Streamline | v2.12.0 / 2026-06-23 | `refs\Streamline\` | `bin\x64\sl.interposer.dll`, `sl.common.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, `sl.dlss.dll` — all 2.12.0.0. **SDK's `nvngx_dlssg.dll` is 310.7.0 = STALE**; ship `refs\Streamline\latest-dll\nvngx_dlssg.dll` 310.7.129.0 (7.5 MB, NVIDIA-signed, from the TechPowerUp FG DLL DB). `include\`, `license.txt` |
 
