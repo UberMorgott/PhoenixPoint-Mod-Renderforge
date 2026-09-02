@@ -290,8 +290,11 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 - Launch `PhoenixPointWin64.exe -force-d3d12 -mods` → `Player.log`: `Forcing GfxDevice: Direct3D 12`,
   `d3d12: loaded!`, `Version: Direct3D 12 [level 12.1]`. Menu + tactical mission
   (`ALN_PLT_Nest_48x48_A`, via PPCLI `start-mission.json`) render correctly: PPv2, lighting,
-  HUD, units all fine (screenshots taken through `connect screenshot`). Vulkan NOT tried (needs
-  SPIR-V shader variants the build most likely lacks; DX12 reuses the DXBC blobs, hence it works).
+  HUD, units all fine (screenshots taken through `connect screenshot`). BUT the tactical scene is
+  washed out / fully lit vs the dark cave under D3D11 (same map, same seed) — see RCA below.
+- **Vulkan is DEAD**: `-force-vulkan` → `Forced GfxDevice 'Vulkan' was not built from editor,
+  shaders will not be available` → `InitializeEngineGraphics failed`, exit 1. No SPIR-V in the
+  build. Only D3D11 and D3D12 exist for this game; DX12 works because it reuses the DXBC blobs.
 - ONE breakage, spammed per frame: `ArgumentException: Kernel 'MultiScaleVODownsample1' not found.`
   = PPv2 `AmbientOcclusion` in `MultiScaleVO` mode — its compute shader has no D3D12 platform data
   in this build. Fix = under D3D12 switch the AO mode to `ScalableAmbientObscurance` (pixel shader)
