@@ -46,6 +46,9 @@ namespace Renderforge
                         return DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется видеокарта NVIDIA RTX");
                     if (RenderforgeMod.Available) return null;
                     if (NeedsRestart) return RestartReason;
+                    if (!Upscalers.NgxDllPresent)
+                        return DlssConfig.Loc("DLL missing: nvngx_dlss.dll — install the NVIDIA pack",
+                                              "Нет файла: nvngx_dlss.dll — установите пакет NVIDIA");
                     return RenderforgeMod.InitCode == Native.DLSS_ERR_NOT_AVAILABLE   // NVIDIA without tensor cores (GTX)
                         ? DlssConfig.Loc("Requires an NVIDIA RTX GPU", "Требуется NVIDIA RTX")
                         : DlssConfig.Loc("DLSS init failed — see the log", "Не удалось инициализировать DLSS — смотрите лог");
@@ -54,8 +57,8 @@ namespace Renderforge
                         return DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
                     if (NeedsRestart) return RestartReason;
                     if (!Upscalers.FsrDllsPresent)
-                        return DlssConfig.Loc("DLL missing: amd_fidelityfx_upscaler_dx12.dll",
-                                              "Нет файла: amd_fidelityfx_upscaler_dx12.dll");
+                        return DlssConfig.Loc("DLL missing: amd_fidelityfx_upscaler_dx12.dll — install the AMD pack",
+                                              "Нет файла: amd_fidelityfx_upscaler_dx12.dll — установите пакет AMD");
                     if (Upscalers.Running == UpscalerKind.FSR && !RenderforgeMod.Available)
                         return DlssConfig.Loc("FSR init failed — see the log", "Не удалось инициализировать FSR — смотрите лог");
                     // Another provider is latched for this session: the choice is saved, the next launch runs FSR.
@@ -67,7 +70,8 @@ namespace Renderforge
                         return DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
                     if (NeedsRestart) return RestartReason;
                     if (!Upscalers.XessDllPresent)
-                        return DlssConfig.Loc("DLL missing: libxess.dll", "Нет файла: libxess.dll");
+                        return DlssConfig.Loc("DLL missing: libxess.dll — install the Intel pack",
+                                              "Нет файла: libxess.dll — установите пакет Intel");
                     if (Upscalers.Running == UpscalerKind.XeSS && !RenderforgeMod.Available)
                         return RenderforgeMod.InitCode == Native.DLSS_ERR_NOT_AVAILABLE
                             ? DlssConfig.Loc("Not supported by this GPU (needs Shader Model 6.4 + DP4a)", "Не поддерживается этой видеокартой (нужны Shader Model 6.4 и DP4a)")

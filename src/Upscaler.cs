@@ -128,6 +128,17 @@ namespace Renderforge
             }
         }
 
-        private static int fsrDlls, xessDll;
+        /// <summary>nvngx_dlss.dll next to the mod? Absent = the NVIDIA pack was never extracted.</summary>
+        internal static bool NgxDllPresent
+        {
+            get
+            {
+                if (ngxDll == 0)
+                    ngxDll = File.Exists(Path.Combine(RenderforgeMod.ModDir ?? ".", "nvngx_dlss.dll")) ? 1 : -1;
+                return ngxDll == 1;
+            }
+        }
+
+        private static int fsrDlls, xessDll, ngxDll;
     }
 }
