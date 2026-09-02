@@ -226,7 +226,13 @@ namespace Renderforge
             colorRT = Make("DLSS color", renderW, renderH, RenderTextureFormat.ARGB32, false);
             depthRT = Make("DLSS depth", renderW, renderH, RenderTextureFormat.RFloat, false);
             mvRT = Make("DLSS mv", renderW, renderH, RenderTextureFormat.RGHalf, false);
-            outRT = Make("DLSS out", outW, outH, RenderTextureFormat.ARGB32, true);
+            // D3D12: Unity's present Blit(outRT -> CameraTarget) decodes the sRGB SRV read but does NOT sRGB-encode the
+            // backbuffer write the way its D3D11 backend does - one net decode, the frame came out ~2x darker (measured
+            // 2026-09-03: menu luma 28 vs 56; Passthrough was dark too, so the shim's bit-exact copies/twins were never
+            // at fault). A Linear outRT passes the already-encoded bytes through untouched. D3D11 keeps Default:
+            // Linear there double-encodes. colorRT's flag changes nothing (its bytes are the same either way).
+            var outRW = SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.Default;
+            outRT = Make("DLSS out", outW, outH, RenderTextureFormat.ARGB32, true, outRW);
             colorPtr = colorRT.GetNativeTexturePtr(); depthPtr = depthRT.GetNativeTexturePtr();
             mvPtr = mvRT.GetNativeTexturePtr(); outPtr = outRT.GetNativeTexturePtr();
 
@@ -256,12 +262,12 @@ namespace Renderforge
                 GL.IssuePluginEvent(evFn, Native.DLSS_EV_CREATE);
             }
             gen = Gen.Creating; genFrames = 0; frames = 0;
-            RenderforgeMod.Instance?.Logger.LogInfo("DLSS generation: mode=" + liveMode + " view=" + liveView + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " q=" + quality + " phases=" + phaseCount);
+            RenderforgeMod.Instance?.Logger.LogInfo("DLSS generation: mode=" + liveMode + " view=" + liveView + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " q=" + quality + " phases=" + phaseCount + " colorRT=" + colorRT.graphicsFormat + " outRT=" + outRT.graphicsFormat);
         }
 
-        private static RenderTexture Make(string name, int w, int h, RenderTextureFormat fmt, bool uav)
+        private static RenderTexture Make(string name, int w, int h, RenderTextureFormat fmt, bool uav, RenderTextureReadWrite rw = RenderTextureReadWrite.Default)
         {
-            var rt = new RenderTexture(w, h, 0, fmt) { name = name, enableRandomWrite = uav, filterMode = FilterMode.Point, useMipMap = false, autoGenerateMips = false };
+            var rt = new RenderTexture(w, h, 0, fmt, rw) { name = name, enableRandomWrite = uav, filterMode = FilterMode.Point, useMipMap = false, autoGenerateMips = false };
             rt.Create();
             return rt;
         }

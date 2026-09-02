@@ -132,6 +132,16 @@ its own format, so a TYPELESS one removes the device (`id=28`). Remaining `id=52
 (shadow cubemaps, its depth copies, on its own lists; 0/min with the mod Off, ~1600/min with a generation live —
 they are triggered by the Unity-side setup, not by our list) and do not remove the device (10-min DLAA soak +
 mission loads, see Phase 2 plan Task 8).
+- **Format/view rule + the 2x-dark frame (2026-09-03).** Every copy in the contract is bit-exact (`R8G8B8A8_TYPELESS`
+  Unity RT ↔ `R8G8B8A8_UNORM` twin, NGX/ffx/XeSS view the twins as UNORM, the sharpen pass views `SharpenViewFormat` =
+  UNORM), so the shim never changes the gamma of a byte — and it was not the culprit of the D3D12 frame coming out
+  ~2x darker (menu mean luma 28 vs 56 on D3D11 / D3D12-Off; `DebugView.Passthrough`, a bare `CopyResource
+  colorRT → outRT`, measured the same 28). Root cause is Unity's D3D12 present path: `Blit(outRT → CameraTarget)`
+  decodes the sRGB SRV read but does not sRGB-encode the backbuffer write (D3D11 does both), one net decode. Fix in
+  `DlssDriver.Make`: `outRT` is created `RenderTextureReadWrite.Linear` on D3D12 only (`R8G8B8A8_UNorm`), so the
+  already-encoded bytes pass through untouched; `colorRT` stays Default (its flag changed nothing — Linear measured 28
+  too). D3D11 keeps Default (Linear there double-encodes). After: D3D12 DLAA 56.5, Quality 56.3, FSR Quality 56.1,
+  XeSS Quality 56.2, D3D11 DLAA 56.7 (`docs\shots\darkfps\fix-*.png`); debug-layer run 0 errors on `Renderforge ring N`.
 
 The AMD ffx-api is loaded at **runtime** (`FfxLoader.cpp`: `LoadLibraryW` of both DLLs by absolute path from the
 mod folder, then `ffxLoadFunctions`). No AMD import library is linked, so `RenderforgeNative.dll` loads and DLSS
