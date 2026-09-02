@@ -53,8 +53,7 @@ namespace Renderforge
                 }
                 picker.transform.SetSiblingIndex(after.GetSiblingIndex() + 1);
                 picker.gameObject.SetActive(true);
-                int idx = (int)mod.Cfg.Mode;
-                if (idx < 0 || idx >= Labels.Length) idx = 0;
+                int idx = LabelIndex(mod.Cfg.Mode);
                 picker.Init(Labels.Length, idx, i => OnChanged(picker, i));
                 BuildSlider(__instance, picker.transform, mod.Cfg);
                 SyncQuality();
@@ -72,13 +71,21 @@ namespace Renderforge
         {
             var mod = RenderforgeMod.Instance;
             if (picker == null || mod == null) return;
-            int idx = (int)mod.Cfg.Mode;
-            if (idx < 0 || idx >= Labels.Length) idx = 0;
+            int idx = LabelIndex(mod.Cfg.Mode);
             string reason = Availability.Reason(Upscalers.ActiveFeature);
             SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[idx]);
             Grey(picker.CurrentItem.gameObject, reason != null);
             Tip(picker.CentralButton.gameObject, reason);
             SetSliderEnabled(reason == null && idx != (int)RenderforgeMode.Off);
+        }
+
+        /// <summary>Row index for a config mode. UltraQuality/UltraQualityPlus exist only in XeSS's label set; on
+        /// DLSS/FSR the shim runs them as Quality (ToNgxQuality / ToFfxQuality `default`), so the label says so too.</summary>
+        private static int LabelIndex(RenderforgeMode mode)
+        {
+            int idx = (int)mode;
+            if (idx >= Labels.Length) return (int)RenderforgeMode.Quality;
+            return idx < 0 ? 0 : idx;
         }
 
         private static void OnChanged(ArrowPickerController target, int i)
