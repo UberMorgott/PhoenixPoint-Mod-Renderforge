@@ -371,7 +371,7 @@ namespace Renderforge
                     reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
-                if (FrameGen.Live)
+                if (FrameGen.Live && !FrameGen.HoldPrepare)
                 {
                     var v = cam.worldToCameraMatrix;
                     var pr = cam.nonJitteredProjectionMatrix;

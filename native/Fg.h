@@ -116,6 +116,7 @@ IFgProvider* MakeFgProviderStreamline(void); // DLSS-G / MFG via Streamline 2.12
 HWND FgWndCreate(HWND parent);
 void FgWndDestroy(void);                     // any thread: hides now, destroys on the UI thread
 HWND FgWndChild(void);                       // the live child, NULL when none
+void FgWndShow(bool show);                   // any thread: hide the child (Unity's own chain shows through) / show it again
 bool FgWndIsOurs(HWND h);                    // a window of our child class (the hook never adopts a chain on it)
 void FgWndUnload(void);                      // plugin unload: destroy the child, restore the subclass, unregister the class
 struct FgWndProbe

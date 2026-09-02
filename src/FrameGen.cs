@@ -20,6 +20,9 @@ namespace Renderforge
         private static bool Usable => Availability.IsD3D12 && Native.Handle != IntPtr.Zero;
 
         internal static bool Live => live;
+        /// <summary>Test knob (PPCLI `set`): true = the driver stops feeding frames (Fg_SetFrame / FG_PREPARE) while the chain
+        /// stays live - the "menu screen without a rendering camera" state the shim must idle through.</summary>
+        public static bool HoldPrepare = false;
         internal static int Provider => live ? Native.Fg_Provider() : Native.FG_PROVIDER_NONE;
         /// <summary>The shim keeps the last provider's caps after a refused multiplier too, so 3x/4x grey out without a live chain.</summary>
         internal static uint Caps => Usable ? Native.Fg_Caps() : 0u;

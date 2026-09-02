@@ -382,10 +382,13 @@ struct ProviderStreamline : IFgProvider
         sl::Resource rDepth(sl::ResourceType::eTex2d, o->depth, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
         sl::Resource rMv(sl::ResourceType::eTex2d, o->mv, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
         sl::Resource rHud(sl::ResourceType::eTex2d, o->out, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
+        sl::Extent eRender{}, eOut{};                            // full-size extents, explicit (SL warns on an unset 0x0 extent)
+        eRender.width = o->w; eRender.height = o->h;
+        eOut.width = o->outW; eOut.height = o->outH;
         sl::ResourceTag tags[3] = {
-            sl::ResourceTag(&rDepth, sl::kBufferTypeDepth,         sl::ResourceLifecycle::eOnlyValidNow),
-            sl::ResourceTag(&rMv,    sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eOnlyValidNow),
-            sl::ResourceTag(&rHud,   sl::kBufferTypeHUDLessColor,  sl::ResourceLifecycle::eOnlyValidNow),
+            sl::ResourceTag(&rDepth, sl::kBufferTypeDepth,         sl::ResourceLifecycle::eOnlyValidNow, &eRender),
+            sl::ResourceTag(&rMv,    sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eOnlyValidNow, &eRender),
+            sl::ResourceTag(&rHud,   sl::kBufferTypeHUDLessColor,  sl::ResourceLifecycle::eOnlyValidNow, &eOut),
         };
         r = g_sl.setTag(*t, vp, tags, 3, list);
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetTagForFrame %d", (int)r); }

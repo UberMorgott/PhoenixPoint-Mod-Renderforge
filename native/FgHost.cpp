@@ -72,6 +72,14 @@ struct Host
     FgFrame               slot;         // main thread writes, render thread copies; both under g_lock; resources retained
     FgFrame               cur;          // render-thread copy
     int                   pinned;       // render thread is inside Prepare/OnPresent on H.c
+    // Render thread only. A Present with no frame prepared since the last one (menu screens without a rendering
+    // camera, the options screen: Unity still presents, nothing runs the camera path) must not drive the provider:
+    // a vendor Present without its per-frame inputs/markers wedges DLSS-G's pacer (measured: "Pacer flush has timed
+    // out", "Couldn't lock the mutex on sync present", eFailReflexNotDetectedAtRuntime). The hook forwards Unity's
+    // Present untouched, and the child window is hidden so Unity's own chain shows through instead of a stale frame.
+    int                   prepared;     // FgHostPrepare ran with inputs since the last OnPresent
+    long long             idle;         // consecutive presents skipped for lack of a prepared frame
+    int                   hidden;       // the child window is hidden because of idle
     char                  status[512];
 };
 
@@ -353,6 +361,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.lastError = FG_OK;
     H.reason = NULL;
     H.lastPresentHr = 0;
+    H.prepared = 0; H.idle = 0; H.hidden = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
     {
         Locked lk;
         c.prov = p;                                        // publish: the render thread may pin from here on
@@ -401,9 +410,12 @@ void FgHostPrepare(void)
     // The pass-through provider has nothing to prepare. Nothing is declared to Unity: providers read the
     // shim-owned twins (COMMON at rest), never the Unity RTs - declaring those as NON_PIXEL_SHADER_RESOURCE made
     // Unity transition them under the upscaler's own barriers (debug layer id=527 on every frame).
-    if (H.c.prov->Id() != FG_PROVIDER_NONE && H.cur.hudless && H.cur.depth && H.cur.mv) {
-        ID3D12GraphicsCommandList* l = H.c.prep.Begin();
-        if (l) { H.c.prov->Prepare(l, H.cur); H.c.prep.End(0); }
+    if (H.cur.hudless && H.cur.depth && H.cur.mv) {
+        H.prepared = 1;
+        if (H.c.prov->Id() != FG_PROVIDER_NONE) {
+            ID3D12GraphicsCommandList* l = H.c.prep.Begin();
+            if (l) { H.c.prov->Prepare(l, H.cur); H.c.prep.End(0); }
+        }
     }
     Unpin(NULL);
 }
@@ -413,6 +425,17 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     if (!Pin()) return false;
     Chain& c = H.c;
     if (app != (IDXGISwapChain*)c.app || !c.shadow) { Unpin(NULL); return false; }
+
+    // No frame prepared since the last present: the provider is not driven at all this frame (no copy, no shadow
+    // Present, no vendor call), the hook forwards Unity's Present unchanged, and the child hides on the first such frame.
+    if (!H.prepared) {
+        if (++H.idle == 1) { H.hidden = 1; FgWndShow(false); FgLog("host: idle: no prepared frame - child hidden, provider untouched, Unity presents on its own"); }
+        Unpin(NULL);
+        return false;
+    }
+    H.prepared = 0;
+    if (H.hidden) { H.hidden = 0; FgWndShow(true); FgLog("host: frames resumed after %lld idle presents - child shown", H.idle); }
+    H.idle = 0;
 
     // Only the present flags the shadow chain opted into: tearing iff created with ALLOW_TEARING (and
     // Unity asked for it this frame); never TEST / DO_NOT_SEQUENCE / RESTART, which belong to Unity's chain.
@@ -538,12 +561,12 @@ const char* FgHostStatus(void)
         caps = H.state == kLive ? H.c.prov->Caps() : H.lastCaps;
     }
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
-        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu%s%s",
+        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld%s%s",
         prov, H.enabled, H.multiplier,
         state == kNone ? "-" : "child", child, (unsigned)H.childHr, w->hit, focus,
         w->foreground == game ? 1 : 0,
         shadow, H.outW, H.outH, scFlags,
         caps, H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
-        frameId, H.reason ? " reason=" : "", H.reason ? H.reason : "");
+        frameId, state == kLive ? H.idle : 0LL, H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;
 }

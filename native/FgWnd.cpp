@@ -23,6 +23,7 @@ SRWLOCK g_lock = SRWLOCK_INIT;
 HWND    g_parent = NULL;
 HWND    g_child = NULL;
 WNDPROC g_origProc = NULL;
+int     g_shown = 1;                         // FgWndShow state: FitChild must not re-show a child the host hid
 FgWndProbe g_probe = {};
 
 struct Locked
@@ -52,7 +53,7 @@ void FitChild()
     HWND c = Child(), p = Parent();
     if (!c || !p) return;
     RECT r; GetClientRect(p, &r);
-    SetWindowPos(c, HWND_TOP, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    SetWindowPos(c, HWND_TOP, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE | (g_shown ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
 }
 
 LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
@@ -69,6 +70,7 @@ LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
         wc.hInstance = GetModuleHandleW(NULL);
         wc.lpszClassName = kClass;
         RegisterClassExW(&wc);                              // duplicate registration is harmless
+        g_shown = 1;
         SetWindowLongPtrW(h, GWL_STYLE, GetWindowLongPtrW(h, GWL_STYLE) | WS_CLIPCHILDREN);
         RECT r; GetClientRect(h, &r);
         HWND c = CreateWindowExW(WS_EX_NOPARENTNOTIFY, kClass, kClass, WS_CHILD | WS_VISIBLE,
@@ -93,8 +95,18 @@ LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
         return 0;
     }
     case WM_SIZE:
+        if (w == SIZE_MINIMIZED || w == SIZE_RESTORED || w == SIZE_MAXIMIZED)
+            FgLog("wnd: parent %p WM_SIZE %s %ux%u", (void*)h, w == SIZE_MINIMIZED ? "MINIMIZED" : w == SIZE_RESTORED ? "RESTORED" : "MAXIMIZED", (unsigned)LOWORD(l), (unsigned)HIWORD(l));
+        FitChild();
+        break;
     case WM_WINDOWPOSCHANGED:
         FitChild();
+        break;
+    case WM_ACTIVATE:
+        FgLog("wnd: parent %p WM_ACTIVATE %u minimized %u", (void*)h, (unsigned)LOWORD(w), (unsigned)HIWORD(w));
+        break;
+    case WM_ACTIVATEAPP:
+        FgLog("wnd: parent %p WM_ACTIVATEAPP %u", (void*)h, (unsigned)w);
         break;
     case WM_DISPLAYCHANGE:
     case WM_DPICHANGED:
@@ -168,6 +180,12 @@ void FgWndDestroy(void)
 }
 
 HWND FgWndChild(void) { return Child(); }
+
+void FgWndShow(bool show)
+{
+    g_shown = show ? 1 : 0;
+    if (HWND c = Child()) ShowWindowAsync(c, show ? SW_SHOWNA : SW_HIDE);
+}
 
 bool FgWndIsOurs(HWND h)
 {

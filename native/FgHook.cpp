@@ -64,11 +64,24 @@ struct AppLocked
     ~AppLocked() { ReleaseSRWLockExclusive(&g_appLock); }
 };
 
+__declspec(thread) int t_depth = 0;    // per-thread nesting of our Present hooks (evidence + re-entrancy guard)
+volatile LONG    g_reentryLogged = 0;
+
 struct Entered
 {
-    Entered()  { InterlockedIncrement(&g_inHook); }
-    ~Entered() { InterlockedDecrement(&g_inHook); }
+    Entered()  { InterlockedIncrement(&g_inHook); ++t_depth; }
+    ~Entered() { --t_depth; InterlockedDecrement(&g_inHook); }
 };
+
+// True when this thread is already inside one of our Present hooks (the vendor pacer / proxy presenting the real child
+// chain from within the shadow Present the host issued): logged the first few times, then straight passthrough.
+bool Reentered(IDXGISwapChain* self)
+{
+    if (t_depth <= 1) return false;
+    if (InterlockedIncrement(&g_reentryLogged) <= 16)
+        FgLog("hook: re-entered Present depth %d on chain %p tid %u - passthrough", t_depth, (void*)self, (unsigned)GetCurrentThreadId());
+    return true;
+}
 
 void CountPresent()
 {
@@ -153,7 +166,7 @@ UINT UnityFlags(UINT flags) { return flags & (DXGI_PRESENT_ALLOW_TEARING | DXGI_
 HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flags)
 {
     Entered e;
-    if (flags & kPassThrough) return g_origPresent(self, sync, flags);
+    if ((flags & kPassThrough) || Reentered(self)) return g_origPresent(self, sync, flags);
     NoteApp(self);
     if (!IsApp(self)) return g_origPresent(self, sync, flags);
     bool fg = FgHostOnPresent(self, sync, flags);
@@ -165,7 +178,7 @@ HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flag
 HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* self, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* pp)
 {
     Entered e;
-    if (flags & kPassThrough) return g_origPresent1(self, sync, flags, pp);
+    if ((flags & kPassThrough) || Reentered((IDXGISwapChain*)self)) return g_origPresent1(self, sync, flags, pp);
     NoteApp(self);
     if (!IsApp(self)) return g_origPresent1(self, sync, flags, pp);
     bool fg = FgHostOnPresent((IDXGISwapChain*)self, sync, flags);
