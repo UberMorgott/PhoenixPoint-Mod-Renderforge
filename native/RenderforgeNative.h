@@ -25,7 +25,8 @@ enum { DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_
 enum { DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3 };
 
 // Dlss_LastError codes that are not NVSDK_NGX_Result values.
-enum { DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3 };
+enum { DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3,
+       DLSS_ERR_FENCE_TIMEOUT = -4 };   // D3D12: a ring slot's fence never retired (hung GPU / dead Unity fence); frame skipped
 
 // Dlss_Sharpener: which sharpen shader is active. 0 = not compiled yet (first non-zero sharpness compiles it).
 enum { DLSS_SHARPEN_NONE = 0, DLSS_SHARPEN_NIS = 1, DLSS_SHARPEN_RCAS = 2, DLSS_SHARPEN_FAILED = -1 };

@@ -178,7 +178,8 @@ int __cdecl Dlss_Sharpener(void)     { return S.dev ? (S.dev->sharpenDead ? DLSS
 int __cdecl Dlss_Api(void)           { return S.dev ? S.dev->Api() : 0; }
 int __cdecl Dlss_UnityIface(void)    { return (g_unityLoaded ? 1 : 0) | (g_unityD3D12 ? 2 : 0); }
 
-void __cdecl Dlss_TestSetUnityD3D12(void* iface) { g_unityD3D12 = (IUnityGraphicsD3D12v5*)iface; }
+// Probe-only hook: honoured only while no real UnityPluginLoad has happened, so inside the game it is a no-op.
+void __cdecl Dlss_TestSetUnityD3D12(void* iface) { if (!g_unityLoaded) g_unityD3D12 = (IUnityGraphicsD3D12v5*)iface; }
 
 int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* featureAlive)
 {

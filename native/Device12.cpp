@@ -21,17 +21,21 @@
 #include "unity/IUnityGraphicsD3D12.h"
 #include "nvsdk_ngx_helpers.h"
 
-extern IUnityGraphicsD3D12v5* g_unityD3D12;   // set by UnityPluginLoad (RenderforgeNative.cpp) or Dlss_TestSetUnityD3D12
+// Set by UnityPluginLoad (RenderforgeNative.cpp) or Dlss_TestSetUnityD3D12, NULLed on kUnityGfxDeviceEventShutdown.
+// Never cached in the device: read per use.
+extern IUnityGraphicsD3D12v5* g_unityD3D12;
 
 namespace {
 
-const int kRing = 3;              // Unity keeps up to 3 frames in flight
+// Unity keeps up to 3 frames in flight; one spare so a create + evaluate in the same frame never waits.
+// More than kRing submissions in ONE frame would block in Begin() on Unity's frame fence, which only
+// advances at frame end - i.e. a deadlock until kFenceWaitMs. Keep submissions per frame < kRing.
+const int kRing = 4;
 const DWORD kFenceWaitMs = 5000;  // a hung GPU must not deadlock the render thread forever
 
 struct Device12 : IDevice
 {
     ID3D12Device* device;
-    IUnityGraphicsD3D12v5* unity;
     NVSDK_NGX_Parameter* params;
     NVSDK_NGX_Handle* feature;
     int ngxInitialized;
@@ -63,8 +67,8 @@ struct Device12 : IDevice
 
     void Zero()
     {
-        device = NULL; unity = NULL; params = NULL; feature = NULL;
-        ngxInitialized = 0; needsDriver = 0; minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
+        device = NULL; params = NULL; feature = NULL;
+        ngxInitialized = 0; initCode = 0; needsDriver = 0; minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
         for (int i = 0; i < kRing; ++i) { alloc[i] = NULL; list[i] = NULL; submitted[i] = 0; }
         ringIdx = 0; recording = 0; waitEvent = NULL;
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; sharpener = 0; sharpenDead = 0;
@@ -77,14 +81,19 @@ struct Device12 : IDevice
 
     // ---- command-list ring -------------------------------------------------
 
-    void WaitFence(UINT64 value)
+    // WAIT_OBJECT_0 once `value` has retired (0 = never submitted, retired by definition), else the
+    // WaitForSingleObject result (WAIT_TIMEOUT / WAIT_FAILED). Callers must not touch the slot otherwise.
+    DWORD WaitFence(UINT64 value)
     {
-        if (!unity || !value) return;
-        ID3D12Fence* fence = unity->GetFrameFence();
-        if (!fence || fence->GetCompletedValue() >= value) return;
+        if (!value) return WAIT_OBJECT_0;
+        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        ID3D12Fence* fence = unity ? unity->GetFrameFence() : NULL;
+        if (!fence) return WAIT_FAILED;
+        if (fence->GetCompletedValue() >= value) return WAIT_OBJECT_0;
         if (!waitEvent) waitEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
-        if (!waitEvent) return;
-        if (SUCCEEDED(fence->SetEventOnCompletion(value, waitEvent))) WaitForSingleObject(waitEvent, kFenceWaitMs);
+        if (!waitEvent) return WAIT_FAILED;
+        if (FAILED(fence->SetEventOnCompletion(value, waitEvent))) return WAIT_FAILED;
+        return WaitForSingleObject(waitEvent, kFenceWaitMs);
     }
 
     // Blocks until every list we ever submitted has retired. Needed before releasing an NGX feature:
@@ -94,19 +103,28 @@ struct Device12 : IDevice
         for (int i = 0; i < kRing; ++i) WaitFence(submitted[i]);
     }
 
-    // Returns an open, recording DIRECT command list, or NULL.
+    void ReleaseSlot(int i)
+    {
+        if (list[i]) { list[i]->Release(); list[i] = NULL; }
+        if (alloc[i]) { alloc[i]->Release(); alloc[i] = NULL; }
+    }
+
+    // Returns an open, recording DIRECT command list, or NULL with lastError set.
     ID3D12GraphicsCommandList* Begin()
     {
-        if (!device || !unity || recording) return NULL;
+        if (!device || !g_unityD3D12 || recording) { lastError = DLSS_ERR_NO_CONTEXT; return NULL; }
         int i = ringIdx;
-        WaitFence(submitted[i]);
-        if (!alloc[i]) {
-            if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc[i])))) return NULL;
-            if (FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc[i], NULL, IID_PPV_ARGS(&list[i])))) return NULL;
+        // An in-flight allocator must never be reset: on timeout/failure leave the slot alone and bail.
+        if (WaitFence(submitted[i]) != WAIT_OBJECT_0) { lastError = DLSS_ERR_FENCE_TIMEOUT; return NULL; }
+        if (!alloc[i] || !list[i]) {
+            ReleaseSlot(i);   // a half-built pair from an earlier failure
+            if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc[i]))) ||
+                FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc[i], NULL, IID_PPV_ARGS(&list[i])))) {
+                ReleaseSlot(i); lastError = DLSS_ERR_NO_CONTEXT; return NULL;
+            }
             list[i]->Close();
         }
-        if (FAILED(alloc[i]->Reset())) return NULL;
-        if (FAILED(list[i]->Reset(alloc[i], NULL))) return NULL;
+        if (FAILED(alloc[i]->Reset()) || FAILED(list[i]->Reset(alloc[i], NULL))) { lastError = DLSS_ERR_NO_CONTEXT; return NULL; }
         recording = 1;
         return list[i];
     }
@@ -118,8 +136,13 @@ struct Device12 : IDevice
         int i = ringIdx;
         recording = 0;
         ringIdx = (ringIdx + 1) % kRing;
-        if (FAILED(list[i]->Close())) return false;
-        submitted[i] = unity->ExecuteCommandList(list[i], stateCount, states);
+        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        if (FAILED(list[i]->Close()) || !unity) return false;
+        UINT64 v = unity->ExecuteCommandList(list[i], stateCount, states);
+        // 0 would mark the slot "never used" and let Begin() reset an allocator the GPU may still read.
+        // Unity signals the frame fence with GetNextFrameFenceValue() at the end of this frame, after our
+        // list - waiting on that is the conservative, always-correct choice.
+        submitted[i] = v ? v : unity->GetNextFrameFenceValue();
         return true;
     }
 
@@ -228,6 +251,9 @@ struct Device12 : IDevice
         if (!SharpenEnsure()) return;
 
         D3D12_RESOURCE_DESC od = output->GetDesc();
+        // CreateUnorderedAccessView is void: a UAV on a resource without this flag is a debug-layer error
+        // and garbage at runtime, so this is the D3D12 twin of the D3D11 CreateUnorderedAccessView guard.
+        if (!(od.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) { SharpenFail(); return; }
         unsigned w = (unsigned)od.Width, h = od.Height;
         DXGI_FORMAT viewFmt = SharpenViewFormat(od.Format);
 
@@ -286,7 +312,7 @@ struct Device12 : IDevice
 
     int Init(void* nativeResource, const wchar_t* inDllDir, const wchar_t* logDir) override
     {
-        if (ngxInitialized) return DLSS_OK;
+        if (ngxInitialized) return initCode;   // replay the real outcome, not a blanket OK
         ID3D12Resource* res = NULL;
         if (FAILED(((IUnknown*)nativeResource)->QueryInterface(__uuidof(ID3D12Resource), (void**)&res)) || !res)
             return DLSS_ERR_NO_DEVICE;
@@ -294,8 +320,7 @@ struct Device12 : IDevice
         res->Release();
         if (FAILED(hr) || !device) return DLSS_ERR_NO_DEVICE;
 
-        unity = g_unityD3D12;
-        if (!unity) { device->Release(); device = NULL; return DLSS_ERR_NO_UNITY_IFACE; }
+        if (!g_unityD3D12) { device->Release(); device = NULL; return DLSS_ERR_NO_UNITY_IFACE; }
 
         if (inDllDir) wcsncpy_s(dllDir, inDllDir, _TRUNCATE);
         const wchar_t* paths[1] = { dllDir };
@@ -310,7 +335,7 @@ struct Device12 : IDevice
         ngxInitialized = 1;
 
         r = NVSDK_NGX_D3D12_GetCapabilityParameters(&params);
-        if (NVSDK_NGX_FAILED(r) || !params) { lastCreate = r; return DLSS_ERR_INIT_FAILED; }
+        if (NVSDK_NGX_FAILED(r) || !params) { lastCreate = r; return initCode = DLSS_ERR_INIT_FAILED; }
 
         int available = 0;
         NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
@@ -318,9 +343,9 @@ struct Device12 : IDevice
         NVSDK_NGX_Parameter_GetUI(params, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMajor, &minDriverMajor);
         NVSDK_NGX_Parameter_GetUI(params, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMinor, &minDriverMinor);
 
-        if (needsDriver) return DLSS_ERR_NEEDS_DRIVER;
-        if (!available) return DLSS_ERR_NOT_AVAILABLE;
-        return DLSS_OK;
+        if (needsDriver) return initCode = DLSS_ERR_NEEDS_DRIVER;
+        if (!available) return initCode = DLSS_ERR_NOT_AVAILABLE;
+        return initCode = DLSS_OK;
     }
 
     NVSDK_NGX_Result GetOptimal(unsigned outW, unsigned outH, int quality,
@@ -340,7 +365,7 @@ struct Device12 : IDevice
 
     void Create(const CreateParams& cp) override
     {
-        if (!params || !device || !unity) { lastCreate = NVSDK_NGX_Result_FAIL_NotInitialized; return; }
+        if (!params || !device || !g_unityD3D12) { lastCreate = NVSDK_NGX_Result_FAIL_NotInitialized; return; }
         if (feature) { WaitIdle(); NVSDK_NGX_D3D12_ReleaseFeature(feature); feature = NULL; }
         if (!cp.w || !cp.outW) { lastCreate = NVSDK_NGX_Result_FAIL_InvalidParameter; return; }
         SetPresetHints(params);
@@ -354,7 +379,7 @@ struct Device12 : IDevice
         dcp.InFeatureCreateFlags = cp.ngxFlags;
 
         ID3D12GraphicsCommandList* cl = Begin();
-        if (!cl) { lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; return; }
+        if (!cl) { lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; return; }   // Begin() set lastError
         // Node masks are "Multi GPU only (default 1)" (DLSS guide p.56 7.1).
         lastCreate = NGX_D3D12_CREATE_DLSS_EXT(cl, 1, 1, &feature, params, &dcp);
         End(0, NULL);                     // the list must be closed and submitted even when NGX failed
@@ -371,7 +396,7 @@ struct Device12 : IDevice
     {
         ID3D12Resource* color  = (ID3D12Resource*)fp.color;
         ID3D12Resource* output = (ID3D12Resource*)fp.output;
-        if (!device || !unity) { lastEval = NVSDK_NGX_Result_FAIL_NotInitialized; lastError = (int)lastEval; return; }
+        if (!device || !g_unityD3D12) { lastEval = NVSDK_NGX_Result_FAIL_NotInitialized; lastError = (int)lastEval; return; }
         if (!color || !output || (!passthrough && (!fp.depth || !fp.mv))) {
             lastEval = NVSDK_NGX_Result_FAIL_MissingInput; lastError = (int)lastEval; return;
         }
@@ -383,7 +408,7 @@ struct Device12 : IDevice
         }
 
         ID3D12GraphicsCommandList* cl = Begin();
-        if (!cl) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; return; }
+        if (!cl) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; return; }   // Begin() set lastError
 
         UnityGraphicsD3D12ResourceState st[4];
         int n = 0;
@@ -433,11 +458,7 @@ struct Device12 : IDevice
     {
         ReleaseFeature();
         WaitIdle();
-        for (int i = 0; i < kRing; ++i) {
-            if (list[i]) { list[i]->Release(); list[i] = NULL; }
-            if (alloc[i]) { alloc[i]->Release(); alloc[i] = NULL; }
-            submitted[i] = 0;
-        }
+        for (int i = 0; i < kRing; ++i) { ReleaseSlot(i); submitted[i] = 0; }
         if (waitEvent) { CloseHandle(waitEvent); waitEvent = NULL; }
         if (cb && cbCpu) { D3D12_RANGE noWrite = { 0, 0 }; cb->Unmap(0, &noWrite); cbCpu = NULL; }
         if (cb) { cb->Release(); cb = NULL; }

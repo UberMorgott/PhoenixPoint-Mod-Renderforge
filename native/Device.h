@@ -42,8 +42,9 @@ struct IDevice
     int lastError;      // NVSDK_NGX_Result, or one of the DLSS_ERR_* negatives
     int sharpener;      // DLSS_SHARPEN_*
     int sharpenDead;    // sharpen setup failed once -> pass skipped for good
+    int initCode;       // DLSS_OK / DLSS_ERR_* of the first NGX init; Init() replays it once NGX is up
 
-    IDevice() : lastCreate((NVSDK_NGX_Result)0), lastEval((NVSDK_NGX_Result)0), lastError(0), sharpener(0), sharpenDead(0) {}
+    IDevice() : lastCreate((NVSDK_NGX_Result)0), lastEval((NVSDK_NGX_Result)0), lastError(0), sharpener(0), sharpenDead(0), initCode(0) {}
     virtual ~IDevice() {}
 
     virtual int  Api() const = 0;                       // 11 or 12

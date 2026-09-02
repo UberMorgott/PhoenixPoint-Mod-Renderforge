@@ -114,13 +114,37 @@ static int RunD3D11(const wchar_t* dllDir, const wchar_t* cwd)
 // ---------------------------------------------------------------- D3D12
 
 // Stand-in for Unity: owns a direct queue and a fence and behaves like IUnityGraphicsD3D12v5.
-// The state array is ignored on purpose - every resource below is created in the state DLSS requires
-// and the guide says NGX restores those states, so no transition is ever needed here.
+// Every resource below is created in the state DLSS requires and the guide says NGX restores those
+// states, so no transition is ever recorded here - but the declared state array is VALIDATED against
+// the state the probe knows each resource is in (Unity would insert barriers from exactly that array).
 static ID3D12Device* g_dev12 = NULL;
 static ID3D12CommandQueue* g_queue = NULL;
 static ID3D12Fence* g_fence = NULL;
 static UINT64 g_fenceValue = 0;
 static int g_execCalls = 0;
+
+struct KnownState { ID3D12Resource* res; D3D12_RESOURCE_STATES state; };
+static KnownState g_known[16];
+static int g_knownCount = 0;
+
+static KnownState* FindKnown(ID3D12Resource* r)
+{
+    for (int i = 0; i < g_knownCount; ++i) if (g_known[i].res == r) return &g_known[i];
+    return NULL;
+}
+
+static void CheckStates(int stateCount, UnityGraphicsD3D12ResourceState* states)
+{
+    for (int i = 0; i < stateCount; ++i) {
+        KnownState* k = FindKnown(states[i].resource);
+        if (!k) { printf("  stub ExecuteCommandList: state[%d] names a resource the probe never created\n", i); g_failed = 1; continue; }
+        if ((D3D12_RESOURCE_STATES)states[i].expected != k->state) {
+            printf("  stub ExecuteCommandList: state[%d] expected 0x%X but resource is in 0x%X\n", i, (unsigned)states[i].expected, (unsigned)k->state);
+            g_failed = 1;
+        }
+        k->state = (D3D12_RESOURCE_STATES)states[i].current;   // Unity's contract: `current` = state after the list
+    }
+}
 
 static ID3D12Device* UNITY_INTERFACE_API StubGetDevice() { return g_dev12; }
 static ID3D12Fence* UNITY_INTERFACE_API StubGetFrameFence() { return g_fence; }
@@ -131,9 +155,9 @@ static ID3D12Resource* UNITY_INTERFACE_API StubTextureFromRenderBuffer(UnityRend
 
 static UINT64 UNITY_INTERFACE_API StubExecuteCommandList(ID3D12GraphicsCommandList* cl, int stateCount, UnityGraphicsD3D12ResourceState* states)
 {
-    (void)states;
     ++g_execCalls;
     if (g_execCalls == 1) printf("  stub ExecuteCommandList: first call declared %d resource states\n", stateCount);
+    CheckStates(stateCount, states);
     ID3D12CommandList* lists[1] = { cl };
     g_queue->ExecuteCommandLists(1, lists);
     ++g_fenceValue;
@@ -153,6 +177,7 @@ static ID3D12Resource* MakeTex12(unsigned w, unsigned h, DXGI_FORMAT fmt, bool u
     ID3D12Resource* t = NULL;
     HRESULT hr = g_dev12->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &d, state, NULL, IID_PPV_ARGS(&t));
     if (FAILED(hr)) { printf("CreateCommittedResource %ux%u fmt %d failed hr=0x%08X\n", w, h, (int)fmt, (unsigned)hr); g_failed = 1; }
+    else if (g_knownCount < 16) { g_known[g_knownCount].res = t; g_known[g_knownCount].state = state; ++g_knownCount; }
     return t;
 }
 
@@ -222,9 +247,20 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
         char name[32]; sprintf_s(name, "Evaluate[%d]", i);
         Report(name, e);
     }
+    // sRGB output: Unity's sRGB RenderTextures are TYPELESS resources viewed as *_UNORM_SRGB; a UAV cannot be
+    // sRGB, so the sharpen pass must view the output as R8G8B8A8_UNORM (SharpenViewFormat).
+    ID3D12Resource* outSrgb = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_TYPELESS, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    if (!outSrgb) return 1;
+    {
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, color, depth, mv, outSrgb, jit[0][0], jit[0][1], (float)RW, (float)RH, 0, 16.6f, RW, RH, 1.0f, 0.5f);
+        evd(DLSS_EV_EVALUATE, slot);
+        Dlss_Status(&c, &e, &alive);
+        Report("Evaluate[sRGB]", e);
+    }
     WaitGpu();
-    printf("Submissions    ExecuteCommandList calls=%d (expect 4: 1 create + 3 evaluate)\n", g_execCalls);
-    if (g_execCalls != 4) g_failed = 1;
+    printf("Submissions    ExecuteCommandList calls=%d (expect 5: 1 create + 4 evaluate)\n", g_execCalls);
+    if (g_execCalls != 5) g_failed = 1;
     printf("Sharpen        shader=%d (1=NIS 2=RCAS fallback, expect 1) lastError=%d (expect 0; %d = setup failed)\n",
            Dlss_Sharpener(), Dlss_LastError(), DLSS_ERR_SHARPEN);
     if (Dlss_LastError() != 0 || Dlss_Sharpener() != DLSS_SHARPEN_NIS) g_failed = 1;
@@ -254,7 +290,7 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
 
     Dlss_Shutdown();
     WaitGpu();
-    colorCopySrc->Release(); out2->Release();
+    colorCopySrc->Release(); out2->Release(); outSrgb->Release();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
     g_fence->Release(); g_queue->Release(); g_dev12->Release();
     return g_failed ? 1 : 0;

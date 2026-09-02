@@ -36,7 +36,7 @@ struct Device11 : IDevice
     Device11() { Zero(); }
     void Zero()
     {
-        device = NULL; params = NULL; feature = NULL; ngxInitialized = 0; needsDriver = 0;
+        device = NULL; params = NULL; feature = NULL; ngxInitialized = 0; initCode = 0; needsDriver = 0;
         minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
         cs = NULL; cb = NULL; sampler = NULL; scratch = NULL; scratchSrv = NULL; outUav = NULL; outUavRes = NULL;
         scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN;
@@ -131,7 +131,7 @@ struct Device11 : IDevice
 
     int Init(void* nativeResource, const wchar_t* inDllDir, const wchar_t* logDir) override
     {
-        if (ngxInitialized) return DLSS_OK;
+        if (ngxInitialized) return initCode;   // replay the real outcome, not a blanket OK
         ID3D11Resource* res = NULL;
         if (FAILED(((IUnknown*)nativeResource)->QueryInterface(__uuidof(ID3D11Resource), (void**)&res)) || !res)
             return DLSS_ERR_NO_DEVICE;
@@ -152,7 +152,7 @@ struct Device11 : IDevice
         ngxInitialized = 1;
 
         r = NVSDK_NGX_D3D11_GetCapabilityParameters(&params);
-        if (NVSDK_NGX_FAILED(r) || !params) { lastCreate = r; return DLSS_ERR_INIT_FAILED; }
+        if (NVSDK_NGX_FAILED(r) || !params) { lastCreate = r; return initCode = DLSS_ERR_INIT_FAILED; }
 
         int available = 0;
         NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
@@ -160,9 +160,9 @@ struct Device11 : IDevice
         NVSDK_NGX_Parameter_GetUI(params, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMajor, &minDriverMajor);
         NVSDK_NGX_Parameter_GetUI(params, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMinor, &minDriverMinor);
 
-        if (needsDriver) return DLSS_ERR_NEEDS_DRIVER;
-        if (!available) return DLSS_ERR_NOT_AVAILABLE;
-        return DLSS_OK;
+        if (needsDriver) return initCode = DLSS_ERR_NEEDS_DRIVER;
+        if (!available) return initCode = DLSS_ERR_NOT_AVAILABLE;
+        return initCode = DLSS_OK;
     }
 
     NVSDK_NGX_Result GetOptimal(unsigned outW, unsigned outH, int quality,
