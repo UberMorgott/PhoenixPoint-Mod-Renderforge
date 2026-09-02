@@ -137,3 +137,65 @@ foreach ($pack in $packs.Keys) {
 Write-Host "validate: OK"
 if ($ValidateOnly) { return }
 
+# --- Stage ----------------------------------------------------------------------------------
+# stage\<Pack>\Renderforge\ is zipped with includeBaseDirectory=$true, which names the single
+# top-level entry after the folder - hence the fixed "Renderforge" leaf.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $stage, $relDir | Out-Null
+
+$full = @()
+foreach ($pack in $selected.Keys) {
+    $dir = Join-Path $stage "$pack\Renderforge"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    foreach ($f in $selected[$pack]) { Copy-Item $f.Src (Join-Path $dir $f.Name) -Force }
+    $full += $selected[$pack]
+}
+$fullDir = Join-Path $stage 'Full\Renderforge'
+New-Item -ItemType Directory -Force -Path $fullDir | Out-Null
+foreach ($f in $full) { Copy-Item $f.Src (Join-Path $fullDir $f.Name) -Force }
+$selected['Full'] = $full
+
+# --- Manifest + zip per pack -----------------------------------------------------------------
+$stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+$zips = @()
+foreach ($pack in $selected.Keys) {
+    $dir      = Join-Path $stage "$pack\Renderforge"
+    $manifest = [ordered]@{
+        mod           = 'Renderforge'
+        modId         = 'com.morgott.Renderforge'
+        pack          = $pack
+        version       = $version
+        frameGen      = [bool] $WithFrameGen
+        generatedUtc  = $stamp
+        extractInto   = 'Mods\'
+        files         = @($selected[$pack] | ForEach-Object {
+            [ordered]@{
+                name        = $_.Name
+                fileVersion = $_.Version
+                bytes       = $_.Bytes
+                sha256      = $_.Sha256
+                signer      = $_.Signer
+                licence     = $_.Licence
+            }
+        })
+    }
+    # One manifest name per pack: a vendor zip is extracted ON TOP of Core, so a shared
+    # "manifest.json" would silently overwrite the record of what else is installed.
+    $manifest | ConvertTo-Json -Depth 5 |
+        Set-Content -Path (Join-Path $dir ("manifest-" + $pack.ToLowerInvariant() + ".json")) -Encoding utf8NoBOM
+
+    $zip = Join-Path $relDir "Renderforge-$pack-$version.zip"
+    if (Test-Path $zip) { Remove-Item $zip -Force }
+    [IO.Compression.ZipFile]::CreateFromDirectory($dir, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
+    $zips += Get-Item $zip
+    Write-Host ("packed {0,-38} {1,14:N0} bytes" -f (Split-Path $zip -Leaf), (Get-Item $zip).Length)
+}
+
+# --- SHA256SUMS.txt ---------------------------------------------------------------------------
+$sums = Join-Path $relDir 'SHA256SUMS.txt'
+$zips | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name } |
+    Set-Content -Path $sums -Encoding utf8NoBOM
+Write-Host "wrote $sums"
+Write-Host "release: OK - $relDir"
+
