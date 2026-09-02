@@ -22,6 +22,13 @@ bool FgHookInstall(ID3D12CommandQueue* queue);
 // Restores every slot that still holds our function (compare-exchange, a later hook on top of ours is left
 // alone), then waits (bounded) for the hooks in flight to leave. Plugin unload only.
 void FgHookRemove(void);
+// Bracket OUR OWN swapchain creations (the child / vendor proxy chains in FgHostInit): the slots hold dxgi's
+// originals while a factory call runs, so a third party that hooks "whatever the new chain's vtable points at"
+// (the Steam overlay re-hooks on every CreateSwapChain*) finds dxgi, never our function - a detour on our hook
+// whose stored original is our hook again is the loop that ended user crash #2. Main thread; presents in the
+// window go straight to dxgi (no chain is live yet). No-ops while not installed.
+void FgHookHide(void);
+void FgHookShow(void);
 
 // The application's swapchain, discovered on the first hooked Present of a chain that passes validation (same
 // device as `queue`, a top-level window of this process that is not one of ours, sane size/format). The hook

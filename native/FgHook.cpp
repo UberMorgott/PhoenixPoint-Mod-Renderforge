@@ -12,11 +12,23 @@
 // (FgHostOnPresent) only presents the shadow chain and says whether it did; then Unity's chain goes out with sync 0
 // (hidden under ours, it just has to keep its back-buffer index rotating). TEST / DO_NOT_SEQUENCE presents are
 // not frames: straight through, untouched, uncounted.
+//
+// Forwarding NEVER reads the vtable: the four originals are captured ONCE (first install) into globals that are
+// never rewritten, so a party that patches the slot after us (an overlay re-hooking on every swapchain creation,
+// a vendor pacer) is never chained into from a re-entered frame. User crash #2 (2026-09-02, Steam install, DLSS-G
+// interpolating for real): the forward of Unity's Present through dxgi's own entry came BACK into the hook, on the
+// app chain, depth 2, 3, 4 ... until the stack was gone - something between dxgi's entry and its body dispatched
+// through the vtable slot we own. So a re-entered app-chain Present is presented ONCE through the other entry
+// (Present1 for Present and vice versa; a detour sits on one) and never through the same one again; at depth 3 it
+// is not presented at all (the last result is returned, FG detached). The first re-entry logs who called, who owns
+// the slot now and whether dxgi's entries / our hooks were patched since install (module+offset).
 #include "Fg.h"
 
 #include <stdio.h>
 #include <stdarg.h>
 #include <share.h>
+#include <intrin.h>
+#include <string.h>
 
 namespace {
 
@@ -26,13 +38,20 @@ typedef HRESULT (STDMETHODCALLTYPE *PfnResizeBuffers)(IDXGISwapChain*, UINT, UIN
 typedef HRESULT (STDMETHODCALLTYPE *PfnSetFullscreen)(IDXGISwapChain*, BOOL, IDXGIOutput*);
 
 const int kVtPresent = 8, kVtSetFullscreen = 10, kVtResizeBuffers = 13, kVtPresent1 = 22;
+HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flags);
+HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* self, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* pp);
 const UINT kPassThrough = DXGI_PRESENT_TEST | DXGI_PRESENT_DO_NOT_SEQUENCE;
 const wchar_t kDummyClass[] = L"RenderforgeFgDummy";
 
+// Captured on the FIRST install, never rewritten (a re-install after FgHookRemove reuses them).
 PfnPresent       g_origPresent = NULL;
 PfnPresent1      g_origPresent1 = NULL;
 PfnResizeBuffers g_origResize = NULL;
 PfnSetFullscreen g_origSetFullscreen = NULL;
+void**           g_vt = NULL;           // the shared vtable we patched
+const int        kEntryBytes = 16;
+unsigned char    g_entryAtInstall[4][kEntryBytes];   // first bytes of each original at install (detour detection)
+unsigned char    g_hookAtInstall[2][kEntryBytes];    // first bytes of HookPresent / HookPresent1 at install
 
 // The app chain: OWNED (AddRef'd) while latched, published under g_appLock. Holding the reference is what makes
 // the pointer compare in the hooks safe: the object cannot die and its address cannot be reused while latched.
@@ -65,7 +84,12 @@ struct AppLocked
 };
 
 __declspec(thread) int t_depth = 0;    // per-thread nesting of our Present hooks (evidence + re-entrancy guard)
+__declspec(thread) HRESULT t_lastHr = S_OK;   // last result of an app-chain forward on this thread
 volatile LONG    g_reentryLogged = 0;
+volatile LONG    g_bounced = 0;
+int              g_bounce = 0;         // RENDERFORGE_FG_BOUNCE=1/2 (test only): the app-chain forward re-enters the hook
+                                       // through the vtable slot, the shape of user crash #2 (2 = Present1 bounces too)
+const int        kMaxForeignDepth = 4; // a vendor proxy presenting its own chain inside ours: 2 measured, 4 tolerated
 
 struct Entered
 {
@@ -73,14 +97,84 @@ struct Entered
     ~Entered() { --t_depth; InterlockedDecrement(&g_inHook); }
 };
 
-// True when this thread is already inside one of our Present hooks (the vendor pacer / proxy presenting the real child
-// chain from within the shadow Present the host issued): logged the first few times, then straight passthrough.
-bool Reentered(IDXGISwapChain* self)
+// "module.dll+0xOFF" for a code address (the log names who owns a slot / who called us).
+void Who(const void* p, char* out, size_t n)
 {
-    if (t_depth <= 1) return false;
-    if (InterlockedIncrement(&g_reentryLogged) <= 16)
-        FgLog("hook: re-entered Present depth %d on chain %p tid %u - passthrough", t_depth, (void*)self, (unsigned)GetCurrentThreadId());
-    return true;
+    HMODULE h = NULL;
+    wchar_t path[MAX_PATH] = {};
+    if (p && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)p, &h) && GetModuleFileNameW(h, path, MAX_PATH)) {
+        const wchar_t* base = wcsrchr(path, L'\\');
+        base = base ? base + 1 : path;
+        _snprintf_s(out, n, _TRUNCATE, "%ls+0x%llX", base, (unsigned long long)((const char*)p - (const char*)h));
+    } else {
+        _snprintf_s(out, n, _TRUNCATE, "%p (no module)", p);
+    }
+}
+
+// A jmp at the entry of `fn` (E9 rel32 / FF 25 [rip] / mov rax,imm64; jmp rax) = an inline detour; its target or NULL.
+const void* JmpTarget(const void* fn)
+{
+    const unsigned char* b = (const unsigned char*)fn;
+    if (b[0] == 0xE9) return b + 5 + *(const int*)(b + 1);
+    if (b[0] == 0xFF && b[1] == 0x25) return *(const void* const*)(b + 6 + *(const int*)(b + 2));
+    if (b[0] == 0x48 && b[1] == 0xB8 && b[10] == 0xFF && b[11] == 0xE0) return *(const void* const*)(b + 2);
+    return NULL;
+}
+
+// "module+off" plus " -> detoured to module+off" plus " (patched since install)" when `was` is given and differs.
+void Describe(const void* fn, const unsigned char* was, char* out, size_t n)
+{
+    char a[96], b[96];
+    Who(fn, a, sizeof(a));
+    const void* t = fn ? JmpTarget(fn) : NULL;
+    if (t) Who(t, b, sizeof(b));
+    _snprintf_s(out, n, _TRUNCATE, "%s%s%s%s", a, t ? " -> detoured to " : "", t ? b : "",
+                was && fn && memcmp(was, fn, kEntryBytes) != 0 ? " (patched since install)" : "");
+}
+
+// This thread is already inside one of our Present hooks. `via` = 0 entered through Present, 1 through Present1.
+//  - a foreign chain (the vendor pacer / proxy presenting the real child chain from inside the shadow Present the
+//    host issued): straight through the immutable original, a few levels tolerated;
+//  - the APP chain: our own forward of Unity's frame through dxgi's entry came back here - a detour between that
+//    entry and dxgi's body dispatches through the vtable slot. Present ONCE through the other entry (depth 2);
+//    if that bounces too (depth 3) nothing can present this chain any more: no present, last result, FG detached.
+HRESULT Reentered(IDXGISwapChain* self, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* pp, int via, void* caller)
+{
+    bool app = FgAppIs(self);
+    LONG n = InterlockedIncrement(&g_reentryLogged);
+    if (n == 1) {
+        char c[96], s[96], s1[96], e0[256], e1[256], h0[256], h1[256];
+        Who(caller, c, sizeof(c));
+        Who(g_vt ? g_vt[kVtPresent] : NULL, s, sizeof(s));
+        Who(g_vt ? g_vt[kVtPresent1] : NULL, s1, sizeof(s1));
+        Describe((const void*)g_origPresent, g_entryAtInstall[0], e0, sizeof(e0));
+        Describe((const void*)g_origPresent1, g_entryAtInstall[2], e1, sizeof(e1));
+        Describe((const void*)&HookPresent, g_hookAtInstall[0], h0, sizeof(h0));
+        Describe((const void*)&HookPresent1, g_hookAtInstall[1], h1, sizeof(h1));
+        FgLog("hook: first re-entry (%s, depth %d, chain %p%s, tid %u): caller %s; slot Present=%s Present1=%s; dxgi Present entry %s; dxgi Present1 entry %s; HookPresent %s; HookPresent1 %s",
+              via ? "Present1" : "Present", t_depth, (void*)self, app ? " = APP" : "", (unsigned)GetCurrentThreadId(), c, s, s1, e0, e1, h0, h1);
+    }
+    if (n <= 16)
+        FgLog("hook: re-entered %s depth %d on chain %p%s tid %u - %s", via ? "Present1" : "Present", t_depth, (void*)self, app ? " (app)" : "",
+              (unsigned)GetCurrentThreadId(), app ? (t_depth == 2 ? "other entry once" : "not presenting") : (t_depth <= kMaxForeignDepth ? "passthrough" : "not presenting"));
+    DXGI_PRESENT_PARAMETERS zero = {};
+    if (!app) {
+        if (t_depth > kMaxForeignDepth) return S_OK;
+        return via ? g_origPresent1((IDXGISwapChain1*)self, sync, flags, pp ? pp : &zero) : g_origPresent(self, sync, flags);
+    }
+    if (t_depth == 2) {
+        HRESULT hr = g_bounce >= 2 ? (via ? ((PfnPresent)g_vt[kVtPresent])(self, sync, flags)                                  // test: bounce again
+                                         : ((PfnPresent1)g_vt[kVtPresent1])((IDXGISwapChain1*)self, sync, flags, pp ? pp : &zero))
+                   : via ? g_origPresent(self, sync, flags)
+                         : g_origPresent1((IDXGISwapChain1*)self, sync, flags, pp ? pp : &zero);
+        t_lastHr = hr;
+        return hr;
+    }
+    if (InterlockedExchange(&g_bounced, 1) == 0) {
+        FgLog("hook: app Present bounces back through BOTH dxgi entries - not presenting, FG detached (last hr 0x%08X)", (unsigned)t_lastHr);
+        FgHostTearDown("Present hook re-entered 3 deep");
+    }
+    return t_lastHr;
 }
 
 void CountPresent()
@@ -163,14 +257,29 @@ bool IsApp(IDXGISwapChain* self)
 // Unity's Present flags once the shadow chain carried the frame: sync 0, only ALLOW_TEARING / RESTART kept.
 UINT UnityFlags(UINT flags) { return flags & (DXGI_PRESENT_ALLOW_TEARING | DXGI_PRESENT_RESTART); }
 
+// The depth-1 forward of the APP chain's Present: the immutable dxgi entry - or, under RENDERFORGE_FG_BOUNCE, the
+// vtable slot, i.e. straight back into the hook (test lever for the re-entry cap).
+HRESULT FwdApp(IDXGISwapChain* self, UINT sync, UINT flags)
+{
+    return g_bounce >= 1 ? ((PfnPresent)g_vt[kVtPresent])(self, sync, flags) : g_origPresent(self, sync, flags);
+}
+HRESULT FwdApp1(IDXGISwapChain1* self, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* pp)
+{
+    return g_bounce >= 1 ? ((PfnPresent1)g_vt[kVtPresent1])(self, sync, flags, pp) : g_origPresent1(self, sync, flags, pp);
+}
+
+// The depth check comes FIRST: a TEST present that bounced back at depth 2 must not be forwarded through the same
+// entry again either.
 HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flags)
 {
     Entered e;
-    if ((flags & kPassThrough) || Reentered(self)) return g_origPresent(self, sync, flags);
+    if (t_depth > 1) return Reentered(self, sync, flags, NULL, 0, _ReturnAddress());
+    if (flags & kPassThrough) return g_origPresent(self, sync, flags);
     NoteApp(self);
     if (!IsApp(self)) return g_origPresent(self, sync, flags);
     bool fg = FgHostOnPresent(self, sync, flags);
-    HRESULT hr = fg ? g_origPresent(self, 0, UnityFlags(flags)) : g_origPresent(self, sync, flags);
+    HRESULT hr = fg ? FwdApp(self, 0, UnityFlags(flags)) : FwdApp(self, sync, flags);
+    t_lastHr = hr;
     if (fg) FgHostAfterUnityPresent(hr); else CountPresent();
     return hr;
 }
@@ -178,11 +287,13 @@ HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flag
 HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* self, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* pp)
 {
     Entered e;
-    if ((flags & kPassThrough) || Reentered((IDXGISwapChain*)self)) return g_origPresent1(self, sync, flags, pp);
+    if (t_depth > 1) return Reentered(self, sync, flags, pp, 1, _ReturnAddress());
+    if (flags & kPassThrough) return g_origPresent1(self, sync, flags, pp);
     NoteApp(self);
     if (!IsApp(self)) return g_origPresent1(self, sync, flags, pp);
     bool fg = FgHostOnPresent((IDXGISwapChain*)self, sync, flags);
-    HRESULT hr = fg ? g_origPresent1(self, 0, UnityFlags(flags), pp) : g_origPresent1(self, sync, flags, pp);
+    HRESULT hr = fg ? FwdApp1(self, 0, UnityFlags(flags), pp) : FwdApp1(self, sync, flags, pp);
+    t_lastHr = hr;
     if (fg) FgHostAfterUnityPresent(hr); else CountPresent();
     return hr;
 }
@@ -215,12 +326,14 @@ HRESULT STDMETHODCALLTYPE HookSetFullscreenState(IDXGISwapChain* self, BOOL full
     return g_origSetFullscreen(self, fullscreen, target);
 }
 
-// Writes `fn` into vt[idx], returning the previous entry in *outOrig. False (slot untouched) on VirtualProtect failure.
+// Writes `fn` into vt[idx]. The previous entry is captured into *outOrig ONLY the first time (the original is
+// immutable for the process: a re-install never adopts whatever sits in the slot by then). False on VirtualProtect
+// failure, slot untouched.
 bool PatchSlot(void** vt, int idx, void* fn, void** outOrig)
 {
     DWORD old = 0;
     if (!VirtualProtect(&vt[idx], sizeof(void*), PAGE_READWRITE, &old)) return false;
-    *outOrig = vt[idx];
+    if (!*outOrig) *outOrig = vt[idx];
     vt[idx] = fn;
     DWORD tmp = 0;
     VirtualProtect(&vt[idx], sizeof(void*), old, &tmp);
@@ -251,7 +364,7 @@ void UnpatchSlots(void** vt, int n)
                 VirtualProtect(&vt[g_slots[i].idx], sizeof(void*), old, &tmp);
             }
         }
-        *g_slots[i].orig = NULL;
+        // *orig stays: the original is immutable for the process (see PatchSlot).
     }
 }
 
@@ -330,9 +443,40 @@ bool FgHookInstall(ID3D12CommandQueue* queue)
     }
 
     g_installed = 1;
-    FgLog("hook: installed (vtable %p, Present %p, Present1 %p, ResizeBuffers %p, SetFullscreenState %p)",
-          (void*)vt, (void*)g_origPresent, (void*)g_origPresent1, (void*)g_origResize, (void*)g_origSetFullscreen);
+    if (!g_vt) {                                       // first install: remember what the entries looked like
+        g_vt = vt;
+        char env[8] = {};
+        if (GetEnvironmentVariableA("RENDERFORGE_FG_BOUNCE", env, sizeof(env)) && env[0] >= '1' && env[0] <= '2') {
+            g_bounce = env[0] - '0';
+            FgLog("hook: TEST RENDERFORGE_FG_BOUNCE=%d - app-chain forwards re-enter the hook on purpose", g_bounce);
+        }
+        for (int i = 0; i < kSlots; ++i) memcpy(g_entryAtInstall[i], *g_slots[i].orig, kEntryBytes);
+        memcpy(g_hookAtInstall[0], (const void*)&HookPresent, kEntryBytes);
+        memcpy(g_hookAtInstall[1], (const void*)&HookPresent1, kEntryBytes);
+    }
+    char who[4][256];
+    for (int i = 0; i < kSlots; ++i) Describe(*g_slots[i].orig, NULL, who[i], sizeof(who[i]));
+    FgLog("hook: installed (vtable %p) Present=%s ResizeBuffers=%s Present1=%s SetFullscreenState=%s", (void*)vt, who[0], who[1], who[2], who[3]);
     return true;
+}
+
+void FgHookHide(void)
+{
+    if (!g_installed) return;
+    UnpatchSlots(g_vt, kSlots);
+}
+
+void FgHookShow(void)
+{
+    if (!g_installed) return;
+    for (int i = 0; i < kSlots; ++i) {
+        void* now = g_vt[g_slots[i].idx];
+        if (now != *g_slots[i].orig && now != g_slots[i].fn) {
+            char w[96]; Who(now, w, sizeof(w));
+            FgLog("hook: slot %d taken by %s while hidden - re-patched over it", g_slots[i].idx, w);
+        }
+        if (!PatchSlot(g_vt, g_slots[i].idx, g_slots[i].fn, g_slots[i].orig)) FgLog("hook: re-patch of slot %d failed", g_slots[i].idx);
+    }
 }
 
 void FgHookRemove(void)

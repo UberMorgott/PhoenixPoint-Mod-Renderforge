@@ -342,7 +342,9 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.multiplier = s.multiplier;
 
     IDXGISwapChain4* shadow = NULL;
+    FgHookHide();                                          // the new chain's vtable shows dxgi, not us (Fg.h)
     int rc = p->Create(s, &shadow);
+    FgHookShow();
     // The provider's caps survive a refused multiplier (XeSS-FG: 1 interpolated frame on non-Intel GPUs), so the
     // picker can grey 3x/4x from Fg_Caps even while no chain is up.
     H.lastCaps = p->Caps();
