@@ -78,6 +78,7 @@ namespace Renderforge
                 DlssDriver.Instance?.Apply(RenderforgeMode.Off, DebugView.None);
                 if (DlssDriver.Instance != null) UnityEngine.Object.Destroy(DlssDriver.Instance.gameObject);
                 Overlay.Destroy();
+                Pickers.Clear();
                 if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
                 if (InitCode == Native.DLSS_OK) Native.Dlss_Shutdown();
             }

@@ -80,6 +80,13 @@ namespace Renderforge
             rendererTouched = false;
         }
 
+        /// <summary>Drop the scene references on mod disable; the next panel Init rebuilds them.</summary>
+        internal static void Clear()
+        {
+            renderer = upscaler = frameGen = null;
+            onChanged = null;
+        }
+
         internal static void Hide(Transform content)
         {
             foreach (string n in new[] { RendererName, UpscalerName, FrameGenName })
