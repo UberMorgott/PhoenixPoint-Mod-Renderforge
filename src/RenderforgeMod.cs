@@ -29,30 +29,43 @@ namespace Renderforge
             ModDir = base.Instance?.Entry?.Directory ?? ".";
             Available = false;
             ApplyFrameRate();
-            try
+            // D3D11: the NGX path as before. D3D12: the mod stays alive for the pickers, the overlay and the
+            // PPv2 repair, but the native DLSS init is skipped (D3D12 upscaling is Phase 2).
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D11)
             {
-                if (!Native.Load(ModDir))
+                try
+                {
+                    if (!Native.Load(ModDir))
+                    {
+                        InitCode = Native.DLSS_ERR_INIT_FAILED;
+                        Logger.LogInfo("DLSS unavailable (code " + InitCode + "): RenderforgeNative.dll failed to load from " + ModDir);
+                    }
+                    else
+                    {
+                        probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                        InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
+                        Available = InitCode == Native.DLSS_OK;
+                    }
+                }
+                catch (Exception ex)
                 {
                     InitCode = Native.DLSS_ERR_INIT_FAILED;
-                    Logger.LogInfo("DLSS unavailable (code " + InitCode + "): RenderforgeNative.dll failed to load from " + ModDir);
-                    return;
+                    Logger.LogError("Renderforge init THREW " + ex.Message);
                 }
-                probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-                InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
-                Available = InitCode == Native.DLSS_OK && SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D11;
+                Logger.LogInfo(Available ? "DLSS available" : "DLSS unavailable (code " + InitCode + "): " + Reason(InitCode));
             }
-            catch (Exception ex)
+            else
             {
-                InitCode = Native.DLSS_ERR_INIT_FAILED;
-                Logger.LogError("Renderforge init THREW " + ex.Message);
+                InitCode = Native.DLSS_ERR_NOT_AVAILABLE;
+                Logger.LogInfo("Renderforge: " + SystemInfo.graphicsDeviceType + " - native DLSS init skipped ("
+                               + Availability.Reason(Feature.Dlss) + ")");
             }
-            Logger.LogInfo(Available ? "DLSS available" : "DLSS unavailable (code " + InitCode + "): " + Reason(InitCode));
-            if (!Available) return;
             try
             {
-                DlssDriver.Create();
+                if (Available) DlssDriver.Create();
                 ((Harmony)HarmonyInstance).PatchAll(typeof(RenderforgeMod).Assembly);
                 patched = true;
+                if (RendererSwitch.Wants12(Cfg) && !Availability.IsD3D12) RendererSwitch.ArmStartupPrompt();
                 AttachAndApply();
             }
             catch (Exception ex) { Logger.LogError("Renderforge enable THREW " + ex); }
@@ -75,7 +88,7 @@ namespace Renderforge
             Instance = null;
         }
 
-        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); }   // Reapply covers a level that starts with the generation still live
+        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); }   // Reapply covers a level that starts with the generation still live
 
         /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
         public override void OnLevelEnd(Level level) => DlssDriver.Instance?.Apply(RenderforgeMode.Off, Cfg.DebugView);
@@ -139,10 +152,10 @@ namespace Renderforge
 
         private void AttachAndApply()
         {
+            Overlay.Apply(Cfg);               // before the driver check: under D3D12 there is no driver at all
             var d = DlssDriver.Instance;
             if (d == null) return;
             if (Cfg.Mode != RenderforgeMode.Off) lastOn = Cfg.Mode;
-            Overlay.Apply(Cfg);
             var cam = GameUtl.GameComponent<CameraManager>()?.Camera;
             if (cam == null) return;          // main menu without CameraManager: wait for the next level
             d.Attach(cam);
