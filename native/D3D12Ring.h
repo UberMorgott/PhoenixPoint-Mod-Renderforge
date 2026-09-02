@@ -168,6 +168,24 @@ struct D3D12Ring
         return true;
     }
 
+    // End() for work that must NOT go through Unity (the FG host's backbuffer copy inside the Present hook,
+    // where Unity's own frame is already submitted): close + execute straight on `q`, gated by our fence only.
+    bool EndDirect(ID3D12CommandQueue* q)
+    {
+        if (!recording || !q) return false;
+        int i = ringIdx;
+        recording = 0;
+        ringIdx = (ringIdx + 1) % kRing;
+        if (FAILED(list[i]->Close())) return false;
+        ID3D12CommandList* lists[1] = { list[i] };
+        q->ExecuteCommandLists(1, lists);
+        unityVal[i] = 0;
+        if (fence && SUCCEEDED(q->Signal(fence, fenceVal + 1))) { submitted[i] = ++fenceVal; return true; }
+        ReleaseSlot(i);   // same reasoning as End(): an untracked allocator must never be reset
+        submitted[i] = 0;
+        return true;
+    }
+
     void Release()
     {
         WaitIdle();

@@ -98,6 +98,7 @@ namespace Renderforge
             {
                 DlssDriver.Instance?.Apply(RenderforgeMode.Off, DebugView.None);
                 if (DlssDriver.Instance != null) UnityEngine.Object.Destroy(DlssDriver.Instance.gameObject);
+                FrameGen.Stop();
                 Overlay.Destroy();
                 Pickers.Clear();
                 if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
@@ -175,6 +176,7 @@ namespace Renderforge
         private void AttachAndApply()
         {
             Overlay.Apply(Cfg);               // before the driver check: under D3D12 there is no driver at all
+            FrameGen.Apply(Cfg);              // also reached from OnConfigChanged through this method
             var d = DlssDriver.Instance;
             if (d == null) return;
             if (Cfg.Mode != RenderforgeMode.Off) lastOn = Cfg.Mode;
@@ -205,7 +207,19 @@ namespace Renderforge
             return "sharpness=" + m.Cfg.Sharpness;
         }
 
-        public static string GetStatus() => DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode);
+        /// <summary>PPCLI: {"member":"SetFrameGen","args":["X2"]} - Off / X2 / X3 / X4. Live next frame + saved.</summary>
+        public static string SetFrameGen(string mode)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.FrameGen = (FrameGenMode)Enum.Parse(typeof(FrameGenMode), mode, true);
+            FrameGen.Apply(m.Cfg);
+            SaveConfig();
+            return "frameGen=" + m.Cfg.FrameGen + " " + FrameGen.Status();
+        }
+
+        public static string GetStatus() => (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
+                                          + " | fg=" + FrameGen.Status();
 
         /// <summary>Phase 5 Task 1 spike: {"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"FgSpike"}.
         /// Installs the Present hook (D3D12 only) and returns the diagnostics line once frames have gone through it.</summary>

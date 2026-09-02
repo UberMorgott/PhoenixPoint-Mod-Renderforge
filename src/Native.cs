@@ -144,6 +144,35 @@ namespace Renderforge
 
         public static string Fg_SpikeStatus() => Marshal.PtrToStringAnsi(Fg_SpikeStatusPtr()) ?? "";
 
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+        public static extern int Fg_Init(int provider, uint multiplier, [MarshalAs(UnmanagedType.LPWStr)] string dllDir);
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Fg_SetEnabled(int on);
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Fg_SetFrame(IntPtr hudless, IntPtr depth, IntPtr mv,
+            float jitterX, float jitterY, float mvScaleX, float mvScaleY,
+            float cameraNear, float cameraFar, float cameraFovY,
+            float dtMs, int reset,
+            uint renderW, uint renderH, uint outW, uint outH,
+            ulong frameId,
+            float[] view, float[] proj, float[] cam);
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern uint Fg_Caps();
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_Provider();
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Fg_Status")]
+        private static extern IntPtr Fg_StatusPtr();
+
+        public static string Fg_Status() => Marshal.PtrToStringAnsi(Fg_StatusPtr()) ?? "";
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Fg_Shutdown();
+
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Dlss_ResultString")]
         private static extern IntPtr Dlss_ResultStringPtr(int ngxResult);
 

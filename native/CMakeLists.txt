@@ -58,13 +58,14 @@ add_library(RenderforgeNative SHARED
     Sharpen.cpp
     Fg.h
     FgHook.cpp
+    FgHost.cpp
     unity/IUnityInterface.h
     unity/IUnityGraphics.h
     unity/IUnityGraphicsD3D12.h)
 target_include_directories(RenderforgeNative
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     PRIVATE "${DLSS_SDK}/include" "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}" "${XESS_SDK}/inc" "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" "${XESS_LIB}" d3d11 d3d12 dxgi d3dcompiler delayimp)
+target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" "${XESS_LIB}" d3d11 d3d12 dxgi dcomp d3dcompiler delayimp)
 target_link_options(RenderforgeNative PRIVATE "/DELAYLOAD:libxess.dll")
 # _WINDOWS is what ffx_api_loader.h:38 tests to compile ffxLoadFunctions; without it every pointer stays NULL.
 target_compile_definitions(RenderforgeNative PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WINDOWS DLSSNATIVE_EXPORTS)

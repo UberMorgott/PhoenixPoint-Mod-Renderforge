@@ -728,7 +728,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(fg): DXGI Present hook sp
 
 The whole plumbing with **no vendor SDK involved**: a shadow swapchain of our own, a per-frame backbuffer copy, presents through the shadow, and the overlay reading real/presented fps. `FG_PROVIDER_NONE` presents 1:1, so if the picture, the HUD and the frame rate are unchanged the transport is correct and every later provider is a drop-in.
 
-- [ ] **Step 1: Extend `native\Fg.h` with the provider seam**
+- [x] **Step 1: Extend `native\Fg.h` with the provider seam**
 
 Append to `Fg.h` (after the hook declarations):
 
@@ -808,7 +808,7 @@ void FgHostOnResize(unsigned w, unsigned h);
 void FgPresentedAdd(int n);
 ```
 
-- [ ] **Step 2: Write `native\FgHost.cpp`**
+- [x] **Step 2: Write `native\FgHost.cpp`** (as built: both command-list rings are `D3D12Ring` instances — `prep` via Unity `ExecuteCommandList` with the ring's own persistent state arrays, `copy` via the new `D3D12Ring::EndDirect(queue)`; the plan's hand-rolled ring mixed our fence with Unity's frame-fence value and passed a stack state array, which `D3D12Ring.h` documents as the 2026-09-02 DEVICE_REMOVED root cause. Vendor factories return NULL until Tasks 3-5 and the host falls back to the pass-through provider with a log line.)
 
 ```cpp
 // FgHost.cpp - the presentation host. Owns the FG-owned "shadow" swapchain on the game's HWND, copies
@@ -1129,7 +1129,7 @@ const char* FgHostStatus(void)
 }
 ```
 
-- [ ] **Step 3: Let the hook call the host — edit `native\FgHook.cpp`**
+- [x] **Step 3: Let the hook call the host — edit `native\FgHook.cpp`**
 
 Replace the bodies of `HookPresent`, `HookPresent1` and `HookResizeBuffers` with:
 
@@ -1174,7 +1174,7 @@ void FgPresentedAdd(int n)
 }
 ```
 
-- [ ] **Step 4: Exports in `native\RenderforgeNative.h`**
+- [x] **Step 4: Exports in `native\RenderforgeNative.h`**
 
 Append after the `Fg_SpikeStatus` declaration from Task 1:
 
@@ -1203,7 +1203,7 @@ DLSS_API const char* __cdecl Fg_Status(void);
 DLSS_API void __cdecl Fg_Shutdown(void);
 ```
 
-- [ ] **Step 5: Implement them in `native\RenderforgeNative.cpp`**
+- [x] **Step 5: Implement them in `native\RenderforgeNative.cpp`**
 
 Append after `Fg_SpikeStatus`:
 
@@ -1264,7 +1264,7 @@ and change the `DLSS_EV_FG_PREPARE` arm added in Task 1 Step 4 from `FgHookSpike
 
 Also call `FgHostShutdown(); FgHookRemove();` at the top of `Dlss_Shutdown`.
 
-- [ ] **Step 6: `native\CMakeLists.txt` — new source and the DirectComposition link (fallback 4a)**
+- [x] **Step 6: `native\CMakeLists.txt` — new source and the DirectComposition link (fallback 4a)** (added `FgHost.cpp` + `dcomp` to the existing multi-provider list; the snippet below predates the FSR/XeSS sources)
 
 ```cmake
 add_library(RenderforgeNative SHARED
@@ -1282,7 +1282,7 @@ target_include_directories(RenderforgeNative PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" d3d11 d3d12 dxgi dcomp d3dcompiler)
 ```
 
-- [ ] **Step 7: Managed — the config field**
+- [x] **Step 7: Managed — the config field** (placed after `Upscaler`, the last field at HEAD)
 
 In `E:\DEV\PhoenixPoint\Renderforge\src\DlssConfig.cs`, add the enum next to `RendererMode`:
 
@@ -1305,7 +1305,7 @@ and the RU entry inside the `Ru` dictionary:
             { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12. 3x и 4x — DLSS-G на видеокарте RTX 50." } },
 ```
 
-- [ ] **Step 8: Managed — `src\FrameGen.cs`**
+- [x] **Step 8: Managed — `src\FrameGen.cs`** (plus `Release()`: driver teardown keeps the wish so the next live generation's `Retry()` rebuilds the chain; `Stop()` = `Release()` + forget)
 
 ```csharp
 using System;
@@ -1399,7 +1399,7 @@ namespace Renderforge
 }
 ```
 
-- [ ] **Step 9: Managed — feed the driver (`src\DlssDriver.cs`)**
+- [x] **Step 9: Managed — feed the driver (`src\DlssDriver.cs`)** (`BeginRelease` calls `FrameGen.Release()`, not `Stop()`)
 
 At the end of the `try` block in `AfterPostProcessPreCull`, right after `cbEval.IssuePluginEventAndData(...)` and before `frames++`, add:
 
@@ -1423,7 +1423,7 @@ At the end of the `try` block in `AfterPostProcessPreCull`, right after `cbEval.
 
 Change the `Native.cs` signature's last three parameters to `float[]` so this compiles without `unsafe` (see Step 10). In `BeginRelease()`, before `MipBias.Reset()`, add `FrameGen.Stop();` — the FG chain references `outRT`/`depthRT`/`mvRT` and must die before they do. In `Step()`'s `Gen.Live` arm, after `KeepCameraState();`, add `FrameGen.Retry();`.
 
-- [ ] **Step 10: Managed — the P/Invoke block (`src\Native.cs`)**
+- [x] **Step 10: Managed — the P/Invoke block (`src\Native.cs`)**
 
 Add after the Task 1 block:
 
@@ -1458,7 +1458,7 @@ Add after the Task 1 block:
         public static extern void Fg_Shutdown();
 ```
 
-- [ ] **Step 11: Managed — mod lifecycle and PPCLI entry (`src\RenderforgeMod.cs`)**
+- [x] **Step 11: Managed — mod lifecycle and PPCLI entry (`src\RenderforgeMod.cs`)** (`FrameGen.Apply` only in `AttachAndApply`, which `OnConfigChanged` already calls. Also pulled forward from Task 5: `Availability.Reason(Feature.FrameGen)` no longer says "Not implemented yet" on D3D12 — it returns "Turn an upscaler on first" while `Mode == Off`, else null — and `Pickers` opens the FG row from `cfg.FrameGen`, greys per `FrameGen.Caps`, and writes through `SetFrameGen`; without that the tester's `SetFrameGen X2` would have been refused by `Apply`.)
 
 In `OnConfigChanged`, after `AttachAndApply();` add `FrameGen.Apply(Cfg);`.
 In `AttachAndApply()`, after `Overlay.Apply(Cfg);` add `FrameGen.Apply(Cfg);`.
@@ -1485,7 +1485,7 @@ and extend `GetStatus` so the FG line always ships with the DLSS one:
                                           + " | fg=" + FrameGen.Status();
 ```
 
-- [ ] **Step 12: Managed — the overlay (`src\Overlay.cs`)**
+- [x] **Step 12: Managed — the overlay (`src\Overlay.cs`)**
 
 In `Update()`, right before the `float avg = ...` line, add:
 
@@ -1501,7 +1501,7 @@ and add the `FG:` line to the text block, between `AA:` and the fps line:
                             : "off" + (Availability.Reason(Feature.FrameGen) != null ? " (" + Availability.Reason(Feature.FrameGen) + ")" : ""))
 ```
 
-- [ ] **Step 13: Build**
+- [x] **Step 13: Build** (2026-09-02: `build-native.ps1` → 4x `PROBE OK`, `build-native: OK`, 0 warnings; `dotnet build -c Release` → 0 warnings, 0 errors. Not deployed.)
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\build-native.ps1"

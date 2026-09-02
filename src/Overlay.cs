@@ -151,6 +151,7 @@ namespace Renderforge
                 aa = l == null || l.antialiasingMode == PostProcessLayer.Antialiasing.None ? "none"
                    : l.antialiasingMode == PostProcessLayer.Antialiasing.SubpixelMorphologicalAntialiasing ? "SMAA" : l.antialiasingMode.ToString();
             }
+            FgFps = FrameGen.Live ? Native.Fg_PresentedFps() : 0;
             float avg = dtSum / dts.Count;
             string dlssReason = Availability.Reason(Upscalers.ActiveFeature);
             string fps = "FPS: " + Mathf.RoundToInt(1f / avg)
@@ -162,6 +163,9 @@ namespace Renderforge
                                           : "off" + (dlssReason != null ? " (" + dlssReason + ")" : ""))
                       + "\nMode: " + mode
                       + "\nAA: " + aa
+                      + "\nFG: " + (FrameGen.Live
+                            ? FrameGen.ProviderName(FrameGen.Provider) + " " + (Native.Fg_Caps() != 0 ? RenderforgeMod.Instance.Cfg.FrameGen.ToString().Replace("X", "") + "x" : "?")
+                            : "off" + (Availability.Reason(Feature.FrameGen) != null ? " (" + Availability.Reason(Feature.FrameGen) + ")" : ""))
                       + "\n" + fps;
             box.sizeDelta = new Vector2(text.preferredWidth + 2f * Pad, text.preferredHeight + 2f * Pad);
         }

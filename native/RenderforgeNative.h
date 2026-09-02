@@ -119,6 +119,29 @@ DLSS_API int __cdecl Fg_PresentedFps(void);
 // Spike diagnostics as one flat line (static buffer, main thread only).
 DLSS_API const char* __cdecl Fg_SpikeStatus(void);
 
+// Main thread. Builds the FG chain: hook (if not yet), provider, shadow swapchain. Retry-safe: returns
+// FG_ERR_NO_SWAPCHAIN until the hook has seen at least one Present, so the caller may call it per frame.
+DLSS_API int __cdecl Fg_Init(int provider, unsigned multiplier, const wchar_t* dllDir);
+// Main thread. Turns interpolation on/off without tearing the chain down.
+DLSS_API void __cdecl Fg_SetEnabled(int on);
+// Main thread. One rendered frame's inputs. All resources are ID3D12Resource*. `view`/`proj` are 16 floats
+// row-major; `cam` is 12 floats: pos[3], up[3], right[3], forward[3]. fovY in radians.
+DLSS_API void __cdecl Fg_SetFrame(void* hudless, void* depth, void* mv,
+                                  float jitterX, float jitterY, float mvScaleX, float mvScaleY,
+                                  float cameraNear, float cameraFar, float cameraFovY,
+                                  float dtMs, int reset,
+                                  unsigned renderW, unsigned renderH, unsigned outW, unsigned outH,
+                                  unsigned long long frameId,
+                                  const float* view, const float* proj, const float* cam);
+// FG_CAP_* mask of the ACTIVE provider on THIS GPU. 0 = no chain.
+DLSS_API unsigned __cdecl Fg_Caps(void);
+// FG_PROVIDER_* of the active chain.
+DLSS_API int __cdecl Fg_Provider(void);
+// One diagnostic line (static buffer, main thread only).
+DLSS_API const char* __cdecl Fg_Status(void);
+// Main thread, render idle. Destroys the chain; the Present hook stays installed and inert.
+DLSS_API void __cdecl Fg_Shutdown(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -64,7 +64,7 @@ namespace Renderforge
             upscaler.Init(UpscalerLabels.Length, pendingUpscaler, OnUpscaler);
             ShowUpscaler();
 
-            pendingFrameGen = 0;
+            pendingFrameGen = (int)cfg.FrameGen;
             frameGen = Row(src, FrameGenName, DlssConfig.Loc("Frame generation", "Генерация кадров"), upscaler.transform.GetSiblingIndex() + 1);
             frameGen.Init(FrameGenLabels.Length, pendingFrameGen, OnFrameGen);
             ShowFrameGen();
@@ -141,9 +141,25 @@ namespace Renderforge
             GraphicsPanel.Tip(upscaler.CentralButton.gameObject, reason);
         }
 
+        private static readonly int[] FrameGenCaps = { 0, Native.FG_CAP_2X, Native.FG_CAP_3X, Native.FG_CAP_4X };
+
+        /// <summary>Null = selectable. Otherwise the row stays VISIBLE, greyed, with this as the tooltip - never hidden,
+        /// never snapped back.</summary>
+        private static string FrameGenReason(int index)
+        {
+            if (index == 0) return null;
+            string r = Availability.Reason(Feature.FrameGen);
+            if (r != null) return r;
+            uint caps = FrameGen.Caps;
+            // Caps are 0 until the chain has been built once; only grey a multiplier we KNOW is unsupported.
+            if (caps != 0 && (caps & (uint)FrameGenCaps[index]) == 0)
+                return DlssConfig.Loc("Not supported by this GPU", "Не поддерживается этой видеокартой");
+            return null;
+        }
+
         private static void ShowFrameGen()
         {
-            string reason = pendingFrameGen == 0 ? null : Availability.Reason(Feature.FrameGen);
+            string reason = FrameGenReason(pendingFrameGen);
             GraphicsPanel.SetRaw(frameGen.CurrentItem, frameGen.CurrentItemText, FrameGenLabels[pendingFrameGen]);
             GraphicsPanel.Grey(frameGen.CurrentItem.gameObject, reason != null);
             GraphicsPanel.Tip(frameGen.CentralButton.gameObject, reason);
@@ -188,6 +204,8 @@ namespace Renderforge
             {
                 pendingFrameGen = index;
                 ShowFrameGen();
+                if (RenderforgeMod.Instance == null || FrameGenReason(index) != null) return;   // unavailable: greyed + tooltip, write nothing
+                RenderforgeMod.SetFrameGen(((FrameGenMode)index).ToString());
             }
             catch (Exception ex) { Log("frame-generation picker change failed", ex); }
         }

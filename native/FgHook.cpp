@@ -94,7 +94,9 @@ void NoteApp(IDXGISwapChain* sc)
 HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flags)
 {
     NoteApp(self);
-    HRESULT hr = g_origPresent(self, sync, flags);
+    HRESULT hr = S_OK;
+    if (self == (IDXGISwapChain*)g_app && FgHostOnPresent(self, sync, flags, &hr)) return hr;
+    hr = g_origPresent(self, sync, flags);
     if (self == (IDXGISwapChain*)g_app) { CountPresent(); g_spike.forwardedPresentHr = (long)hr; }
     return hr;
 }
@@ -102,7 +104,9 @@ HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flag
 HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* self, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* pp)
 {
     NoteApp(self);
-    HRESULT hr = g_origPresent1(self, sync, flags, pp);
+    HRESULT hr = S_OK;
+    if ((IDXGISwapChain*)self == (IDXGISwapChain*)g_app && FgHostOnPresent((IDXGISwapChain*)self, sync, flags, &hr)) return hr;
+    hr = g_origPresent1(self, sync, flags, pp);
     if ((IDXGISwapChain*)self == (IDXGISwapChain*)g_app) { CountPresent(); g_spike.forwardedPresentHr = (long)hr; }
     return hr;
 }
@@ -111,6 +115,7 @@ HRESULT STDMETHODCALLTYPE HookResizeBuffers(IDXGISwapChain* self, UINT count, UI
 {
     if (self == (IDXGISwapChain*)g_app) {
         FgLog("hook: app ResizeBuffers %ux%u count %u fmt %d flags 0x%X", w, h, count, (int)fmt, flags);
+        FgHostOnResize(w, h);
         g_appDescValid = 0;
     }
     return g_origResize(self, count, w, h, fmt, flags);
@@ -229,6 +234,11 @@ HRESULT FgOriginalPresent(IDXGISwapChain* sc, UINT sync, UINT flags)
 HRESULT FgOriginalResizeBuffers(IDXGISwapChain* sc, UINT count, UINT w, UINT h, DXGI_FORMAT fmt, UINT flags)
 {
     return g_origResize ? g_origResize(sc, count, w, h, fmt, flags) : E_FAIL;
+}
+
+void FgPresentedAdd(int n)
+{
+    for (int i = 0; i < n; ++i) CountPresent();
 }
 
 int FgPresentedFps(void) { return (int)g_fps; }

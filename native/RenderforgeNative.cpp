@@ -189,7 +189,7 @@ static void __stdcall OnRenderEventAndData(int eventId, void* data)
         S.dev->ReleaseFeature();
         break;
     case DLSS_EV_FG_PREPARE:
-        FgHookSpike();
+        FgHostPrepare();
         break;
     default:
         break;
@@ -278,8 +278,55 @@ const char* __cdecl Fg_SpikeStatus(void)
     return buf;
 }
 
+int __cdecl Fg_Init(int provider, unsigned multiplier, const wchar_t* dllDir)
+{
+    if (!S.dev || S.dev->Api() != 12 || !g_unityD3D12) return FG_ERR_NOT_D3D12;
+    FgLogInit(dllDir);
+    if (!FgHookInstall(g_unityD3D12->GetCommandQueue())) return FG_ERR_NO_HOOK;
+    return FgHostInit(provider, multiplier, dllDir);
+}
+
+void __cdecl Fg_SetEnabled(int on) { FgHostSetEnabled(on); }
+
+void __cdecl Fg_SetFrame(void* hudless, void* depth, void* mv,
+                         float jitterX, float jitterY, float mvScaleX, float mvScaleY,
+                         float cameraNear, float cameraFar, float cameraFovY,
+                         float dtMs, int reset,
+                         unsigned renderW, unsigned renderH, unsigned outW, unsigned outH,
+                         unsigned long long frameId,
+                         const float* view, const float* proj, const float* cam)
+{
+    FgFrame f;
+    memset(&f, 0, sizeof(f));
+    f.hudless = (ID3D12Resource*)hudless;
+    f.depth   = (ID3D12Resource*)depth;
+    f.mv      = (ID3D12Resource*)mv;
+    f.jitterX = jitterX; f.jitterY = jitterY;
+    f.mvScaleX = mvScaleX; f.mvScaleY = mvScaleY;
+    f.cameraNear = cameraNear; f.cameraFar = cameraFar; f.cameraFovY = cameraFovY;
+    f.dtMs = dtMs; f.reset = reset;
+    f.renderW = renderW; f.renderH = renderH; f.outW = outW; f.outH = outH;
+    f.frameId = frameId;
+    if (view) memcpy(f.view, view, sizeof(f.view));
+    if (proj) memcpy(f.proj, proj, sizeof(f.proj));
+    if (cam) {
+        memcpy(f.camPos,   cam + 0, sizeof(f.camPos));
+        memcpy(f.camUp,    cam + 3, sizeof(f.camUp));
+        memcpy(f.camRight, cam + 6, sizeof(f.camRight));
+        memcpy(f.camFwd,   cam + 9, sizeof(f.camFwd));
+    }
+    FgHostSetFrame(f);
+}
+
+unsigned __cdecl Fg_Caps(void) { return FgHostCaps(); }
+int __cdecl Fg_Provider(void) { return FgHostProvider(); }
+const char* __cdecl Fg_Status(void) { return FgHostStatus(); }
+void __cdecl Fg_Shutdown(void) { FgHostShutdown(); }
+
 void __cdecl Dlss_Shutdown(void)
 {
+    FgHostShutdown();
+    FgHookRemove();
     if (S.dev) S.dev->Shutdown();
     S.dev = NULL;
     S.lastSlot = NULL;

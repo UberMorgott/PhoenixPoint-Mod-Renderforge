@@ -183,6 +183,7 @@ namespace Renderforge
                         if ((e & 0xFFF00000) == 0xBAD00000) { Fail("NGX evaluate failed: 0x" + e.ToString("X") + " " + Native.Dlss_ResultString(e) + " lastError=" + Native.Dlss_LastError()); break; }
                     }
                     KeepCameraState();
+                    FrameGen.Retry();
                     if (mipReapplyAt > 0f && Time.unscaledTime >= mipReapplyAt) { mipReapplyAt = 0f; MipBias.Reapply(); }
                     break;
                 case Gen.Releasing:
@@ -308,6 +309,7 @@ namespace Renderforge
 
         private void BeginRelease()
         {
+            FrameGen.Release();    // the FG chain references outRT/depthRT/mvRT and must die before they do
             MipBias.Reset();
             Detach();
             if (wantsFeature) GL.IssuePluginEvent(evFn, Native.DLSS_EV_RELEASE);
@@ -368,6 +370,21 @@ namespace Renderforge
                     reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
+                if (FrameGen.Live)
+                {
+                    var v = cam.worldToCameraMatrix;
+                    var pr = cam.nonJitteredProjectionMatrix;
+                    float[] view = { v.m00, v.m01, v.m02, v.m03, v.m10, v.m11, v.m12, v.m13, v.m20, v.m21, v.m22, v.m23, v.m30, v.m31, v.m32, v.m33 };
+                    float[] proj = { pr.m00, pr.m01, pr.m02, pr.m03, pr.m10, pr.m11, pr.m12, pr.m13, pr.m20, pr.m21, pr.m22, pr.m23, pr.m30, pr.m31, pr.m32, pr.m33 };
+                    Vector3 cp = cam.transform.position, cu = cam.transform.up, cr = cam.transform.right, cf = cam.transform.forward;
+                    float[] camv = { cp.x, cp.y, cp.z, cu.x, cu.y, cu.z, cr.x, cr.y, cr.z, cf.x, cf.y, cf.z };
+                    Native.Fg_SetFrame(outPtr, depthPtr, mvPtr, -jx, -jy, -renderW, -renderH,
+                        cam.nearClipPlane, cam.farClipPlane, cam.fieldOfView * Mathf.Deg2Rad,
+                        Time.unscaledDeltaTime * 1000f, reset,
+                        (uint)renderW, (uint)renderH, (uint)outW, (uint)outH, (ulong)frames,
+                        view, proj, camv);
+                    cbEval.IssuePluginEvent(evFn, Native.DLSS_EV_FG_PREPARE);
+                }
                 frames++;
             }
             catch (Exception ex) { Fail("callback threw (OnPreCull): " + ex); }

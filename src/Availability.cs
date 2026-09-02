@@ -83,10 +83,13 @@ namespace Renderforge
                         return DlssConfig.Loc("XeSS selected — restart the game", "XeSS выбран — перезапустите игру");
                     return null;
                 case Feature.FrameGen:
-                    return NeedsRestart ? RestartReason
-                        : IsD3D12
-                        ? DlssConfig.Loc("Not implemented yet", "Пока не реализовано")
-                        : DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
+                    // Phase 5 Task 2: the pass-through chain runs on any D3D12 build; vendor DLL reasons arrive with the providers.
+                    if (!IsD3D12)
+                        return DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
+                    if (NeedsRestart) return RestartReason;
+                    if (RenderforgeMod.Instance == null || RenderforgeMod.Instance.Cfg.Mode == RenderforgeMode.Off)
+                        return DlssConfig.Loc("Turn an upscaler on first", "Сначала включите апскейлер");
+                    return null;
                 default:
                     return null;
             }
