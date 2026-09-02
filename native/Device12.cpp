@@ -14,6 +14,7 @@
 #include "Sharpen.h"
 
 #include <d3d12.h>
+#include <d3dcompiler.h>
 #include <string.h>
 
 #include "unity/IUnityInterface.h"
@@ -45,6 +46,19 @@ struct Device12 : IDevice
     int recording;                // a list is open; End() must be reached on every path
     HANDLE waitEvent;
 
+    // Sharpen pass. Descriptors are written straight into the shader-visible heap, 2 per ring slot
+    // (SRV of the scratch copy at +0, UAV of the output at +1). Constants live in one persistently
+    // mapped upload buffer, 256 B per ring slot (a root CBV needs 256-byte alignment).
+    ID3D12RootSignature* rootSig;
+    ID3D12PipelineState* pso;
+    ID3D12DescriptorHeap* descHeap;
+    UINT descSize;
+    ID3D12Resource* cb;
+    unsigned char* cbCpu;
+    ID3D12Resource* scratch;       // SRV copy of the output; in-place read+write is a hazard
+    unsigned scratchW, scratchH;
+    DXGI_FORMAT scratchFmt;
+
     Device12() { Zero(); }
 
     void Zero()
@@ -54,6 +68,8 @@ struct Device12 : IDevice
         for (int i = 0; i < kRing; ++i) { alloc[i] = NULL; list[i] = NULL; submitted[i] = 0; }
         ringIdx = 0; recording = 0; waitEvent = NULL;
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; sharpener = 0; sharpenDead = 0;
+        rootSig = NULL; pso = NULL; descHeap = NULL; descSize = 0; cb = NULL; cbCpu = NULL;
+        scratch = NULL; scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN;
     }
 
     int Api() const override { return 12; }
@@ -105,6 +121,165 @@ struct Device12 : IDevice
         if (FAILED(list[i]->Close())) return false;
         submitted[i] = unity->ExecuteCommandList(list[i], stateCount, states);
         return true;
+    }
+
+    // ---- sharpen ------------------------------------------------------------
+
+    void SharpenFail() { sharpenDead = 1; lastError = DLSS_ERR_SHARPEN; }
+
+    static void Barrier(ID3D12GraphicsCommandList* cl, ID3D12Resource* res,
+                        D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to)
+    {
+        D3D12_RESOURCE_BARRIER b = {};
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        b.Transition.pResource = res;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.StateBefore = from;
+        b.Transition.StateAfter = to;
+        cl->ResourceBarrier(1, &b);
+    }
+
+    bool SharpenEnsure()
+    {
+        if (pso) return true;
+        if (sharpenDead) return false;
+
+        int kind = 0;
+        ID3DBlob* blob = CompileSharpenBlob(&kind);
+        if (!blob) { SharpenFail(); return false; }
+
+        D3D12_DESCRIPTOR_RANGE ranges[2] = {};
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[0].NumDescriptors = 1; ranges[0].BaseShaderRegister = 0;
+        ranges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[1].NumDescriptors = 1; ranges[1].BaseShaderRegister = 0;
+        ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER rp[3] = {};
+        rp[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rp[0].Descriptor.ShaderRegister = 0;
+        rp[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rp[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rp[1].DescriptorTable.NumDescriptorRanges = 1; rp[1].DescriptorTable.pDescriptorRanges = &ranges[0];
+        rp[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rp[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rp[2].DescriptorTable.NumDescriptorRanges = 1; rp[2].DescriptorTable.pDescriptorRanges = &ranges[1];
+        rp[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+        D3D12_STATIC_SAMPLER_DESC ss = {};
+        ss.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        ss.AddressU = ss.AddressV = ss.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        ss.MaxLOD = D3D12_FLOAT32_MAX;
+        ss.ShaderRegister = 0; ss.RegisterSpace = 0;
+        ss.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+        D3D12_ROOT_SIGNATURE_DESC rsd = {};
+        rsd.NumParameters = 3; rsd.pParameters = rp;
+        rsd.NumStaticSamplers = 1; rsd.pStaticSamplers = &ss;
+        rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+        ID3DBlob* sig = NULL; ID3DBlob* err = NULL;
+        HRESULT hr = D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &sig, &err);
+        if (err) err->Release();
+        if (FAILED(hr) || !sig) { blob->Release(); SharpenFail(); return false; }
+        hr = device->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(), IID_PPV_ARGS(&rootSig));
+        sig->Release();
+        if (FAILED(hr)) { blob->Release(); SharpenFail(); return false; }
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pd = {};
+        pd.pRootSignature = rootSig;
+        pd.CS.pShaderBytecode = blob->GetBufferPointer();
+        pd.CS.BytecodeLength = blob->GetBufferSize();
+        hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
+        blob->Release();
+        if (FAILED(hr)) { SharpenFail(); return false; }
+
+        D3D12_DESCRIPTOR_HEAP_DESC hd = {};
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        hd.NumDescriptors = 2 * kRing;
+        hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FAILED(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&descHeap)))) { SharpenFail(); return false; }
+        descSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        D3D12_HEAP_PROPERTIES hp = {};
+        hp.Type = D3D12_HEAP_TYPE_UPLOAD;
+        D3D12_RESOURCE_DESC bd = {};
+        bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        bd.Width = 256 * kRing; bd.Height = 1; bd.DepthOrArraySize = 1; bd.MipLevels = 1;
+        bd.Format = DXGI_FORMAT_UNKNOWN; bd.SampleDesc.Count = 1;
+        bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd,
+                                                   D3D12_RESOURCE_STATE_GENERIC_READ, NULL, IID_PPV_ARGS(&cb)))) { SharpenFail(); return false; }
+        D3D12_RANGE noRead = { 0, 0 };
+        if (FAILED(cb->Map(0, &noRead, (void**)&cbCpu)) || !cbCpu) { SharpenFail(); return false; }
+
+        sharpener = kind;
+        return true;
+    }
+
+    // Runs on the SAME command list as the NGX evaluate, immediately after it. NGX leaves `output` in
+    // UNORDERED_ACCESS (guide p.14) and clobbers the command-list state (p.52), so everything is re-bound here.
+    // `slot` is the ring index the caller is recording into (End() has not advanced ringIdx yet).
+    void Sharpen(ID3D12GraphicsCommandList* cl, ID3D12Resource* output, float sharpness, int slot)
+    {
+        if (sharpenDead || !output || !device) return;
+        if (!SharpenEnsure()) return;
+
+        D3D12_RESOURCE_DESC od = output->GetDesc();
+        unsigned w = (unsigned)od.Width, h = od.Height;
+        DXGI_FORMAT viewFmt = SharpenViewFormat(od.Format);
+
+        if (!scratch || scratchW != w || scratchH != h || scratchFmt != od.Format) {
+            if (scratch) { WaitIdle(); scratch->Release(); scratch = NULL; }
+            D3D12_HEAP_PROPERTIES hp = {};
+            hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+            D3D12_RESOURCE_DESC td = od;
+            td.Flags = D3D12_RESOURCE_FLAG_NONE;              // SRV only
+            if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
+                                                       D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&scratch)))) { SharpenFail(); return; }
+            scratchW = w; scratchH = h; scratchFmt = od.Format;
+        }
+
+        FillSharpenConstants(cbCpu + 256 * (size_t)slot, sharpener, sharpness, w, h);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = descHeap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu = descHeap->GetGPUDescriptorHandleForHeapStart();
+        cpu.ptr += (SIZE_T)(2 * slot) * descSize;
+        gpu.ptr += (UINT64)(2 * slot) * descSize;
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC sv = {};
+        sv.Format = viewFmt;
+        sv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        sv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        sv.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(scratch, &sv, cpu);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuUav = cpu; cpuUav.ptr += descSize;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuUav = gpu; gpuUav.ptr += descSize;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uv = {};
+        uv.Format = viewFmt;
+        uv.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(output, NULL, &uv, cpuUav);
+
+        Barrier(cl, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        cl->CopyResource(scratch, output);
+        Barrier(cl, output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Barrier(cl, scratch, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        ID3D12DescriptorHeap* heaps[1] = { descHeap };
+        cl->SetDescriptorHeaps(1, heaps);
+        cl->SetComputeRootSignature(rootSig);
+        cl->SetPipelineState(pso);
+        cl->SetComputeRootConstantBufferView(0, cb->GetGPUVirtualAddress() + 256 * (UINT64)slot);
+        cl->SetComputeRootDescriptorTable(1, gpu);
+        cl->SetComputeRootDescriptorTable(2, gpuUav);
+        unsigned g = SharpenGroupSize(sharpener);
+        cl->Dispatch((w + g - 1) / g, (h + g - 1) / g, 1);
+
+        // Leave the output in UNORDERED_ACCESS (what the state array declares) and the scratch back in COPY_DEST.
+        Barrier(cl, scratch, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
     }
 
     // ---- IDevice -----------------------------------------------------------
@@ -241,6 +416,7 @@ struct Device12 : IDevice
 
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
+            else if (fp.sharpness > 0.0f) Sharpen(cl, output, fp.sharpness, ringIdx);
         }
         if (!End(n, st)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
     }
@@ -263,6 +439,12 @@ struct Device12 : IDevice
             submitted[i] = 0;
         }
         if (waitEvent) { CloseHandle(waitEvent); waitEvent = NULL; }
+        if (cb && cbCpu) { D3D12_RANGE noWrite = { 0, 0 }; cb->Unmap(0, &noWrite); cbCpu = NULL; }
+        if (cb) { cb->Release(); cb = NULL; }
+        if (scratch) { scratch->Release(); scratch = NULL; }
+        if (descHeap) { descHeap->Release(); descHeap = NULL; }
+        if (pso) { pso->Release(); pso = NULL; }
+        if (rootSig) { rootSig->Release(); rootSig = NULL; }
         if (params) { NVSDK_NGX_D3D12_DestroyParameters(params); params = NULL; }
         if (ngxInitialized) { NVSDK_NGX_D3D12_Shutdown1(device); ngxInitialized = 0; }
         if (device) { device->Release(); device = NULL; }

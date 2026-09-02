@@ -225,6 +225,9 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     WaitGpu();
     printf("Submissions    ExecuteCommandList calls=%d (expect 4: 1 create + 3 evaluate)\n", g_execCalls);
     if (g_execCalls != 4) g_failed = 1;
+    printf("Sharpen        shader=%d (1=NIS 2=RCAS fallback, expect 1) lastError=%d (expect 0; %d = setup failed)\n",
+           Dlss_Sharpener(), Dlss_LastError(), DLSS_ERR_SHARPEN);
+    if (Dlss_LastError() != 0 || Dlss_Sharpener() != DLSS_SHARPEN_NIS) g_failed = 1;
 
     // Passthrough: same-size copy, no NGX. out2 = render-res copy target.
     ID3D12Resource* out2 = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_COPY_DEST);
