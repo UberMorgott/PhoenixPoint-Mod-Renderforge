@@ -391,6 +391,8 @@ namespace Renderforge
                 case RenderforgeMode.Balanced: return Native.DLSS_Q_BALANCED;
                 case RenderforgeMode.Performance: return Native.DLSS_Q_PERFORMANCE;
                 case RenderforgeMode.UltraPerformance: return Native.DLSS_Q_ULTRA_PERFORMANCE;
+                case RenderforgeMode.UltraQuality: return Native.DLSS_Q_ULTRA_QUALITY;           // XeSS only; others run Quality
+                case RenderforgeMode.UltraQualityPlus: return Native.DLSS_Q_ULTRA_QUALITY_PLUS;
                 default: return Native.DLSS_Q_DLAA;
             }
         }

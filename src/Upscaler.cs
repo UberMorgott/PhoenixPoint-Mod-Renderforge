@@ -23,10 +23,10 @@ namespace Renderforge
             }
         }
 
-        /// <summary>Auto order (spec, D3D12): NVIDIA -> DLSS, else FSR (XeSS: Phase 4), else off. D3D11: DLSS or off.
-        /// Decided from HARDWARE facts only (vendor, API, DLLs on disk) because it runs BEFORE Dlss_Init, when
-        /// Availability.Reason still says "init failed"; once the shim is up, Running is the answer. A concrete choice
-        /// is returned as-is even when unavailable — the picker greys it with the reason.</summary>
+        /// <summary>Auto order (spec, D3D12): NVIDIA -> DLSS, Intel -> XeSS, else FSR, else XeSS (cross-vendor DP4a
+        /// fallback), else off. D3D11: DLSS or off. Decided from HARDWARE facts only (vendor, API, DLLs on disk)
+        /// because it runs BEFORE Dlss_Init, when Availability.Reason still says "init failed"; once the shim is up,
+        /// Running is the answer. A concrete choice is returned as-is even when unavailable — the picker greys it.</summary>
         internal static UpscalerKind Resolve(UpscalerKind want)
         {
             if (want != UpscalerKind.Auto) return want;
@@ -34,7 +34,18 @@ namespace Renderforge
             if (Availability.IsD3D11) return Availability.IsNvidia ? UpscalerKind.DLSS : UpscalerKind.Off;
             if (!Availability.IsD3D12) return UpscalerKind.Off;
             if (Availability.IsNvidia) return UpscalerKind.DLSS;
-            return FsrDllsPresent ? UpscalerKind.FSR : UpscalerKind.Off;
+            if (Availability.IsIntel && XessDllPresent) return UpscalerKind.XeSS;
+            return FsrDllsPresent ? UpscalerKind.FSR : XessDllPresent ? UpscalerKind.XeSS : UpscalerKind.Off;
+        }
+
+        /// <summary>What Auto tries next when the provider it resolved to fails Dlss_Init (D3D12 only): FSR, then
+        /// XeSS, skipping the one that just failed and anything whose DLLs are absent.</summary>
+        internal static UpscalerKind NextFallback(UpscalerKind failed)
+        {
+            if (!Availability.IsD3D12) return UpscalerKind.Off;
+            if (failed == UpscalerKind.DLSS && FsrDllsPresent) return UpscalerKind.FSR;
+            if (failed != UpscalerKind.XeSS && XessDllPresent) return UpscalerKind.XeSS;
+            return UpscalerKind.Off;
         }
 
         internal static int ProviderOf(UpscalerKind k)
@@ -50,14 +61,22 @@ namespace Renderforge
         /// <summary>The feature the quality row and the overlay should ask Availability about.</summary>
         internal static Feature ActiveFeature { get { return FeatureOf(Resolve(Wanted)); } }
 
-        /// <summary>Quality-row labels. Index order is RenderforgeMode: Off, Auto, then the five ratios.
-        /// FSR and XeSS call the 1.0x ratio "Native AA"; NVIDIA calls it "DLAA" (super-resolution-ml.md:59).</summary>
+        /// <summary>Quality-row labels. Index order is RenderforgeMode: Off, Auto, then the ratios. FSR and XeSS call
+        /// the 1.0x ratio "Native AA"; NVIDIA calls it "DLAA" (super-resolution-ml.md:59). XeSS alone appends its
+        /// Ultra Quality (1.5x) and Ultra Quality Plus (1.3x) presets (XESS_QUALITY_SETTING_ULTRA_QUALITY[_PLUS]).</summary>
         internal static string[] QualityLabels
         {
             get
             {
-                string native = Resolve(Wanted) == UpscalerKind.DLSS ? "DLAA" : "Native AA";
-                return new[] { "Off", "Auto", native, "Quality", "Balanced", "Performance", "Ultra Performance" };
+                UpscalerKind k = Resolve(Wanted);
+                string native = k == UpscalerKind.DLSS ? "DLAA" : "Native AA";
+                var common = new[] { "Off", "Auto", native, "Quality", "Balanced", "Performance", "Ultra Performance" };
+                if (k != UpscalerKind.XeSS) return common;
+                var all = new string[common.Length + 2];
+                common.CopyTo(all, 0);
+                all[common.Length] = "Ultra Quality";
+                all[common.Length + 1] = "Ultra Quality Plus";
+                return all;
             }
         }
 
@@ -72,7 +91,11 @@ namespace Renderforge
                     string v = Native.ProviderVersion();
                     return v.Length > 0 ? "FSR " + v : "FSR";
                 }
-                case UpscalerKind.XeSS: return "XeSS";
+                case UpscalerKind.XeSS:
+                {
+                    string v = Native.ProviderVersion();      // "2.0.2 DP4a" / "2.0.2 XMX" = version + execution path
+                    return v.Length > 0 ? "XeSS " + v : "XeSS";
+                }
                 case UpscalerKind.DLSS: return "DLSS SR (nvngx " + nvngxVersion + ")";
                 default: return "off";
             }
@@ -94,6 +117,17 @@ namespace Renderforge
             }
         }
 
-        private static int fsrDlls;
+        /// <summary>libxess.dll next to the mod? Cached like FsrDllsPresent.</summary>
+        internal static bool XessDllPresent
+        {
+            get
+            {
+                if (xessDll == 0)
+                    xessDll = File.Exists(Path.Combine(RenderforgeMod.ModDir ?? ".", "libxess.dll")) ? 1 : -1;
+                return xessDll == 1;
+            }
+        }
+
+        private static int fsrDlls, xessDll;
     }
 }

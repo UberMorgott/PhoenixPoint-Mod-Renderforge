@@ -7,16 +7,18 @@ namespace Renderforge
     internal enum Feature { Dlss, Fsr, Xess, FrameGen }
 
     /// <summary>The single "can this run right now, and if not why" oracle. Reason(f) == null means available.
-    /// DLSS is live on D3D11 and D3D12 (Phase 2); FSR/XeSS/FG arrive in Phases 3-5 and add their
+    /// DLSS is live on D3D11 and D3D12, FSR and XeSS on D3D12; FG arrives in Phase 5 and adds its
     /// "DLL missing" / "SDK init failed" reasons here and nowhere else.</summary>
     internal static class Availability
     {
-        private const int VendorNvidia = 0x10DE;   // PCI vendor id, SystemInfo.graphicsDeviceVendorID
+        private const int VendorNvidia = 0x10DE;   // PCI vendor ids, SystemInfo.graphicsDeviceVendorID
+        private const int VendorIntel = 0x8086;
 
         internal static GraphicsDeviceType Api { get { return SystemInfo.graphicsDeviceType; } }
         internal static bool IsD3D11 { get { return Api == GraphicsDeviceType.Direct3D11; } }
         internal static bool IsD3D12 { get { return Api == GraphicsDeviceType.Direct3D12; } }
         internal static bool IsNvidia { get { return SystemInfo.graphicsDeviceVendorID == VendorNvidia; } }
+        internal static bool IsIntel { get { return SystemInfo.graphicsDeviceVendorID == VendorIntel; } }
 
         /// <summary>Short name for the overlay: "D3D11" / "D3D12" / whatever Unity reports otherwise.</summary>
         internal static string ApiName
@@ -61,6 +63,21 @@ namespace Renderforge
                         return DlssConfig.Loc("FSR selected — restart the game", "FSR выбран — перезапустите игру");
                     return null;
                 case Feature.Xess:
+                    if (!IsD3D12)
+                        return DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
+                    if (NeedsRestart) return RestartReason;
+                    if (!Upscalers.XessDllPresent)
+                        return DlssConfig.Loc("DLL missing: libxess.dll", "Нет файла: libxess.dll");
+                    if (Upscalers.Running == UpscalerKind.XeSS && !RenderforgeMod.Available)
+                        return RenderforgeMod.InitCode == Native.DLSS_ERR_NOT_AVAILABLE
+                            ? DlssConfig.Loc("Not supported by this GPU (needs Shader Model 6.4 + DP4a)", "Не поддерживается этой видеокартой (нужны Shader Model 6.4 и DP4a)")
+                            : RenderforgeMod.InitCode == Native.DLSS_ERR_NEEDS_DRIVER
+                            ? DlssConfig.Loc("Graphics driver too old for XeSS", "Драйвер видеокарты слишком старый для XeSS")
+                            : DlssConfig.Loc("XeSS init failed — see the log", "Не удалось инициализировать XeSS — смотрите лог");
+                    // Another provider is latched for this session: the choice is saved, the next launch runs XeSS.
+                    if (Upscalers.Running != UpscalerKind.Off && Upscalers.Running != UpscalerKind.XeSS)
+                        return DlssConfig.Loc("XeSS selected — restart the game", "XeSS выбран — перезапустите игру");
+                    return null;
                 case Feature.FrameGen:
                     return NeedsRestart ? RestartReason
                         : IsD3D12

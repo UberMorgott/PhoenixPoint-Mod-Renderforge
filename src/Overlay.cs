@@ -174,6 +174,8 @@ namespace Renderforge
                 case Native.DLSS_Q_BALANCED: return "Balanced";
                 case Native.DLSS_Q_PERFORMANCE: return "Performance";
                 case Native.DLSS_Q_ULTRA_PERFORMANCE: return "UltraPerformance";
+                case Native.DLSS_Q_ULTRA_QUALITY: return "UltraQuality";
+                case Native.DLSS_Q_ULTRA_QUALITY_PLUS: return "UltraQualityPlus";
                 default: return Upscalers.Running == UpscalerKind.DLSS ? "DLAA" : "NativeAA";
             }
         }

@@ -13,9 +13,11 @@ namespace Renderforge
         public const int DLSS_ERR_NO_PROVIDER_DLL = 6, DLSS_ERR_PROVIDER_UNSUPPORTED = 7;
         public const int PROVIDER_DLSS = 0, PROVIDER_FSR = 1, PROVIDER_XESS = 2;
         public const int DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMANCE = 3, DLSS_Q_ULTRA_PERFORMANCE = 4;
+        /// <summary>XeSS-only presets (1.5x / 1.3x); DLSS and FSR treat them as Quality.</summary>
+        public const int DLSS_Q_ULTRA_QUALITY = 5, DLSS_Q_ULTRA_QUALITY_PLUS = 6;
         public const int DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_MV_JITTERED = 8, DLSS_F_AUTO_EXPOSURE = 16;
         public const int DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3;
-        public const int DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3, DLSS_ERR_FENCE_TIMEOUT = -4, DLSS_ERR_FFX = -5;
+        public const int DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPEN = -3, DLSS_ERR_FENCE_TIMEOUT = -4, DLSS_ERR_FFX = -5, DLSS_ERR_XESS = -6;
         public const int NGX_SUCCESS = 1;
 
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -191,7 +193,7 @@ namespace Renderforge
             catch (Exception) { return -1; }
         }
 
-        /// <summary>Version string of the live provider ("4.1.1", "3.1.5"), "" when unknown.</summary>
+        /// <summary>Version string of the live provider ("4.1.1", "3.1.5"; XeSS "2.0.2 DP4a" / "2.0.2 XMX"), "" when unknown.</summary>
         public static string ProviderVersion()
         {
             try

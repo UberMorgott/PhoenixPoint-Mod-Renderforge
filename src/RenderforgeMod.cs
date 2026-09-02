@@ -48,15 +48,17 @@ namespace Renderforge
                         Native.SetProvider(Upscalers.ProviderOf(Upscalers.Running));
                         probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
                         InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
-                        // Auto on an NVIDIA card without DLSS (GTX, old driver) under D3D12: fall through to FSR.
-                        // Dlss_Shutdown clears the latch, so a second Init with another provider is allowed.
-                        if (InitCode != Native.DLSS_OK && Cfg.Upscaler == UpscalerKind.Auto && Upscalers.Running == UpscalerKind.DLSS
-                            && Availability.IsD3D12 && Upscalers.FsrDllsPresent)
+                        // Auto under D3D12: a provider that fails Init (GTX without DLSS, old driver, no DP4a) falls
+                        // through to the next one - FSR, then XeSS (Upscalers.NextFallback). Dlss_Shutdown clears the
+                        // latch, so a second Init with another provider is allowed.
+                        while (InitCode != Native.DLSS_OK && Cfg.Upscaler == UpscalerKind.Auto)
                         {
-                            Logger.LogInfo("DLSS init failed (code " + InitCode + "): Auto falls back to FSR");
+                            UpscalerKind next = Upscalers.NextFallback(Upscalers.Running);
+                            if (next == UpscalerKind.Off) break;
+                            Logger.LogInfo(Upscalers.Running + " init failed (code " + InitCode + "): Auto falls back to " + next);
                             Native.Dlss_Shutdown();
-                            Upscalers.Running = UpscalerKind.FSR;
-                            Native.SetProvider(Native.PROVIDER_FSR);
+                            Upscalers.Running = next;
+                            Native.SetProvider(Upscalers.ProviderOf(next));
                             InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
                         }
                         Available = InitCode == Native.DLSS_OK;
