@@ -38,15 +38,19 @@ namespace Renderforge
             return FsrDllsPresent ? UpscalerKind.FSR : XessDllPresent ? UpscalerKind.XeSS : UpscalerKind.Off;
         }
 
-        /// <summary>What Auto tries next when the provider it resolved to fails Dlss_Init (D3D12 only): FSR, then
-        /// XeSS, skipping the one that just failed and anything whose DLLs are absent.</summary>
+        /// <summary>What Auto tries next when the provider it resolved to fails Dlss_Init (D3D12 only): the fixed
+        /// chain FSR, then XeSS, minus every provider already tried this session (so Intel's XeSS -> FSR -> XeSS
+        /// cannot loop) and anything whose DLLs are absent.</summary>
         internal static UpscalerKind NextFallback(UpscalerKind failed)
         {
+            tried |= 1 << (int)failed;
             if (!Availability.IsD3D12) return UpscalerKind.Off;
-            if (failed == UpscalerKind.DLSS && FsrDllsPresent) return UpscalerKind.FSR;
-            if (failed != UpscalerKind.XeSS && XessDllPresent) return UpscalerKind.XeSS;
+            if ((tried & (1 << (int)UpscalerKind.FSR)) == 0 && FsrDllsPresent) return UpscalerKind.FSR;
+            if ((tried & (1 << (int)UpscalerKind.XeSS)) == 0 && XessDllPresent) return UpscalerKind.XeSS;
             return UpscalerKind.Off;
         }
+
+        private static int tried;      // bitmask of UpscalerKind values that already failed Dlss_Init
 
         internal static int ProviderOf(UpscalerKind k)
         {
