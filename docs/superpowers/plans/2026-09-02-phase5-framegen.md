@@ -646,7 +646,7 @@ powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\
 ```
 Expected: `nvngx_dlss.dll 310.7.129.0 ...`, cmake configure + build with no warnings from `FgHook.cpp`, both probes green, `build-native: OK`.
 
-- [ ] **Step 8: Run the spike in-game and READ THE FOUR NUMBERS**
+- [x] **Step 8: Run the spike in-game and READ THE FOUR NUMBERS**
 
 ```powershell
 powershell -NoProfile -Command "Set-Location E:\DEV\PhoenixPoint\Renderforge; .\deploy.ps1"
@@ -673,13 +673,36 @@ Expected on the second `FgSpike` call: `hookInstall=0 installed=1 sawPresent=1 p
 | **Second swapchain on the HWND** | `secondSwapChain=0x00000000` | **GO** for decision 3 → Task 2 |
 | Composition fallback | `composition=0x00000000` | decision 4a is available |
 
-- [ ] **Step 9: Go/no-go**
+> **2026-09-02 result:** run on `D:\PP-Instance3` (profile `...593`, `-mods -force-d3d12`), mission
+> `ALN_PLT_Nest_48x48_A` seed 12345, `SetMode DLAA/None`, provider **DLSS**
+> (`upscaler available provider=DLSS version= api=12 unityIface=3 renderer=D3D12`).
+>
+> - 1st `FgSpike` (immediately after install):
+>   `hookInstall=0 installed=1 sawPresent=0 presents=0 fps=0 0x0 fmt=0 buffers=0 swapEffect=0 flags=0x0 windowed=0 flip=0 waitable=0 secondSwapChain=0x00000000 composition=0x00000000 forwardedPresent=0x00000000`
+> - 2nd `FgSpike` (+5 s):
+>   `hookInstall=0 installed=1 sawPresent=1 presents=583 fps=127 1280x720 fmt=28 buffers=3 swapEffect=3 flags=0x802 windowed=1 flip=1 waitable=0 secondSwapChain=0x00000000 composition=0x00000000 forwardedPresent=0x00000000`
+> - 3rd `FgSpike` (confirmation): `presents=1959 fps=118`, all other fields identical.
+>
+> `renderforge_fg.log`:
+> `hook: installed (vtable ..., Present ..., Present1 ..., ResizeBuffers ...)` and
+> `hook: app swapchain ... hwnd 0000000000C20826 1280x720 fmt 28 buffers 3 swapEffect 3 flags 0x802 windowed 1 flip 1 waitable 0`.
+>
+> Four answers: **hook works** (`installed=1 sawPresent=1 presents>0`); **swapchain shape** is
+> `DXGI_FORMAT_R8G8B8A8_UNORM` (28), 3 buffers, `FLIP_DISCARD` (swapEffect 3), `flags 0x802`,
+> windowed, **`flip=1`**, not waitable; **forwarding is transparent** (`forwardedPresent=0x00000000`,
+> game kept rendering — `docs\shots\fg-spike-instance3.png`); **`secondSwapChain=0x00000000`**;
+> **`composition=0x00000000`**. No crash, no `DEVICE_REMOVED`.
+
+- [x] **Step 9: Go/no-go**
+
+> **Verdict: GO** — `secondSwapChain=0x00000000`, so decision 3 stands and Task 2 proceeds unchanged
+> (no need for the 4a composition fallback, which is nonetheless available: `composition=0x00000000`).
 
 - `secondSwapChain=0x00000000` → **GO**. Proceed to Task 2 unchanged.
 - `secondSwapChain != 0` and `composition == 0` → **GO with fallback 4a**. In Task 2 Step 2 replace `CreateSwapChainForHwnd` with `CreateSwapChainForComposition` + a DirectComposition device/target/visual bound to `FgAppHwnd()` (`dcomp.lib` is already linked by Step 5 of Task 2). Everything else in Tasks 2-5 is identical.
 - Both fail → **NO-GO for the in-process design.** Stop here, skip Tasks 2-7, and go to **Task 8** (the `dxgi.dll` shim contingency), which begins by asking the user.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
