@@ -28,13 +28,13 @@
 // folder. slInit runs ONCE per process (it loads plugins and NGX); the chain, queue and factory proxy are per Create.
 // OTA flags are deliberately off: nothing may be written outside the mod folder.
 //
-// STATUS (2026-09-02, RTX 5070 Ti, driver 596.49, Instance3): the chain comes up and presents stably (status eOk,
-// numFramesToGenerateMax=5) but DLSS-G presents exactly ONE frame per Present - numFramesActuallyPresented=1, the real
-// chain's DXGI PresentCount == our presents - with no warning in sl.log at any log level, in production and
-// development builds alike. Tried without effect: tag lifecycle (eOnlyValidNow/eValidUntilPresent), tag set (depth+mv,
-// +hudless, +zero UI), frame-based vs legacy slSetTag, explicit vs SL-internal frame indices, EngineType eUnity vs
-// eCustom, options every frame, no eRetainResourcesWhenOff. Root cause unknown; see the Task 5 note in
-// docs\superpowers\plans\2026-09-02-phase5-framegen.md. RENDERFORGE_SL_VERBOSE=1 makes sl.log verbose.
+// FOCUS GATE (measured 2026-09-02, RTX 5070 Ti, driver 596.49, Instance3): DLSS-G interpolates ONLY while the game
+// process owns the foreground window (sl.extra extra.cpp:97-124 hasFocus compares GetForegroundWindow's PID with the
+// process / parent PID; no log line at any level, status stays eOk, numFramesActuallyPresented=1). An automated run
+// launched from a terminal never has focus, which is why every unattended measurement read ratio 1.00. The development
+// plugin honours sl.dlss_g.json {"runWhenNoFocus":true} (dlfgConfig.cpp:85) and then interpolates 2x/3x/4x exactly;
+// the production plugin needs the window in the foreground - the normal state when a player plays.
+// RENDERFORGE_SL_VERBOSE=1 makes sl.log verbose; sl.interposer.json beside the exe overrides the level (Debugging.md:80-106).
 #include "Fg.h"
 #include "RenderforgeNative.h"
 #include "D3D12Owned.h"
@@ -193,8 +193,14 @@ struct ProviderStreamline : IFgProvider
     unsigned            caps;
     int                 wantOn, isOn;  // desired / applied DLSSGMode (render thread applies in Generate)
     unsigned            frames;        // Prepare calls on this chain
-    sl::FrameToken*     token;
-    int                 marked;        // 1 = RENDERSUBMIT_END/PRESENT_START issued for `token`
+    // Tokens awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent pops
+    // exactly one per Present so the PRESENT_START/END markers name the frame whose inputs were tagged (DLSS_G.md:933).
+    // A token is never overwritten while it waits; a full ring drops the Prepare instead (kTokens > SL's 3 in flight).
+    static const unsigned kTokens = 4;
+    sl::FrameToken*     fifo[kTokens];
+    unsigned            head, tail;
+    sl::FrameToken*     token;         // the token of the frame being presented (popped in BeforePresent)
+    int                 marked;        // 1 = RENDERSUBMIT_END/PRESENT_START issued for `token`, 2 = PRESENT_END too
     unsigned            lastStatus;
     long long           generated;
     int                 warned;
@@ -205,7 +211,9 @@ struct ProviderStreamline : IFgProvider
     void Zero()
     {
         proxy = NULL; proxyFactory = NULL; queue = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = buffers = 0;
-        framesToGen = 1; caps = 0; wantOn = isOn = 0; frames = 0; token = NULL; marked = 1; lastStatus = 0;
+        framesToGen = 1; caps = 0; wantOn = isOn = 0; frames = 0; token = NULL; marked = 0; lastStatus = 0;
+        for (unsigned i = 0; i < kTokens; ++i) fifo[i] = NULL;
+        head = tail = 0;
         generated = 0; warned = 0; havePrev = 0;
     }
 
@@ -314,17 +322,17 @@ struct ProviderStreamline : IFgProvider
             if (warned < 8) { ++warned; FgLog("sl: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)o->outFmt, outW, outH, (unsigned)backFmt); }
             return;
         }
+        if (tail - head >= kTokens) { if (warned < 8) { ++warned; FgLog("sl: %u frames prepared without a Present - skipping this one", kTokens); } return; }
         ++frames;
         ++g_sl.frameIdx;
         sl::FrameToken* t = NULL;
         if (g_sl.newFrame(t, &g_sl.frameIdx) != sl::Result::eOk || !t) { if (warned < 8) { ++warned; FgLog("sl: slGetNewFrameToken failed"); } return; }
-        token = t;
-        marked = 0;
+        fifo[tail++ % kTokens] = t;
         // Unity's simulation is not reachable from the shim: SIMULATION_* bracket this event (Reflex.md:179-207, PCL.md:118-155).
-        g_sl.reflexSleep(*token);
-        g_sl.marker(sl::PCLMarker::eSimulationStart, *token);
-        g_sl.marker(sl::PCLMarker::eSimulationEnd, *token);
-        g_sl.marker(sl::PCLMarker::eRenderSubmitStart, *token);
+        g_sl.reflexSleep(*t);
+        g_sl.marker(sl::PCLMarker::eSimulationStart, *t);
+        g_sl.marker(sl::PCLMarker::eSimulationEnd, *t);
+        g_sl.marker(sl::PCLMarker::eRenderSubmitStart, *t);
 
         // sl_consts.h:183-185 row-major, jitter-free, v * M order (sl_matrix_helpers.h:185-213 builds them so).
         sl::Constants c{};
@@ -356,7 +364,7 @@ struct ProviderStreamline : IFgProvider
         c.motionVectorsDilated = sl::Boolean::eFalse;
         c.motionVectorsJittered = sl::Boolean::eFalse;
         sl::ViewportHandle vp(0u);
-        sl::Result r = g_sl.setConstants(c, *token, vp);
+        sl::Result r = g_sl.setConstants(c, *t, vp);
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetConstants %d", (int)r); }
 
         // Owned twins rest in COMMON (D3D12Owned.h); SL copies them on `list` (eOnlyValidNow, ManualHooking.md:501-517).
@@ -368,12 +376,12 @@ struct ProviderStreamline : IFgProvider
             sl::ResourceTag(&rMv,    sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eOnlyValidNow),
             sl::ResourceTag(&rHud,   sl::kBufferTypeHUDLessColor,  sl::ResourceLifecycle::eOnlyValidNow),
         };
-        r = g_sl.setTag(*token, vp, tags, 3, list);
+        r = g_sl.setTag(*t, vp, tags, 3, list);
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetTagForFrame %d", (int)r); }
     }
 
-    // Render thread, Present hook, before the host copies + presents on the proxy: options (DLSS_G.md:483-491 want
-    // the presenting thread), then the markers that close the submit and open the present.
+    // Render thread, Present hook, before the host copies into the proxy's back buffer: options only (DLSS_G.md:483-491
+    // want the presenting thread). The markers come after the copy, in BeforePresent.
     int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT)
     {
         if (!proxy) return 0;
@@ -385,12 +393,20 @@ struct ProviderStreamline : IFgProvider
             if (r != sl::Result::eOk) { if (warned < 8) { ++warned; FgLog("sl: slDLSSGSetOptions(%d) %d", wantOn, (int)r); } }
             else { isOn = wantOn; FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u", wantOn ? "eOn" : "eOff", framesToGen); }
         }
-        if (token && !marked) {
-            marked = 1;
-            g_sl.marker(sl::PCLMarker::eRenderSubmitEnd, *token);
-            g_sl.marker(sl::PCLMarker::ePresentStart, *token);
-        }
         return 0;
+    }
+
+    // Render thread, the copy into the proxy's current back buffer is submitted, Present is next: pop THIS frame's token
+    // and close its submit / open its present (sl_dlss_g: GetBuffer -> writes -> RENDERSUBMIT_END -> PRESENT_START -> Present).
+    void BeforePresent()
+    {
+        if (!proxy) return;
+        token = NULL; marked = 0;
+        if (head == tail) { if (warned < 8) { ++warned; FgLog("sl: Present without a prepared frame - no markers"); } return; }
+        token = fifo[head++ % kTokens];
+        marked = 1;
+        g_sl.marker(sl::PCLMarker::eRenderSubmitEnd, *token);
+        g_sl.marker(sl::PCLMarker::ePresentStart, *token);
     }
 
     void AfterPresent(HRESULT)

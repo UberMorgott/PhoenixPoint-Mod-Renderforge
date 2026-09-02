@@ -510,6 +510,13 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     bool copied = CopyBackBuffer(c, src, dst);
     src->Release(); dst->Release();
     if (!copied) { Unpin(NULL); return false; }
+    // A provider presenting on its own queue (DLSS-G) reads the back buffer we just wrote on ITS queues right after
+    // Present, and nothing fences that read against our copy (measured with the debug layer on, DLSS-G 2x/3x/4x:
+    // ~35-48/s id=1047 "fake-swapchain-buffer still referenced by cmdQ.dlssg / cmdQ.game" without this wait, 0 with
+    // it, fps unchanged). So the copy retires on the CPU before Present - the same one-frame-in-flight cadence Reflex
+    // low-latency imposes anyway. ponytail: a GPU-side handoff would need DLSS-G's own fence, which it does not expose.
+    if (c.prov->PresentQueue() && c.copy.fence) c.copy.WaitOn(c.copy.fence, c.copy.fenceVal);
+    c.prov->BeforePresent();                           // the copy is the last write into the shadow back buffer
 
     HRESULT hr = c.shadow->Present(syncInterval, pf);
     H.lastPresentHr = (long)hr;

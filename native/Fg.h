@@ -100,6 +100,10 @@ struct IFgProvider
     // frame(s), presents them on `shadow` itself (same sync/flags the host will use) and returns how many it
     // presented; 0 = nothing generated this frame (the host still presents the real frame).
     virtual int      Generate(const FgFrame& f, ID3D12Resource* unityBackBuffer, IDXGISwapChain4* shadow, UINT sync, UINT pf) = 0;
+    // Render thread, after the host SUBMITTED the back-buffer copy into the shadow chain's current buffer and right
+    // before it presents `shadow`: DLSS-G's RENDERSUBMIT_END / PRESENT_START markers belong here (after the last
+    // write into the proxy's back buffer, sl_dlss_g contract). Default no-op.
+    virtual void     BeforePresent() {}
     // Render thread, right after the host presented `shadow` (hr = that Present's result). XeSS-FG's present markers
     // and present status live here; the default is a no-op.
     virtual void     AfterPresent(HRESULT) {}
