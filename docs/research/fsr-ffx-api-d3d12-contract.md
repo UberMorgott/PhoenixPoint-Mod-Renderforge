@@ -50,8 +50,13 @@ Chain: `ffxCreateContextDescUpscale` → `ffxCreateContextDescUpscaleVersion` �
   (`super-resolution-ml.md:233`). **Y is negated relative to X, and relative to NGX.** Renderforge's driver applies
   `proj[0,2] += 2*jx/w`, `proj[1,2] += 2*jy/h` and stores NGX's `(-jx, -jy)`, so the ffx dispatch gets
   `jitterOffset = (jitterSignX * fp.jitterX, jitterSignY * fp.jitterY)` with defaults `(-1, +1)`. Getting this wrong
-  doubles thin edges instead of resolving them. **UNVERIFIED in-game** until the Phase 3 screenshots land — the sign
-  was derived, not observed. Env override `RENDERFORGE_FSR_JITTER_SIGN` = `"sx,sy"` (each in {-1,1}), read once at
+  doubles thin edges instead of resolving them. **Measured 2026-09-02** (build `fd394fe`, ALN_PLT_Nest_48x48_A seed
+  12345, Ultra Performance 426x240 → 1280x720, 4 sign combos `-1,1 / 1,1 / -1,-1 / 1,-1`): all four
+  indistinguishable on stills — path dashes, health bars, unit diamonds, dashed cover outlines resolve equally
+  cleanly, no doubling/serration. Limitation: `start-mission` with same scene+seed lands a different camera/unit
+  each launch, so a still-frame A/B cannot separate the signs. Defaults `(-1, +1)` kept. To settle definitively:
+  fixed camera pose or moving-camera capture. Shots: `docs\shots\jitter-ab\fsr-{-1_1,1_1,-1_-1,1_-1}.png`.
+  Env override `RENDERFORGE_FSR_JITTER_SIGN` = `"sx,sy"` (each in {-1,1}), read once at
   `Fsr12::Init`, logged `FSR: jitterSign=%d,%d`.
 - **Jitter phase count**: `ffxQueryDescUpscaleGetJitterPhaseCount` / `...GetJitterOffset` are available (null-context
   queries) but unused — the driver's own Halton(2,3) with `phases = 8*ratio²` matches the documented sequence

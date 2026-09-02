@@ -69,9 +69,13 @@ Per-context knobs set once at create: `xessSetJitterScale(1,1)`, `xessSetExposur
   `ProjectionMatrix[2][0] += Jx*2/InputWidth; [2][1] -= Jy*2/InputHeight`; the driver applies `proj[0,2] += 2*jx/W`,
   `proj[1,2] += 2*jy/H` and stores NGX's `(-jx, -jy)`, so XeSS gets `jitterOffset = (-fp.jitterX, +fp.jitterY)` —
   the same `(-X, +Y)` flip FSR needed. Compile-time constants `kJitterSignX = -1`, `kJitterSignY = +1` in
-  `Xess12.cpp`. **DERIVED, NOT MEASURED**: the guide itself says to settle it empirically ("try +1/-1"); the
-  in-game static-scene A/B at Ultra Performance decides (doubled thin edges = wrong sign). Env override
-  `RENDERFORGE_XESS_JITTER_SIGN` = `"sx,sy"` (each in {-1,1}), read once at `Xess12::Init`, logged
+  `Xess12.cpp`. **Measured 2026-09-02** (build `fd394fe`, ALN_PLT_Nest_48x48_A seed 12345, Ultra Performance
+  427x240 → 1280x720, 4 sign combos `-1,1 / 1,1 / -1,-1 / 1,-1`): all four indistinguishable on stills — path
+  dashes, health bars, unit diamonds, dashed cover outlines resolve equally cleanly, no doubling/serration.
+  Limitation: `start-mission` with same scene+seed lands a different camera/unit each launch, so a still-frame A/B
+  cannot separate the signs. Defaults `(-1, +1)` kept. To settle definitively: fixed camera pose or moving-camera
+  capture. Shots: `docs\shots\jitter-ab\xess-{-1_1,1_1,-1_-1,1_-1}.png`.
+  Env override `RENDERFORGE_XESS_JITTER_SIGN` = `"sx,sy"` (each in {-1,1}), read once at `Xess12::Init`, logged
   `XeSS: jitterSign=%d,%d`.
 - **Depth**: `R32_FLOAT`, render resolution, smaller = closer unless `INVERTED_DEPTH`.
 - **Colour**: only `UNORM` integer formats are accepted as colour input; output must be the same format/colour space
@@ -139,4 +143,4 @@ two warnings → `Success`; `UNINITIALIZED`/`WRONG_CALL_ORDER` → `FAIL_NotInit
 `xessGetVersion 2.0.2`, `xessGetIntelXeFXVersion 0.0.0` (cross-vendor DP4a path), `xessIsOptimalDriver 0`,
 `Dlss_Init code=0 provider=2 version='2.0.2 DP4a'`, create (`xessD3D12Init`) with zero `ExecuteCommandList` calls,
 3 executes green, 3 submissions, NIS sharpen active, release → re-create green. **The Intel XMX path is implemented
-but UNVERIFIED — no Arc GPU available.** In-game (overlay string, `GetStatus`, jitter A/B) still pending.
+but UNVERIFIED — no Arc GPU available.** In-game jitter A/B: 2026-09-02, indistinguishable on stills, defaults kept (see §5).

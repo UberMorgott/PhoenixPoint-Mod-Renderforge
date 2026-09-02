@@ -20,8 +20,8 @@ Read this first in a fresh session. Everything below is committed on `main` of
 |---|---|
 | 1 Renderer switch (D3D11/D3D12 picker, restart, PPv2 D3D12 fix, greyed rows + native tooltips, overlay `Renderer:`) | DONE, in-game tested (A–E PASS) |
 | 2 DLSS on D3D12 (IDevice seam, Device12, sharpen PSO, Plugins staging) | DONE. DEVICE_REMOVED fixed by `54af332` (owned resources, see below). Gate passed: DLAA 600 s + 3 loads, debug layer 0 mismatches on our lists |
-| 3 FSR 4.1/3.1.5 via ffx-api | DONE. In-game: FSR Quality 352 s soak + 1 load, `own-fsr.png` OK. Open: jitter-sign A/B (Task 10 step left unticked); `Fsr12::Init` lacks `RfDbg::Attach` (debug-layer count unmeasured in-game) |
-| 4 XeSS 3 (DP4a) | DONE. In-game: XeSS Quality 355 s + 1 load, `own-xess.png` OK. Open: jitter-sign A/B (Task 9) |
+| 3 FSR 4.1/3.1.5 via ffx-api | DONE. In-game: FSR Quality 352 s soak + 1 load, `own-fsr.png` OK. Jitter A/B run 2026-09-02: indistinguishable on stills, defaults kept. `RfDbg::Attach` now in `Fsr12::Init` |
+| 4 XeSS 3 (DP4a) | DONE. In-game: XeSS Quality 355 s + 1 load, `own-xess.png` OK. Jitter A/B run 2026-09-02: indistinguishable on stills, defaults kept |
 | 5 Frame generation (FSR-FG, XeSS-FG, DLSS-G) | Plan only. Starts with the Present-hook / shadow-swapchain spike. Blocked on Phase 2 stability |
 | 6 Packaging | Tasks 1–6 DONE (`build\release.ps1`, per-vendor zips, README, RELEASING.md). Tasks 7–8 (GitHub release, Workshop) USER-GATED, not run |
 
@@ -87,9 +87,7 @@ Read this first in a fresh session. Everything below is committed on `main` of
 
 ## Next steps, in order
 
-1. Jitter-sign A/B for FSR and XeSS (Phase 3 Task 10 / Phase 4 Task 9 open steps, Ultra
-   Performance 4-way check); add `RfDbg::Attach` to `Fsr12::Init`; update the two contract notes.
-2. Phase 5 (frame generation) per its plan: Task 1 spike (Present hook / shadow swapchain) first.
-3. Re-run `build\release.ps1`, then Phase 6 Tasks 7–8 with the user's explicit OK.
+1. Phase 5 (frame generation) per its plan: Task 1 spike (Present hook / shadow swapchain) first.
+2. Re-run `build\release.ps1`, then Phase 6 Tasks 7–8 with the user's explicit OK.
 Note: `Player.log` is shared between Instance2 and Instance3 (same LocalLow profile dir?) — when
 ContentTool runs on Instance3 in parallel, prefer the mod's own log for evidence.
