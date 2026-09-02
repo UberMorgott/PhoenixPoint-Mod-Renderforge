@@ -236,10 +236,10 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     printf("  3840x2160 Quality -> render %ux%u  range [%ux%u .. %ux%u]\n", rw, rh, mnw, mnh, mxw, mxh);
 
     const unsigned RW = 1920, RH = 1080, OW = 3840, OH = 2160;
-    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT, false, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT, false, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_COMMON);
     if (g_failed) return 1;
 
     RenderEventFn ev = (RenderEventFn)Dlss_GetRenderEventFunc();
@@ -261,7 +261,7 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     }
     // sRGB output: Unity's sRGB RenderTextures are TYPELESS resources viewed as *_UNORM_SRGB; a UAV cannot be
     // sRGB, so the sharpen pass must view the output as R8G8B8A8_UNORM (SharpenViewFormat).
-    ID3D12Resource* outSrgb = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_TYPELESS, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12Resource* outSrgb = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_TYPELESS, true, D3D12_RESOURCE_STATE_COMMON);
     if (!outSrgb) return 1;
     {
         void* slot = Dlss_GetFrameSlot();
@@ -278,8 +278,8 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     if (Dlss_LastError() != 0 || Dlss_Sharpener() != DLSS_SHARPEN_NIS) g_failed = 1;
 
     // Passthrough: same-size copy, no NGX. out2 = render-res copy target.
-    ID3D12Resource* out2 = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_COPY_DEST);
-    ID3D12Resource* colorCopySrc = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    ID3D12Resource* out2 = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource* colorCopySrc = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_COMMON);
     Dlss_Passthrough(1);
     {
         void* slot = Dlss_GetFrameSlot();

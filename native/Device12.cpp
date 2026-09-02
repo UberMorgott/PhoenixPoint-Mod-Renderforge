@@ -20,6 +20,7 @@
 #include "unity/IUnityInterface.h"
 #include "unity/IUnityGraphicsD3D12.h"
 #include "D3D12Ring.h"
+#include "D3D12Debug.h"
 #include "nvsdk_ngx_helpers.h"
 
 namespace {
@@ -39,7 +40,7 @@ struct Device12 : IDevice
     D3D12Ring ring;               // command allocators/lists + Unity fence waits (D3D12Ring.h)
 
     // Sharpen pass. Descriptors are written straight into the shader-visible heap, 2 per ring slot
-    // (SRV of the scratch copy at +0, UAV of the output at +1). Constants live in one persistently
+    // (SRV of ngxOut at +0, UAV of Unity's output at +1). Constants live in one persistently
     // mapped upload buffer, 256 B per ring slot (a root CBV needs 256-byte alignment).
     ID3D12RootSignature* rootSig;
     ID3D12PipelineState* pso;
@@ -47,9 +48,13 @@ struct Device12 : IDevice
     UINT descSize;
     ID3D12Resource* cb;
     unsigned char* cbCpu;
-    ID3D12Resource* scratch;       // SRV copy of the output; in-place read+write is a hazard
-    unsigned scratchW, scratchH;
-    DXGI_FORMAT scratchFmt;
+    // NGX writes here instead of straight into Unity's RT whenever the sharpen pass runs, and the pass then
+    // reads it (SRV) and writes Unity's RT (UAV). Ours, so its state is ours to transition; see Sharpen().
+    ID3D12Resource* ngxOut;
+    unsigned ngxOutW, ngxOutH;
+    DXGI_FORMAT ngxOutFmt;
+
+    ID3D12Resource* logged;        // RENDERFORGE_D3D12_DEBUG: output whose descs were already logged
 
     Device12() { Zero(); }
 
@@ -60,7 +65,8 @@ struct Device12 : IDevice
         ring.Zero();
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; sharpener = 0; sharpenDead = 0;
         rootSig = NULL; pso = NULL; descHeap = NULL; descSize = 0; cb = NULL; cbCpu = NULL;
-        scratch = NULL; scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN;
+        ngxOut = NULL; ngxOutW = ngxOutH = 0; ngxOutFmt = DXGI_FORMAT_UNKNOWN;
+        logged = NULL;
     }
 
     int Api() const override { return 12; }
@@ -73,12 +79,23 @@ struct Device12 : IDevice
         if (!cl) lastError = ring.failCode;
         return cl;
     }
-    bool End(int n, UnityGraphicsD3D12ResourceState* st) { return ring.End(n, st); }
+    bool End(int n) { return ring.End(n); }
     void WaitIdle() { ring.WaitIdle(); }
 
     // ---- sharpen ------------------------------------------------------------
 
     void SharpenFail() { sharpenDead = 1; lastError = DLSS_ERR_SHARPEN; }
+
+    // Unity owns the state of its own RenderTextures and hands them to a plugin in D3D12_RESOURCE_STATE_COMMON;
+    // its own D3D12 plugin sample declares exactly that for every Unity-created resource and does the real
+    // transitions inside the plugin's list. Declaring anything else desynchronises Unity's state tracking and
+    // eventually removes the device with DXGI_ERROR_DEVICE_REMOVED / INVALID_CALL (in-game, 2026-09-02).
+    static void Declare(UnityGraphicsD3D12ResourceState* st, int& n, ID3D12Resource* res)
+    {
+        st[n].resource = res;
+        st[n].expected = st[n].current = D3D12_RESOURCE_STATE_COMMON;
+        ++n;
+    }
 
     static void Barrier(ID3D12GraphicsCommandList* cl, ID3D12Resource* res,
                         D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to)
@@ -172,31 +189,47 @@ struct Device12 : IDevice
         return true;
     }
 
-    // Runs on the SAME command list as the NGX evaluate, immediately after it. NGX leaves `output` in
-    // UNORDERED_ACCESS (guide p.14) and clobbers the command-list state (p.52), so everything is re-bound here.
-    // `slot` is the ring index the caller is recording into (End() has not advanced ringIdx yet).
-    void Sharpen(ID3D12GraphicsCommandList* cl, ID3D12Resource* output, float sharpness, int slot)
+    // Our own NGX target, one per output size/format. Returns false (and disables the pass) when it cannot be
+    // made, in which case the caller lets NGX write Unity's RT directly and simply skips sharpening.
+    bool NgxOutEnsure(ID3D12Resource* output)
     {
-        if (sharpenDead || !output || !device) return;
-        if (!SharpenEnsure()) return;
+        if (sharpenDead || !output || !device) return false;
+        if (!SharpenEnsure()) return false;
 
         D3D12_RESOURCE_DESC od = output->GetDesc();
         // CreateUnorderedAccessView is void: a UAV on a resource without this flag is a debug-layer error
         // and garbage at runtime, so this is the D3D12 twin of the D3D11 CreateUnorderedAccessView guard.
-        if (!(od.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) { SharpenFail(); return; }
+        if (!(od.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) { SharpenFail(); return false; }
         unsigned w = (unsigned)od.Width, h = od.Height;
-        DXGI_FORMAT viewFmt = SharpenViewFormat(od.Format);
+        if (ngxOut && ngxOutW == w && ngxOutH == h && ngxOutFmt == od.Format) return true;
 
-        if (!scratch || scratchW != w || scratchH != h || scratchFmt != od.Format) {
-            if (scratch) { WaitIdle(); scratch->Release(); scratch = NULL; }
-            D3D12_HEAP_PROPERTIES hp = {};
-            hp.Type = D3D12_HEAP_TYPE_DEFAULT;
-            D3D12_RESOURCE_DESC td = od;
-            td.Flags = D3D12_RESOURCE_FLAG_NONE;              // SRV only
-            if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
-                                                       D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&scratch)))) { SharpenFail(); return; }
-            scratchW = w; scratchH = h; scratchFmt = od.Format;
-        }
+        if (ngxOut) { WaitIdle(); ngxOut->Release(); ngxOut = NULL; }
+        D3D12_HEAP_PROPERTIES hp = {};
+        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC td = od;
+        td.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;   // NGX writes it, the sharpen pass reads it
+        if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
+                                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, IID_PPV_ARGS(&ngxOut)))) { SharpenFail(); return false; }
+        ngxOutW = w; ngxOutH = h; ngxOutFmt = od.Format;
+        RfDbg::Log("NgxOut: %ux%u fmt=%d created", w, h, (int)od.Format);
+        return true;
+    }
+
+    // Runs on the SAME command list as the NGX evaluate, immediately after it: reads ngxOut (which NGX has just
+    // written) and writes Unity's RT. NGX clobbers the command-list state (guide p.52), so everything is re-bound.
+    //
+    // NO BARRIER IS EVER ISSUED ON A UNITY RESOURCE. Unity owns the state of its own RenderTextures and puts them
+    // into the `expected` state itself; a transition of our own with a guessed StateBefore is what removed the
+    // device with DXGI_ERROR_DEVICE_REMOVED / INVALID_CALL (2026-09-02, bisected in-game: a bare
+    // UNORDERED_ACCESS -> COPY_SOURCE -> UNORDERED_ACCESS pair on outRT was enough, before or after the evaluate).
+    // Unity's own D3D12 plugin sample barriers only resources IT created and declares Unity's as COMMON.
+    // ngxOut is ours, so transitioning it is safe. `slot` is the ring index being recorded into.
+    void Sharpen(ID3D12GraphicsCommandList* cl, ID3D12Resource* output, float sharpness, int slot)
+    {
+        unsigned w = ngxOutW, h = ngxOutH;
+        DXGI_FORMAT viewFmt = SharpenViewFormat(ngxOutFmt);
+        if (logged != output)
+            RfDbg::Log("Sharpen: kind=%d sharpness=%.2f fmt=%d viewFmt=%d %ux%u slot=%d", sharpener, sharpness, (int)ngxOutFmt, (int)viewFmt, w, h, slot);
 
         FillSharpenConstants(cbCpu + 256 * (size_t)slot, sharpener, sharpness, w, h);
 
@@ -210,7 +243,7 @@ struct Device12 : IDevice
         sv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         sv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         sv.Texture2D.MipLevels = 1;
-        device->CreateShaderResourceView(scratch, &sv, cpu);
+        device->CreateShaderResourceView(ngxOut, &sv, cpu);
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpuUav = cpu; cpuUav.ptr += descSize;
         D3D12_GPU_DESCRIPTOR_HANDLE gpuUav = gpu; gpuUav.ptr += descSize;
@@ -219,10 +252,7 @@ struct Device12 : IDevice
         uv.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         device->CreateUnorderedAccessView(output, NULL, &uv, cpuUav);
 
-        Barrier(cl, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        cl->CopyResource(scratch, output);
-        Barrier(cl, output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        Barrier(cl, scratch, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Barrier(cl, ngxOut, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
         ID3D12DescriptorHeap* heaps[1] = { descHeap };
         cl->SetDescriptorHeaps(1, heaps);
@@ -234,8 +264,8 @@ struct Device12 : IDevice
         unsigned g = SharpenGroupSize(sharpener);
         cl->Dispatch((w + g - 1) / g, (h + g - 1) / g, 1);
 
-        // Leave the output in UNORDERED_ACCESS (what the state array declares) and the scratch back in COPY_DEST.
-        Barrier(cl, scratch, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        // ngxOut goes back to the state it was created in, so every list starts from the same known state.
+        Barrier(cl, ngxOut, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
 
     // ---- IDevice -----------------------------------------------------------
@@ -252,6 +282,7 @@ struct Device12 : IDevice
 
         if (!g_unityD3D12) { device->Release(); device = NULL; return DLSS_ERR_NO_UNITY_IFACE; }
         ring.Attach(device);
+        RfDbg::Attach(device);
 
         if (inDllDir) wcsncpy_s(dllDir, inDllDir, _TRUNCATE);
         const wchar_t* paths[1] = { dllDir };
@@ -312,9 +343,14 @@ struct Device12 : IDevice
         ID3D12GraphicsCommandList* cl = Begin();
         if (!cl) { lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; return; }   // Begin() set lastError
         // Node masks are "Multi GPU only (default 1)" (DLSS guide p.56 7.1).
+        RfDbg::Log("Create: %ux%u -> %ux%u q=%d flags=0x%X", cp.w, cp.h, cp.outW, cp.outH, cp.quality, cp.ngxFlags);
         lastCreate = NGX_D3D12_CREATE_DLSS_EXT(cl, 1, 1, &feature, params, &dcp);
-        End(0, NULL);                     // the list must be closed and submitted even when NGX failed
+        End(0);                     // the list must be closed and submitted even when NGX failed
         if (NVSDK_NGX_FAILED(lastCreate)) { feature = NULL; lastError = (int)lastCreate; }
+        RfDbg::Log("Create: result=0x%X feature=%p", (unsigned)lastCreate, (void*)feature);
+        RfDbg::Drain();
+        RfDbg::Removed(device, "Create");
+        logged = NULL;                    // re-log the resource descs for the new generation
     }
 
     static bool SameSize(ID3D12Resource* a, ID3D12Resource* b)
@@ -341,17 +377,25 @@ struct Device12 : IDevice
         ID3D12GraphicsCommandList* cl = Begin();
         if (!cl) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; return; }   // Begin() set lastError
 
-        UnityGraphicsD3D12ResourceState st[4];
+        UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = 0;
         if (passthrough) {
-            st[n].resource = color;  st[n].expected = D3D12_RESOURCE_STATE_COPY_SOURCE; st[n].current = D3D12_RESOURCE_STATE_COPY_SOURCE; ++n;
-            st[n].resource = output; st[n].expected = D3D12_RESOURCE_STATE_COPY_DEST;   st[n].current = D3D12_RESOURCE_STATE_COPY_DEST;   ++n;
+            Declare(st, n, color);
+            Declare(st, n, output);
+            Barrier(cl, color,  D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            Barrier(cl, output, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
             cl->CopyResource(output, color);
+            Barrier(cl, color,  D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+            Barrier(cl, output, D3D12_RESOURCE_STATE_COPY_DEST,   D3D12_RESOURCE_STATE_COMMON);
             lastEval = NVSDK_NGX_Result_Success;
         } else {
+            // With sharpening on, NGX writes our own ngxOut and the sharpen pass produces Unity's RT; that keeps
+            // every resource-state transition on a resource we own (see Sharpen()).
+            bool sharpen = fp.sharpness > 0.0f && NgxOutEnsure(output);
+
             NVSDK_NGX_D3D12_DLSS_Eval_Params ep = {};
             ep.Feature.pInColor = color;
-            ep.Feature.pInOutput = output;
+            ep.Feature.pInOutput = sharpen ? ngxOut : output;
             ep.Feature.InSharpness = 0;   // deprecated in SDK 310; our own pass uses fp.sharpness
             ep.pInDepth = (ID3D12Resource*)fp.depth;
             ep.pInMotionVectors = (ID3D12Resource*)fp.mv;
@@ -365,16 +409,38 @@ struct Device12 : IDevice
             ep.InPreExposure = fp.preExposure;
             ep.InFrameTimeDeltaInMsec = fp.dtMs;
 
-            st[n].resource = color;                        st[n].expected = st[n].current = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; ++n;
-            st[n].resource = (ID3D12Resource*)fp.depth;    st[n].expected = st[n].current = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; ++n;
-            st[n].resource = (ID3D12Resource*)fp.mv;       st[n].expected = st[n].current = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; ++n;
-            st[n].resource = output;                       st[n].expected = st[n].current = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;          ++n;
+            ID3D12Resource* depth = (ID3D12Resource*)fp.depth;
+            ID3D12Resource* mv    = (ID3D12Resource*)fp.mv;
+            Declare(st, n, color); Declare(st, n, depth); Declare(st, n, mv); Declare(st, n, output);
+
+            const D3D12_RESOURCE_STATES kIn = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            Barrier(cl, color, D3D12_RESOURCE_STATE_COMMON, kIn);
+            Barrier(cl, depth, D3D12_RESOURCE_STATE_COMMON, kIn);
+            Barrier(cl, mv,    D3D12_RESOURCE_STATE_COMMON, kIn);
+            Barrier(cl, output, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
-            else if (fp.sharpness > 0.0f) Sharpen(cl, output, fp.sharpness, ring.ringIdx);
+            else if (sharpen) Sharpen(cl, output, fp.sharpness, ring.ringIdx);
+
+            Barrier(cl, color, kIn, D3D12_RESOURCE_STATE_COMMON);
+            Barrier(cl, depth, kIn, D3D12_RESOURCE_STATE_COMMON);
+            Barrier(cl, mv,    kIn, D3D12_RESOURCE_STATE_COMMON);
+            Barrier(cl, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
         }
-        if (!End(n, st)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
+        if (RfDbg::On() && logged != output) {
+            logged = output;
+            RfDbg::Log("Evaluate: passthrough=%d render=%ux%u jitter=%.3f,%.3f mvScale=%.1f,%.1f reset=%d sharp=%.2f",
+                       (int)passthrough, fp.renderW, fp.renderH, fp.jitterX, fp.jitterY, fp.mvScaleX, fp.mvScaleY, fp.reset, fp.sharpness);
+            RfDbg::Resource("color", color);
+            RfDbg::Resource("depth", (ID3D12Resource*)fp.depth);
+            RfDbg::Resource("mv", (ID3D12Resource*)fp.mv);
+            RfDbg::Resource("output", output);
+            RfDbg::States(n, st);
+        }
+        if (!End(n)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
+        RfDbg::Drain();
+        RfDbg::Removed(device, "Evaluate");
     }
 
     void ReleaseFeature() override
@@ -391,7 +457,7 @@ struct Device12 : IDevice
         ring.Release();
         if (cb && cbCpu) { D3D12_RANGE noWrite = { 0, 0 }; cb->Unmap(0, &noWrite); cbCpu = NULL; }
         if (cb) { cb->Release(); cb = NULL; }
-        if (scratch) { scratch->Release(); scratch = NULL; }
+        if (ngxOut) { ngxOut->Release(); ngxOut = NULL; }
         if (descHeap) { descHeap->Release(); descHeap = NULL; }
         if (pso) { pso->Release(); pso = NULL; }
         if (rootSig) { rootSig->Release(); rootSig = NULL; }
