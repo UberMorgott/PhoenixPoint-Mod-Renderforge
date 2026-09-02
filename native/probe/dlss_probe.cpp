@@ -1,6 +1,7 @@
 // dlss_probe.cpp - offline check of RenderforgeNative.dll: init -> optimal -> create -> 3x evaluate -> passthrough -> release.
-// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll> [--d3d12|--fsr]. Exit 0 only if every result succeeded;
-// 1 = a call failed, 2 = usage, 3 (--fsr only) = no D3D12 upscale provider for this GPU (build warning, not an error).
+// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12|--fsr|--xess]. Exit 0 only if
+// every result succeeded; 1 = a call failed, 2 = usage, 3 (--fsr / --xess only) = that provider cannot run on this GPU/driver
+// (build warning, not an error).
 #include <d3d11.h>
 #include <d3d12.h>
 #include <stdio.h>
@@ -13,6 +14,8 @@
 #include "ffx_api_loader.h"
 #include "ffx_upscale.h"
 #include "FfxLoader.h"
+#include "xess/xess.h"
+#include "xess/xess_d3d12.h"
 
 #define NGX_OK(r) ((((unsigned)(r)) & 0xFFF00000u) != 0xBAD00000u)
 
@@ -403,20 +406,131 @@ static int RunFsr(const wchar_t* dllDir, const wchar_t* cwd)
     return g_failed ? 1 : 0;
 }
 
+// ---------------------------------------------------------------- XeSS (provider 2, D3D12, cross-vendor)
+
+// What the SDK itself reports for this device, straight from libxess.dll (delay-loaded, pinned from `dir` first so
+// the same copy the shim uses answers). XeFX 0.0.0 = non-Intel platform = the cross-vendor DP4a path (xess.h:216).
+static void PrintXessVersions(ID3D12Device* dev, const wchar_t* dir)
+{
+    wchar_t path[MAX_PATH]; swprintf_s(path, L"%s\\libxess.dll", dir);
+    if (!LoadLibraryW(path)) { printf("XeSS versions   <libxess.dll not found in %ls>\n", dir); return; }
+    xess_version_t v = {}, xefx = {};
+    xess_result_t r = xessGetVersion(&v);
+    printf("xessGetVersion  %d -> %u.%u.%u\n", (int)r, (unsigned)v.major, (unsigned)v.minor, (unsigned)v.patch);
+    xess_context_handle_t ctx = NULL;
+    r = xessD3D12CreateContext(dev, &ctx);
+    if (r != XESS_RESULT_SUCCESS || !ctx) { printf("xessD3D12CreateContext %d (-1 = no SM 6.4/DP4a, -2 = driver)\n", (int)r); return; }
+    r = xessGetIntelXeFXVersion(ctx, &xefx);
+    printf("xessGetIntelXeFXVersion %d -> %u.%u.%u (%s)  xessIsOptimalDriver=%d (0 ok, 2 old driver)\n", (int)r,
+           (unsigned)xefx.major, (unsigned)xefx.minor, (unsigned)xefx.patch,
+           (xefx.major || xefx.minor || xefx.patch) ? "Intel XMX path" : "cross-vendor DP4a path", (int)xessIsOptimalDriver(ctx));
+    xessDestroyContext(ctx);
+}
+
+// Colour/output are R8G8B8A8_UNORM: the game's D3D12 colour RT is Unity ARGB32 and XeSS is told so with
+// XESS_INIT_FLAG_LDR_INPUT_COLOR (no DLSS_F_HDR). Every Unity resource is declared COMMON like Device12 does.
+static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
+{
+    if (InitD3D12() != 0) return 1;
+    (void)cwd;
+
+    Dlss_SetProvider(DLSS_PROVIDER_XESS);
+    PrintXessVersions(g_dev12, dllDir);
+
+    ID3D12Resource* any = MakeTex12(1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    if (!any) return 1;
+    int init = Dlss_Init(any, dllDir, dllDir);
+    char ver[64] = {};
+    Dlss_ProviderVersion(ver, (int)sizeof(ver));
+    printf("Dlss_Init      code=%d (0=ok 2=initFailed 3=notAvailable 4=needsDriver 6=noProviderDll 7=providerUnsupported) provider=%d api=%d version='%s'\n",
+           init, Dlss_Provider(), Dlss_Api(), ver);
+    if (init != DLSS_OK) { printf("XeSS init not ok: this GPU/driver cannot run XeSS (needs SM 6.4 + DP4a)\n"); return 3; }   // 3 = unsupported here, not a code defect
+    if (Dlss_Provider() != DLSS_PROVIDER_XESS) { printf("Dlss_Provider()=%d, expected %d\n", Dlss_Provider(), DLSS_PROVIDER_XESS); return 1; }
+    if (!ver[0]) { printf("provider version empty\n"); g_failed = 1; }
+
+    unsigned rw = 0, rh = 0, mnw = 0, mnh = 0, mxw = 0, mxh = 0;
+    int r = Dlss_GetOptimal(1920, 1080, DLSS_Q_QUALITY, &rw, &rh, &mnw, &mnh, &mxw, &mxh);
+    Report("GetOptimal", r);
+    printf("  1920x1080 Quality -> render %ux%u  range [%ux%u .. %ux%u] (1.7x -> ~1129x635)\n", rw, rh, mnw, mnh, mxw, mxh);
+    if (rw == 0 || rh == 0 || rw >= 1920 || rw < 1920 / 2) { printf("  <-- unexpected render resolution\n"); g_failed = 1; }
+    unsigned aaW = 0, aaH = 0;
+    r = Dlss_GetOptimal(1920, 1080, DLSS_Q_DLAA, &aaW, &aaH, &mnw, &mnh, &mxw, &mxh);
+    Report("GetOptimal AA", r);
+    printf("  1920x1080 Native AA -> render %ux%u (expect 1920x1080, XESS_QUALITY_SETTING_AA = 1.0x)\n", aaW, aaH);
+    if (aaW != 1920 || aaH != 1080) g_failed = 1;
+    unsigned uqW = 0, uqH = 0;
+    r = Dlss_GetOptimal(1920, 1080, DLSS_Q_ULTRA_QUALITY_PLUS, &uqW, &uqH, &mnw, &mnh, &mxw, &mxh);
+    Report("GetOptimal UQ+", r);
+    printf("  1920x1080 Ultra Quality Plus -> render %ux%u (1.3x -> ~1477x831, between Quality and native)\n", uqW, uqH);
+    if (uqW <= rw || uqW >= 1920) g_failed = 1;
+
+    const unsigned RW = rw, RH = rh, OW = 1920, OH = 1080;
+    ID3D12Resource* color = MakeTex12(RW, RH, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource* depth = MakeTex12(RW, RH, DXGI_FORMAT_R32_FLOAT,     false, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource* mv    = MakeTex12(RW, RH, DXGI_FORMAT_R16G16_FLOAT,  false, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource* out   = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_COMMON);
+    if (g_failed) return 1;
+
+    RenderEventFn ev = (RenderEventFn)Dlss_GetRenderEventFunc();
+    RenderEventAndDataFn evd = (RenderEventAndDataFn)Dlss_GetRenderEventAndDataFunc();
+    Dlss_SetCreateParams(RW, RH, OW, OH, DLSS_Q_QUALITY, DLSS_F_DEPTH_INVERTED | DLSS_F_MV_LOW_RES);
+    ev(DLSS_EV_CREATE);
+    int c = 0, e = 0, alive = 0;
+    Dlss_Status(&c, &e, &alive);
+    Report("Create", c);
+    printf("  initialised=%d lastError=%d (xessD3D12Init is a blocking CPU call: no ExecuteCommandList, calls=%d)\n", alive, Dlss_LastError(), g_execCalls);
+    if (!alive || g_execCalls != 0) g_failed = 1;
+
+    const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
+    for (int i = 0; i < 3; ++i) {
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], -(float)RW, -(float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f);
+        evd(DLSS_EV_EVALUATE, slot);
+        Dlss_Status(&c, &e, &alive);
+        char name[32]; sprintf_s(name, "Execute[%d]", i);
+        Report(name, e);
+    }
+    WaitGpu();
+    printf("Submissions    ExecuteCommandList calls=%d (expect 3: 3 execute, no create)\n", g_execCalls);
+    if (g_execCalls != 3) g_failed = 1;
+    printf("Sharpen        shader=%d (1=NIS 2=RCAS fallback, expect 1: XeSS has no sharpness, the shim's pass runs) lastError=%d (expect 0)\n",
+           Dlss_Sharpener(), Dlss_LastError());
+    if (Dlss_LastError() != 0 || Dlss_Sharpener() != DLSS_SHARPEN_NIS) g_failed = 1;
+
+    ev(DLSS_EV_RELEASE);
+    Dlss_Status(&c, &e, &alive);
+    printf("Release        initialised=%d\n", alive);
+    if (alive) g_failed = 1;
+
+    // Re-create after a release: the context is rebuilt on the render path, like a preset change in-game.
+    ev(DLSS_EV_CREATE);
+    Dlss_Status(&c, &e, &alive);
+    Report("Re-create", c);
+    if (!alive) g_failed = 1;
+    ev(DLSS_EV_RELEASE);
+
+    Dlss_Shutdown();
+    WaitGpu();
+    color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
+    g_fence->Release(); g_queue->Release(); g_dev12->Release();
+    return g_failed ? 1 : 0;
+}
+
 // ----------------------------------------------------------------
 
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc < 2) { fprintf(stderr, "usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll> [--d3d12|--fsr]\n"); return 2; }
-    int want12 = 0, wantFsr = 0;
+    if (argc < 2) { fprintf(stderr, "usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12|--fsr|--xess]\n"); return 2; }
+    int want12 = 0, wantFsr = 0, wantXess = 0;
     for (int i = 2; i < argc; ++i) {
         if (wcscmp(argv[i], L"--d3d12") == 0) want12 = 1;
         if (wcscmp(argv[i], L"--fsr") == 0) wantFsr = 1;
+        if (wcscmp(argv[i], L"--xess") == 0) wantXess = 1;
     }
     wchar_t cwd[MAX_PATH]; _wgetcwd(cwd, MAX_PATH);
-    printf("== dlss_probe %s ==\n", wantFsr ? "FSR" : want12 ? "D3D12" : "D3D11");
+    printf("== dlss_probe %s ==\n", wantXess ? "XeSS (D3D12)" : wantFsr ? "FSR" : want12 ? "D3D12" : "D3D11");
 
-    int rc = wantFsr ? RunFsr(argv[1], cwd) : want12 ? RunD3D12(argv[1], cwd) : RunD3D11(argv[1], cwd);
+    int rc = wantXess ? RunXess(argv[1], cwd) : wantFsr ? RunFsr(argv[1], cwd) : want12 ? RunD3D12(argv[1], cwd) : RunD3D11(argv[1], cwd);
     printf(rc ? "PROBE FAILED\n" : "PROBE OK\n");
     return rc;
 }

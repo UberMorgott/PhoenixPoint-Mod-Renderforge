@@ -28,9 +28,18 @@ foreach ($dll in $amdDlls) {
     Write-Host ("{0} {1} from {2}" -f (Split-Path $dll -Leaf), (Get-Item $dll).VersionInfo.FileVersion, $dll)
 }
 
+# Intel XeSS SDK 3.0.2: libxess.dll (D3D12, cross-vendor DP4a + Intel XMX) shipped verbatim, Intel-signed.
+$xessSdk = Join-Path $root '..\refs\XeSS-sdk'
+$xessDll = Join-Path $xessSdk 'bin\libxess.dll'
+if (-not (Test-Path $xessDll)) { throw "libxess.dll not found at $xessDll" }
+$xsig = Get-AuthenticodeSignature $xessDll
+if ($xsig.Status -ne 'Valid' -or $xsig.SignerCertificate.Subject -notmatch 'Intel Corporation') { throw "libxess.dll signature invalid: $xessDll" }
+Write-Host "libxess.dll $((Get-Item $xessDll).VersionInfo.FileVersion) from $xessDll"
+if (-not (Test-Path (Join-Path $root 'LICENSE-INTEL.txt'))) { throw "LICENSE-INTEL.txt missing (copy refs\XeSS-sdk\LICENSE.txt)" }
+
 New-Item -ItemType Directory -Force $buildDir, $outDir | Out-Null
 
-& $cmake -S (Join-Path $root 'native') -B $buildDir -G 'Visual Studio 17 2022' -A x64 "-DDLSS_SDK=$((Resolve-Path $sdk).Path)" "-DFFX_SDK=$((Resolve-Path $ffxSdk).Path)"
+& $cmake -S (Join-Path $root 'native') -B $buildDir -G 'Visual Studio 17 2022' -A x64 "-DDLSS_SDK=$((Resolve-Path $sdk).Path)" "-DFFX_SDK=$((Resolve-Path $ffxSdk).Path)" "-DXESS_SDK=$((Resolve-Path $xessSdk).Path)"
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
 & $cmake --build $buildDir --config Release
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
@@ -39,6 +48,7 @@ Copy-Item (Join-Path $buildDir 'Release\RenderforgeNative.dll') $outDir -Force
 Copy-Item (Join-Path $buildDir 'Release\dlss_probe.exe') $outDir -Force
 Copy-Item $ngxDll $outDir -Force
 foreach ($dll in $amdDlls) { Copy-Item $dll $outDir -Force }
+Copy-Item $xessDll $outDir -Force
 
 Push-Location $outDir
 try {
@@ -48,11 +58,15 @@ try {
     $rc12 = $LASTEXITCODE
     & (Join-Path $outDir 'dlss_probe.exe') $outDir --fsr
     $rcFsr = $LASTEXITCODE
+    & (Join-Path $outDir 'dlss_probe.exe') $outDir --xess
+    $rcXess = $LASTEXITCODE
 } finally { Pop-Location }
 if ($rc11 -ne 0) { throw "dlss_probe (D3D11) failed ($rc11)" }
 if ($rc12 -ne 0) { throw "dlss_probe (D3D12) failed ($rc12)" }
-# Exit 3 = the machine has no D3D12 upscale provider for FSR (probe could not init): the DLLs still ship, so warn only.
+# Exit 3 = the machine cannot run that provider (probe could not init): the DLLs still ship, so warn only.
 # Anything else non-zero is a real create/dispatch failure and gates the build.
 if ($rcFsr -eq 3) { Write-Warning "dlss_probe (FSR): no D3D12 upscale provider on this machine - FSR untested, build continues" }
 elseif ($rcFsr -ne 0) { throw "dlss_probe (FSR) failed ($rcFsr)" }
+if ($rcXess -eq 3) { Write-Warning "dlss_probe (XeSS): this GPU/driver cannot run XeSS (SM 6.4 + DP4a) - XeSS untested, build continues" }
+elseif ($rcXess -ne 0) { throw "dlss_probe (XeSS) failed ($rcXess)" }
 Write-Host "build-native: OK"

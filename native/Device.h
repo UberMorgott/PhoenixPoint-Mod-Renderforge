@@ -70,6 +70,8 @@ IDevice* MakeDevice11(void* nativeResource);
 IDevice* MakeDevice12(void* nativeResource);
 // FSR (FidelityFX ffx-api, D3D12 only). NULL when the resource is not a D3D12 one.
 IDevice* MakeFsr12(void* nativeResource);
+// XeSS (Intel libxess.dll, D3D12 only, cross-vendor DP4a / Intel XMX). NULL when the resource is not a D3D12 one.
+IDevice* MakeXess12(void* nativeResource);
 
 // Shared translation helpers (defined in RenderforgeNative.cpp).
 NVSDK_NGX_PerfQuality_Value ToNgxQuality(int quality);

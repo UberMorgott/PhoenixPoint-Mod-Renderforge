@@ -105,8 +105,11 @@ int __cdecl Dlss_Init(void* anyNativeResource, const wchar_t* dllDir, const wcha
         d = MakeFsr12(anyNativeResource);                  // D3D12 only; NULL on a D3D11 resource
         if (!d) return S.initCode = DLSS_ERR_PROVIDER_UNSUPPORTED;
         S.provider = DLSS_PROVIDER_FSR;
+    } else if (S.wantProvider == DLSS_PROVIDER_XESS) {
+        d = MakeXess12(anyNativeResource);                 // D3D12 only; NULL on a D3D11 resource
+        if (!d) return S.initCode = DLSS_ERR_PROVIDER_UNSUPPORTED;
+        S.provider = DLSS_PROVIDER_XESS;
     } else {
-        if (S.wantProvider == DLSS_PROVIDER_XESS) return S.initCode = DLSS_ERR_PROVIDER_UNSUPPORTED;  // Phase 4
         d = MakeDevice11(anyNativeResource);
         if (!d) d = MakeDevice12(anyNativeResource);
         if (!d) return S.initCode = DLSS_ERR_NO_DEVICE;
