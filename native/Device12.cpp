@@ -19,19 +19,12 @@
 
 #include "unity/IUnityInterface.h"
 #include "unity/IUnityGraphicsD3D12.h"
+#include "D3D12Ring.h"
 #include "nvsdk_ngx_helpers.h"
-
-// Set by UnityPluginLoad (RenderforgeNative.cpp) or Dlss_TestSetUnityD3D12, NULLed on kUnityGfxDeviceEventShutdown.
-// Never cached in the device: read per use.
-extern IUnityGraphicsD3D12v5* g_unityD3D12;
 
 namespace {
 
-// Unity keeps up to 3 frames in flight; one spare so a create + evaluate in the same frame never waits.
-// More than kRing submissions in ONE frame would block in Begin() on Unity's frame fence, which only
-// advances at frame end - i.e. a deadlock until kFenceWaitMs. Keep submissions per frame < kRing.
-const int kRing = 4;
-const DWORD kFenceWaitMs = 5000;  // a hung GPU must not deadlock the render thread forever
+const int kRing = D3D12Ring::kRing;   // sharpen descriptors/constants are per ring slot
 
 struct Device12 : IDevice
 {
@@ -43,12 +36,7 @@ struct Device12 : IDevice
     unsigned minDriverMajor, minDriverMinor;
     wchar_t dllDir[MAX_PATH];
 
-    ID3D12CommandAllocator* alloc[kRing];
-    ID3D12GraphicsCommandList* list[kRing];
-    UINT64 submitted[kRing];      // fence value ExecuteCommandList returned for that slot, 0 = never used
-    int ringIdx;
-    int recording;                // a list is open; End() must be reached on every path
-    HANDLE waitEvent;
+    D3D12Ring ring;               // command allocators/lists + Unity fence waits (D3D12Ring.h)
 
     // Sharpen pass. Descriptors are written straight into the shader-visible heap, 2 per ring slot
     // (SRV of the scratch copy at +0, UAV of the output at +1). Constants live in one persistently
@@ -69,8 +57,7 @@ struct Device12 : IDevice
     {
         device = NULL; params = NULL; feature = NULL;
         ngxInitialized = 0; initCode = 0; needsDriver = 0; minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
-        for (int i = 0; i < kRing; ++i) { alloc[i] = NULL; list[i] = NULL; submitted[i] = 0; }
-        ringIdx = 0; recording = 0; waitEvent = NULL;
+        ring.Zero();
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; sharpener = 0; sharpenDead = 0;
         rootSig = NULL; pso = NULL; descHeap = NULL; descSize = 0; cb = NULL; cbCpu = NULL;
         scratch = NULL; scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN;
@@ -79,72 +66,15 @@ struct Device12 : IDevice
     int Api() const override { return 12; }
     bool FeatureAlive() const override { return feature != NULL; }
 
-    // ---- command-list ring -------------------------------------------------
-
-    // WAIT_OBJECT_0 once `value` has retired (0 = never submitted, retired by definition), else the
-    // WaitForSingleObject result (WAIT_TIMEOUT / WAIT_FAILED). Callers must not touch the slot otherwise.
-    DWORD WaitFence(UINT64 value)
-    {
-        if (!value) return WAIT_OBJECT_0;
-        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
-        ID3D12Fence* fence = unity ? unity->GetFrameFence() : NULL;
-        if (!fence) return WAIT_FAILED;
-        if (fence->GetCompletedValue() >= value) return WAIT_OBJECT_0;
-        if (!waitEvent) waitEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
-        if (!waitEvent) return WAIT_FAILED;
-        if (FAILED(fence->SetEventOnCompletion(value, waitEvent))) return WAIT_FAILED;
-        return WaitForSingleObject(waitEvent, kFenceWaitMs);
-    }
-
-    // Blocks until every list we ever submitted has retired. Needed before releasing an NGX feature:
-    // the guide (p.54 5.5) forbids releasing while a command list that used it is still in flight.
-    void WaitIdle()
-    {
-        for (int i = 0; i < kRing; ++i) WaitFence(submitted[i]);
-    }
-
-    void ReleaseSlot(int i)
-    {
-        if (list[i]) { list[i]->Release(); list[i] = NULL; }
-        if (alloc[i]) { alloc[i]->Release(); alloc[i] = NULL; }
-    }
-
-    // Returns an open, recording DIRECT command list, or NULL with lastError set.
+    // Ring wrappers: Begin() reports its failure through failCode, which is this device's lastError.
     ID3D12GraphicsCommandList* Begin()
     {
-        if (!device || !g_unityD3D12 || recording) { lastError = DLSS_ERR_NO_CONTEXT; return NULL; }
-        int i = ringIdx;
-        // An in-flight allocator must never be reset: on timeout/failure leave the slot alone and bail.
-        if (WaitFence(submitted[i]) != WAIT_OBJECT_0) { lastError = DLSS_ERR_FENCE_TIMEOUT; return NULL; }
-        if (!alloc[i] || !list[i]) {
-            ReleaseSlot(i);   // a half-built pair from an earlier failure
-            if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc[i]))) ||
-                FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc[i], NULL, IID_PPV_ARGS(&list[i])))) {
-                ReleaseSlot(i); lastError = DLSS_ERR_NO_CONTEXT; return NULL;
-            }
-            list[i]->Close();
-        }
-        if (FAILED(alloc[i]->Reset()) || FAILED(list[i]->Reset(alloc[i], NULL))) { lastError = DLSS_ERR_NO_CONTEXT; return NULL; }
-        recording = 1;
-        return list[i];
+        ID3D12GraphicsCommandList* cl = ring.Begin();
+        if (!cl) lastError = ring.failCode;
+        return cl;
     }
-
-    // Closes the current list and hands it to Unity. `states` may be NULL when stateCount is 0.
-    bool End(int stateCount, UnityGraphicsD3D12ResourceState* states)
-    {
-        if (!recording) return false;
-        int i = ringIdx;
-        recording = 0;
-        ringIdx = (ringIdx + 1) % kRing;
-        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
-        if (FAILED(list[i]->Close()) || !unity) return false;
-        UINT64 v = unity->ExecuteCommandList(list[i], stateCount, states);
-        // 0 would mark the slot "never used" and let Begin() reset an allocator the GPU may still read.
-        // Unity signals the frame fence with GetNextFrameFenceValue() at the end of this frame, after our
-        // list - waiting on that is the conservative, always-correct choice.
-        submitted[i] = v ? v : unity->GetNextFrameFenceValue();
-        return true;
-    }
+    bool End(int n, UnityGraphicsD3D12ResourceState* st) { return ring.End(n, st); }
+    void WaitIdle() { ring.WaitIdle(); }
 
     // ---- sharpen ------------------------------------------------------------
 
@@ -321,6 +251,7 @@ struct Device12 : IDevice
         if (FAILED(hr) || !device) return DLSS_ERR_NO_DEVICE;
 
         if (!g_unityD3D12) { device->Release(); device = NULL; return DLSS_ERR_NO_UNITY_IFACE; }
+        ring.Attach(device);
 
         if (inDllDir) wcsncpy_s(dllDir, inDllDir, _TRUNCATE);
         const wchar_t* paths[1] = { dllDir };
@@ -441,7 +372,7 @@ struct Device12 : IDevice
 
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
-            else if (fp.sharpness > 0.0f) Sharpen(cl, output, fp.sharpness, ringIdx);
+            else if (fp.sharpness > 0.0f) Sharpen(cl, output, fp.sharpness, ring.ringIdx);
         }
         if (!End(n, st)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
     }
@@ -457,9 +388,7 @@ struct Device12 : IDevice
     void Shutdown() override
     {
         ReleaseFeature();
-        WaitIdle();
-        for (int i = 0; i < kRing; ++i) { ReleaseSlot(i); submitted[i] = 0; }
-        if (waitEvent) { CloseHandle(waitEvent); waitEvent = NULL; }
+        ring.Release();
         if (cb && cbCpu) { D3D12_RANGE noWrite = { 0, 0 }; cb->Unmap(0, &noWrite); cbCpu = NULL; }
         if (cb) { cb->Release(); cb = NULL; }
         if (scratch) { scratch->Release(); scratch = NULL; }
