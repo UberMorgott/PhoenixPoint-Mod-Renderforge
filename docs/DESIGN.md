@@ -45,7 +45,9 @@ Mods\Renderforge\
   Renderforge.dll          managed mod (Harmony + MonoBehaviour driver)      ← src\
   RenderforgeNative.dll    C++ shim: NGX D3D11 init/create/evaluate          ← native\
   nvngx_dlss.dll    NVIDIA runtime, verbatim from SDK (rel)
-  meta.json, LICENSE-NVIDIA.txt, README.md
+  amd_fidelityfx_{loader,upscaler}_dx12.dll   AMD FSR runtime (D3D12), verbatim from the SDK
+  libxess.dll              Intel XeSS-SR runtime (D3D12, cross-vendor DP4a / Intel XMX), verbatim from the SDK
+  meta.json, LICENSE-NVIDIA.txt, LICENSE-NIS.txt, LICENSE-AMD.txt, LICENSE-INTEL.txt, README.md
 ```
 
 ### RenderforgeNative.dll (C++, ~400 LOC, VS2022 Build Tools + CMake)
@@ -98,9 +100,9 @@ feeds the frustum FSR/XeSS need (copied into every frame slot; NGX ignores it).
 |---|---|---|---|---|---|---|
 | DLSS SR / DLAA | 0 | D3D11 + D3D12 | `Device11`, `Device12` (NGX) | DLSS 3.10.7, `nvngx_dlss.dll` 310.7.129 | DLAA, Quality, Balanced, Performance, Ultra Performance | the shim's own NIS pass (RCAS fallback) |
 | FSR | 1 | D3D12 only | `Fsr12` (ffx-api) | FidelityFX SDK 2.3, `amd_fidelityfx_{loader,upscaler}_dx12.dll` | Native AA, Quality, Balanced, Performance, Ultra Performance | FSR's built-in RCAS (`enableSharpening`) |
-| XeSS | 2 | D3D12 only | Phase 4 | XeSS 3.0.x | — | — |
+| XeSS SR | 2 | D3D12 only | `Xess12` (`libxess.dll`) | XeSS SDK 3.0.2, `libxess.dll` 2.0.2.68 | Native AA (1.0x), Ultra Quality Plus (1.3x), Ultra Quality (1.5x), Quality (1.7x), Balanced (2.0x), Performance (2.3x), Ultra Performance (3.0x) | the shim's own NIS pass (XeSS has no sharpness) |
 
-Both D3D12 providers share `D3D12Ring` (`native\D3D12Ring.h`: 4 command allocators/lists, submitted through
+All three D3D12 providers share `D3D12Ring` (`native\D3D12Ring.h`: 4 command allocators/lists, submitted through
 `IUnityGraphicsD3D12v5::ExecuteCommandList` with a resource-state array, slots recycled on Unity's frame fence).
 
 The AMD ffx-api is loaded at **runtime** (`FfxLoader.cpp`: `LoadLibraryW` of both DLLs by absolute path from the
@@ -111,10 +113,28 @@ the DLL choose and reports the result through `Dlss_ProviderVersion` (`ffxQueryG
 overlay prints as `Upscaler: FSR 4.1.1` / `FSR 3.1.5`. Observed on the dev RTX 5070 Ti (`dlss_probe --fsr`,
 2026-09-02): version list `3.1.5 2.3.4` (no 4.x entry on a non-AMD device), context created on **3.1.5**.
 
+XeSS (`native\Xess12.cpp`) links `libxess.lib` **delay-loaded** (`/DELAYLOAD:libxess.dll`): `Init` pins
+`<modDir>\libxess.dll` with `LoadLibraryW` before the first `xess*` call, so the delay-load thunks bind to the mod's
+copy and the shim still loads when it is absent (`DLSS_ERR_NO_PROVIDER_DLL`). `xessD3D12CreateContext` decides
+support (`XESS_RESULT_ERROR_UNSUPPORTED_DEVICE` = no SM 6.4 + DP4a → `DLSS_ERR_NOT_AVAILABLE`,
+`_UNSUPPORTED_DRIVER` → `DLSS_ERR_NEEDS_DRIVER`); `xessD3D12Init` is a blocking CPU call on the render thread (no
+ring slot); `xessD3D12Execute` records into the ring list with the same COMMON declaration + own in/out barriers as
+`Device12`, and the shim's NIS pass (`native\D3D12Sharpen.h`, shared with `Device12`) runs after it because XeSS has
+no sharpness of its own. Execution path: `xessGetIntelXeFXVersion` = `0.0.0` off Intel = cross-vendor DP4a,
+non-zero = Intel XMX; `Dlss_ProviderVersion` reports `2.0.2 DP4a` / `2.0.2 XMX` and the overlay prints
+`Upscaler: XeSS 2.0.2 DP4a`. xess results map onto `NVSDK_NGX_Result` like ffx's (`XESS_RESULT_SUCCESS` is 0, NGX's
+is 1), `Dlss_LastError() = DLSS_ERR_XESS` (-6). Observed on the dev RTX 5070 Ti (`dlss_probe --xess`, 2026-09-02):
+`xessGetVersion 2.0.2`, XeFX `0.0.0` (DP4a), 1920x1080 Quality → 1130x636, UQ+ → 1477x831, AA → 1920x1080, 3
+executes + NIS sharpen green. **The Intel XMX path is implemented but unverified — no Arc GPU here.** The jitter
+signs (`kJitterSignX/Y` in `Xess12.cpp`, `(-X, +Y)` like FSR) are derived, not yet measured in-game.
+
 Managed side: `UpscalerKind { Off, Auto, DLSS, FSR, XeSS }` (`src\Upscaler.cs`), config field `Upscaler`. Auto
-resolves from hardware facts before init (D3D11: NVIDIA → DLSS; D3D12: NVIDIA → DLSS, else FSR when the AMD DLLs are
-present); if DLSS init fails under D3D12 with Auto, the mod calls `Dlss_Shutdown` and retries with FSR.
-Contract note: `docs\research\fsr-ffx-api-d3d12-contract.md`.
+resolves from hardware facts before init (D3D11: NVIDIA → DLSS; D3D12: NVIDIA → DLSS, Intel → XeSS, else FSR when
+the AMD DLLs are present, else XeSS when `libxess.dll` is, else Off); if the resolved provider fails `Dlss_Init`
+under D3D12 with Auto, the mod calls `Dlss_Shutdown` and retries with the next one (`Upscalers.NextFallback`: FSR,
+then XeSS). `RenderforgeMode` gained `UltraQuality` / `UltraQualityPlus` (appended, ordinal-serialised); the quality
+row offers them only while XeSS is the resolved upscaler, DLSS/FSR run them as Quality.
+Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xess-d3d12-contract.md`.
 
 ### Renderforge.dll (C#, ~700 LOC)
 
@@ -364,7 +384,7 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 | SDK | Tag / date | Folder | Runtime DLLs (FileVersion, Authenticode Valid) |
 |---|---|---|---|
 | AMD FidelityFX SDK | v2.3.0 / 2026-06-24 | `refs\FidelityFX-SDK\` (shallow clone; release zip is samples-only) | `Kits\FidelityFX\signedbin\amd_fidelityfx_loader_dx12.dll` 2.3.0.2740; `amd_fidelityfx_upscaler_dx12.dll` 4.1.1.2740 (27 MB, FSR 4.1.1 + 3.1.5 fallback); `amd_fidelityfx_framegeneration_dx12.dll` 4.0.1.2740 (38 MB). Headers `Kits\FidelityFX\api\include\`, licence `docs\license.md` — **integrated in Phase 3** (upscaling only; frame generation stays Phase 5) |
-| Intel XeSS SDK | v3.0.2 / 2026-07-24 | `refs\XeSS-sdk\` | `bin\libxess.dll` 2.0.2.68 (74 MB, D3D12 cross-vendor); `bin\libxess_fg.dll` 1.3.1.78 (22 MB); `bin\libxell.dll` 1.3.2.10. `inc\`, `LICENSE.txt` |
+| Intel XeSS SDK | v3.0.2 / 2026-07-24 | `refs\XeSS-sdk\` | `bin\libxess.dll` 2.0.2.68 (74 MB, D3D12 cross-vendor); `bin\libxess_fg.dll` 1.3.1.78 (22 MB); `bin\libxell.dll` 1.3.2.10. `inc\`, `LICENSE.txt` — **SR integrated in Phase 4** (`libxess.dll` only; `libxess_dx11.dll` is Intel-Arc-only and not shipped, FG stays Phase 5) |
 | NVIDIA Streamline | v2.12.0 / 2026-06-23 | `refs\Streamline\` | `bin\x64\sl.interposer.dll`, `sl.common.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, `sl.dlss.dll` — all 2.12.0.0. **SDK's `nvngx_dlssg.dll` is 310.7.0 = STALE**; ship `refs\Streamline\latest-dll\nvngx_dlssg.dll` 310.7.129.0 (7.5 MB, NVIDIA-signed, from the TechPowerUp FG DLL DB). `include\`, `license.txt` |
 
 `refs\DLSS-sdk` `nvngx_dlss.dll` 310.7.129.0 is still the newest SR DLL. Rule (same trap twice
