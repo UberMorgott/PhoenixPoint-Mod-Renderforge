@@ -285,6 +285,23 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 5. README, NVIDIA notice, Workshop packaging (Workshop id TBD by user, tags `Gameplay`?). Release.
 6. Experiment (separate decision): `-force-d3d12` viability → Frame Gen.
 
+## D3D12 probe (2026-09-02, LIVE on Instance2) — `-force-d3d12` WORKS
+
+- Launch `PhoenixPointWin64.exe -force-d3d12 -mods` → `Player.log`: `Forcing GfxDevice: Direct3D 12`,
+  `d3d12: loaded!`, `Version: Direct3D 12 [level 12.1]`. Menu + tactical mission
+  (`ALN_PLT_Nest_48x48_A`, via PPCLI `start-mission.json`) render correctly: PPv2, lighting,
+  HUD, units all fine (screenshots taken through `connect screenshot`). Vulkan NOT tried (needs
+  SPIR-V shader variants the build most likely lacks; DX12 reuses the DXBC blobs, hence it works).
+- ONE breakage, spammed per frame: `ArgumentException: Kernel 'MultiScaleVODownsample1' not found.`
+  = PPv2 `AmbientOcclusion` in `MultiScaleVO` mode — its compute shader has no D3D12 platform data
+  in this build. Fix = under D3D12 switch the AO mode to `ScalableAmbientObscurance` (pixel shader)
+  or disable AO; trivial Harmony/PPv2-settings tweak.
+- Consequence: a D3D12 backend is viable → unlocks Frame Generation (DLSS-FG via Streamline,
+  FSR FG, XeSS-FG — all D3D12-only) and official FSR 3.1/4 + cross-vendor XeSS (both D3D12-only
+  in the current SDKs; the D3D11 XeSS DLL is Intel-Arc-only, FSR has NO official D3D11 backend).
+  Native shim needs a D3D12 path: `GetNativeTexturePtr()` returns `ID3D12Resource*`, NGX D3D12
+  entry points, resource-state transitions.
+
 ## Idea backlog (user, not scheduled)
 
 - **Color grading preset / LUT** (2026-09-02, "like Cyberpunk's natural-grey look"): PPv2 already
