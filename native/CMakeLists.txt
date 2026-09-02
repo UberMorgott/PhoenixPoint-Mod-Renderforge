@@ -22,6 +22,8 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nis_scaler_hlsl.h" "// generated from ni
 add_library(RenderforgeNative SHARED
     RenderforgeNative.cpp
     RenderforgeNative.h
+    Sharpen.h
+    Sharpen.cpp
     unity/IUnityInterface.h
     unity/IUnityGraphics.h
     unity/IUnityGraphicsD3D12.h)
