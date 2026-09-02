@@ -1,7 +1,7 @@
 {
   "ID": "com.morgott.Renderforge",
   "AssemblyName": "Renderforge.dll",
-  "Version": "1.0.0",
+  "Version": "1.1.0",
   "Author": [
     { "Key": "English", "Value": "Morgott" }
   ],
@@ -9,7 +9,7 @@
     { "Key": "English", "Value": "Renderforge" }
   ],
   "Description": [
-    { "Key": "English", "Value": "NVIDIA DLSS Super Resolution / DLAA, NIS sharpening, frame-rate limit and a benchmark overlay for Phoenix Point. RTX GPU required." }
+    { "Key": "English", "Value": "DLSS / FSR / XeSS upscaling, DLAA, NIS sharpening, DirectX 12 renderer switch, frame-rate limit and a benchmark overlay for Phoenix Point." }
   ],
   "Dependencies": []
 }
