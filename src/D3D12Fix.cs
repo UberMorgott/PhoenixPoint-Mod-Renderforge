@@ -39,7 +39,13 @@ namespace Renderforge
                 foreach (var layer in UnityEngine.Object.FindObjectsOfType<PostProcessLayer>())
                 {
                     var res = Traverse.Create(layer).Field("m_Resources").GetValue<PostProcessResources>();
-                    if (res != null && res.computeShaders != null) res.computeShaders.lut3DBaker = null;
+                    if (res != null && res.computeShaders != null)
+                    {
+                        res.computeShaders.lut3DBaker = null;
+                        // ScreenSpaceReflections.IsEnabledAndSupported returns this shader's truthiness after the same
+                        // false-positive supportsComputeShaders gate; null = SSR skipped instead of dispatching an absent kernel.
+                        res.computeShaders.gaussianDownsample = null;
+                    }
                 }
                 foreach (var volume in UnityEngine.Object.FindObjectsOfType<PostProcessVolume>())
                     FixAo(volume.profile);
