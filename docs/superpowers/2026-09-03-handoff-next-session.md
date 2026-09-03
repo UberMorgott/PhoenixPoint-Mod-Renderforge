@@ -159,6 +159,19 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   pass sizes per frame → fine. Fix in progress: dirty-track option inputs, re-issue on change. Second, separate:
   `FgHost.cpp:458-465` skips the proxy when `prepared==0` → SL sees >100 ms Present gaps → pacer resets = jerk.
   Also landed: `e563421` NGX `IsHDR=0` on the HalfColor path (D3D11 parity; HDR mode without exposure source).
+  FIXES LANDED + VERIFIED (afternoon/evening): `60b0715` re-issue DLSS-G options on size change (scenario verified:
+  DLAA→Q→B shimmer gone) → but `slDLSSGSetOptions` returned 39 = `sl::Result::eWarnOutOfVRAM` (a WARNING — options
+  applied; two game instances shared the 16 GB card) and we retried every frame → device removed. `57cf2f0`: options
+  issued at the top of `Prepare` (presenting thread, before token/tags), eOk/eWarnOutOfVRAM = applied, other results
+  logged once per size + silent retry. VERIFIED (Instance2 alone, `docs\shots\dlssg-cycle\`): DLAA→Q→B→P→UP→DLAA ×3
+  under DLSS-G X2 — exactly one options line per switch, 0× code 39, 0 retries, 0 pacer resets, no device removed,
+  VRAM 9.3-9.9 GB (cross-mode spread; within-mode drift +30-60 MB/cycle — watch), ratio 2.0, shake Q 0.59 / P 0.92.
+  `f39232b` FSR/XeSS LDR flags on the FP16 path (menu luma 57.9 / 55.4 = parity). `c21b6a1` FSR jitter sign per FFX
+  doc (effective (+x,−y); A/B shake 0.405→0.248), FSR-FG aligned. **Steam deployed with `c21b6a1` (~15:15).**
+  RULE learned: never run two game instances during FG/VRAM tests — DXGI budget per process ≈ 6.2 GB on 16 GB.
+  OPEN: (a) idle/`prepared==0` path skips the FG proxy → SL pacer resets on menu/load transitions (FgHost.cpp:458-465);
+  (b) per-cycle VRAM drift; (c) XeSS `JitterReportSign(-1,-1)` also measured −27% shake but its guide says our sign is
+  right — unresolved, left as is.
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
