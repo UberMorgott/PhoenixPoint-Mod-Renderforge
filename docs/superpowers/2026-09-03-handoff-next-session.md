@@ -146,6 +146,19 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   (off 202/138, on 117/78, off 107/81, on+FG 101/72 per 15 s; only `RenderTexture-*-Committed` shadow/cube/depth RTs,
   same as the "~1600/min" in DESIGN.md). **Steam install deployed with `d7ad827` (2026-09-03 afternoon).**
   → USER TEST covers both: FG crash fix (a01afe5) AND D3D12 image quality below DLAA (this fix). Then release 1.2.1.
+- **USER RE-TEST on d7ad827 (Steam, afternoon)**: "any DLSS mode below DLAA is worse than FSR's worst, shakes and jerks
+  like heat haze". Steam `renderforge_fg.log` shows **DLSS-G X2 was ON** the whole session (`presented=2 generated=4414`,
+  SL `Frame rate over 100.00ms, reseting frame timer` warnings). Shake metric (scout, Instance2, static camera, mean
+  abs frame-to-frame diff, `docs\shots\wobble\shake.ps1`): D3D12 DLSS Quality 0.28 / Perf 1.01 / DLAA 0.53 vs D3D11
+  0.19 / 0.83 / 0.57 → **no wobble without FG on the FP16 path**; legacy `HalfColor=false` 4.7 (= the 1.2.0 wobble,
+  fixed by FP16); FSR-Q 4.6 / XeSS-Q 5.0 on D3D12 (vs D3D11 FSR 0.6) — separate open issue; `MvJittered=true` 5.8;
+  `JitterScale=0` 0.11; jitter signs no effect.
+  FG ROOT CAUSE (Opus RCA): `FgStreamline.cpp:407-414` issues `sl::DLSSGOptions` only on toggle; `Options()` :320-322
+  copies `mvecDepthWidth/Height` from the twins at that instant → FG enabled at DLAA/menu (2560x1440) then quality
+  switched → stale sizes → DLSS-G interpolates with wrong mvec/depth dims = heat haze, clean at 1:1. FSR-FG/XeSS-FG
+  pass sizes per frame → fine. Fix in progress: dirty-track option inputs, re-issue on change. Second, separate:
+  `FgHost.cpp:458-465` skips the proxy when `prepared==0` → SL sees >100 ms Present gaps → pacer resets = jerk.
+  Also landed: `e563421` NGX `IsHDR=0` on the HalfColor path (D3D11 parity; HDR mode without exposure source).
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
