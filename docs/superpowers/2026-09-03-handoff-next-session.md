@@ -105,6 +105,14 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   views it as UNORM (gamma bytes as linear). Knob `D3D12SrgbViews` landed (`b267e48`): colour-in twin `_UNORM_SRGB`,
   out UNORM UAV linear, `outRT` sRGB-tagged. A/B running (scout, Instance2). If it wins: make it default, drop the
   Linear-outRT workaround, re-check luma ≈ 56 and FG.
+- sRGB-views A/B (`b267e48`): 2x DARKER again, no sharpness gain → colour space REJECTED (Linear outRT was right).
+- MV sign under camera pan: identical on both APIs (4 directions) → no y-flip. Rendered jitter measured by
+  cross-correlating `DumpColorIn` with `JitterConst` (`d9c84b1`): +0.5 y → image down 0.5 px, +0.5 x → left 0.5 px,
+  SAME on both APIs → jitter is applied and consistent. `ForceReset` every frame: normal ≈ reset on BOTH APIs
+  (D3D11 lap 2348/2330, D3D12 2004/2081) yet D3D12 keeps ~half the unique colours (6.6k vs 14.3k) even with reset →
+  the loss is NOT temporal. Engine is **Unity 2019.4.31f1** (`Application.unityVersion`), not 2018.4.
+- NEXT (running): entropy of `DumpColorIn` vs `DumpOut` vs screen per API — is the loss already in the SDK INPUT
+  (render path / `D3D12Fix` 2D-LUT grading / RT redirect) or introduced by the SDK?
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
