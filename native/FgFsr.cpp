@@ -229,8 +229,8 @@ struct ProviderFsr : IFgProvider
         pr.flags = 0;
         pr.commandList = list;
         pr.renderSize.width = f.renderW; pr.renderSize.height = f.renderH;
-        // Same conventions as the FSR upscaler (Fsr12.cpp Evaluate): J = (-jitterX, +jitterY), MV scale straight through.
-        pr.jitterOffset.x = -f.jitterX; pr.jitterOffset.y = f.jitterY;
+        // Same conventions as the FSR upscaler (Fsr12.cpp Evaluate): J = (+jitterX, -jitterY), MV scale straight through.
+        pr.jitterOffset.x = f.jitterX; pr.jitterOffset.y = -f.jitterY;
         pr.motionVectorScale.x = f.mvScaleX; pr.motionVectorScale.y = f.mvScaleY;
         pr.frameTimeDelta = f.dtMs;
         pr.reset = f.reset != 0;

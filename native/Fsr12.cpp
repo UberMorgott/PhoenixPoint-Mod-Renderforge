@@ -93,7 +93,7 @@ struct Fsr12 : IDevice
     {
         device = NULL; ffx = NULL; context = NULL;
         outW = outH = 0; version[0] = 0; dllDir[0] = 0; srgbViews = false;
-        jitterSignX = -1.0f; jitterSignY = 1.0f;
+        jitterSignX = 1.0f; jitterSignY = -1.0f;    // see Evaluate: FSR wants J = (+fp.jitterX, -fp.jitterY)
         memset(&descUpscale, 0, sizeof(descUpscale));
         memset(&descVersion, 0, sizeof(descVersion));
         memset(&descBackend, 0, sizeof(descBackend));
@@ -296,9 +296,11 @@ struct Fsr12 : IDevice
             // exposure / reactive / transparencyAndComposition stay empty: AUTO_EXPOSURE is on and both masks
             // are optional for FSR 3.1 and FSR 4 (super-resolution-ml.md:154).
 
-            // Jitter. The driver applies proj[0,2] += 2*jx/w and proj[1,2] += 2*jy/h and hands us (-jx,-jy)
-            // in NGX's convention. FSR composites as projX = 2*J.x/w and projY = -2*J.y/h
-            // (super-resolution-ml.md:233), i.e. its Y is negated relative to X. So J = (-fp.jitterX, +fp.jitterY).
+            // Jitter. The driver applies proj[0,2] += 2*jx/w, proj[1,2] += 2*jy/h and hands us fp = (-jx,-jy) (NGX).
+            // super-resolution-ml.md:233-236: "jitterX = 2*Jx/W; jitterY = -2*Jy/H; jittered = translate(jitterX,jitterY) * P";
+            // with P[3][2] = -1 that is proj[0,2] += -2*Jx/W, proj[1,2] += +2*Jy/H, so Jx = -jx = fp.jitterX, Jy = jy = -fp.jitterY.
+            // ffx_upscale.h:98 only says "The subpixel jitter offset applied to the camera" (no sign). Measured in-game
+            // 2026-09-03 (FSR Quality, static scene): the old (-X,+Y) shook 0.405, this (+X,-Y) 0.248.
             d.jitterOffset.x = jitterSignX * fp.jitterX;
             d.jitterOffset.y = jitterSignY * fp.jitterY;
 
