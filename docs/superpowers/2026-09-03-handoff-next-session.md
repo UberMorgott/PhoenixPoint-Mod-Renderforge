@@ -55,6 +55,12 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
    at 1440p/4K. Hypothesis: Unity Canvas atlases + font authored for 1080p, `CanvasScaler` stretches them; UI composited
    after the scene so NIS/DLSS never touch it. Investigate: atlas texture filter/mip settings, `CanvasScaler` mode
    (`ScaleWithScreenSize` → reference res), font atlas size, a UI-only sharpen pass. Not promised to the user.
+   FACTS (decompile 2026-09-03): text = legacy `UnityEngine.UI.Text` (643 fields / 221 files), zero `TextMeshProUGUI`
+   → no SDF/vector swap. Legacy Text with a DYNAMIC font rasterizes at `fontSize × canvas.scaleFactor` = crisp; blur
+   means one of: static bitmap font (fix: swap `Text.font` to dynamic TTF via Harmony), UI drawn into a fixed-size RT,
+   or non-pixel-perfect canvas (`Canvas.pixelPerfect`). Match logic: `Base.UI.CanvasScalerController` (aspect → match).
+   Step 1 = PPCLI diagnosis: `Font.dynamic` of used fonts, `Canvas.renderMode/scaleFactor/pixelPerfect`, UI camera RT.
+   Icons: 1080p atlases, no cheap fix except a UI-only sharpen (CAS on the canvas layer).
 
 ## Rules that applied (keep)
 
