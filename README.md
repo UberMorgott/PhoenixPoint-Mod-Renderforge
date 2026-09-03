@@ -47,14 +47,9 @@ Remove `-force-d3d12` or select DirectX 11 in the game to return to the default 
 
 ## Install
 
-Download the archives from the [latest GitHub release](https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases/latest). Each archive contains one top-level `Renderforge` folder. Install Core together with the pack for the features you want, or use the Full archive:
+Download `Renderforge-Full-<version>.zip` from the [latest GitHub release](https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases/latest). It is a single archive with one top-level `Renderforge` folder and carries every vendor runtime (NVIDIA, AMD, Intel) — nothing else to pick.
 
-- NVIDIA RTX: `Renderforge-Core-<version>.zip` plus `Renderforge-NVIDIA-<version>.zip`.
-- AMD or cross-vendor FSR: Core plus `Renderforge-AMD-<version>.zip`.
-- Intel or cross-vendor XeSS: Core plus `Renderforge-Intel-<version>.zip`.
-- Everything: `Renderforge-Full-<version>.zip`.
-
-With a mod manager, add the selected archive or archives and make sure they merge into one `Renderforge` mod folder. For a manual install, extract them into:
+With a mod manager, add that archive. For a manual install, extract it into:
 
 ```text
 <Phoenix Point>\Mods\
