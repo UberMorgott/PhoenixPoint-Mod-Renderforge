@@ -136,7 +136,12 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   missing hudless no longer skips token/constants. (2) "menu luma 82 vs 56" was a MEASUREMENT ARTEFACT: the 56 reference
   is the FULL-image luma of 1280x720 shots, the 82 the fixed 400..2200x300..1200 region of a 2560x1440 shot; same
   metric: HalfColor menu 55.5 full / 82.0 region vs legacy D3D12 56.5 / 84.1 vs D3D11 56.7 / 84.3 (`scratchpad luma.ps1`,
-  relative region). No menu code path differs. → `D3D12HalfColor` default ON (knob kept).
+  relative region). No menu code path differs. → `D3D12HalfColor` default ON (knob kept, `d7ad827`).
+  VERIFIED on `d7ad827` (scout, Instance2, `docs\shots\halfcolor-verify\`): default on, formats R16G16B16A16_SFloat both;
+  menu full luma 55.58; tactical unique colours 140k; DLSS-G X2 `presented=2 generated>0`, no hudless-skip / missing
+  constants, FSR-FG + XeSS-FG live; live toggle with FG live OK; provider cycle OK. OPEN: debug layer shows id=527 681 /
+  id=538 452 on Unity RenderTextures (0 on `hudless8`/`Renderforge ring`) — A/B on vs off running to tell FP16-caused
+  from pre-existing Unity noise. Steam deploy after that verdict.
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
