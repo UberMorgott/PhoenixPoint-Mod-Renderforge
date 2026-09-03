@@ -70,6 +70,14 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
    only if the user has it installed → fallback to a metric-similar free font, opt-in). Engine = Unity 2018.4.15f1
    (PCGamingWiki). Legacy-Text pattern reference: newman55/unity-mod-manager `UnityModManager/UI.cs`. UI-only CAS =
    UI camera → full-res transparent RT → CAS blit → composite (no ready package).
+   RUNTIME FACTS (scout, Instance2, 2026-09-03; shots `docs\shots\uiblur\`, untracked): canvases `ScreenSpaceOverlay`,
+   `CanvasScaler` ScaleWithScreenSize ref **3840x2160**, match 0 → scaleFactor 0.667 at 1440p; ALL 18 fonts dynamic
+   (Purista Semibold, SourceHanSans…); no UI RT. Main atlas 4096² RGBA32 bilinear 13 mips (0.667 minified); standalone
+   icons 64-150 px BC7 **1 mip**. Text effective px fractional (fontSize 35 → 23.33). A/B at 1440p: `pixelPerfect=true`
+   = SAME; trilinear+aniso = SAME. → Not a one-liner. Remaining options: (1) UI-only CAS pass (Renderforge-native),
+   (2) Harmony: snap `Text.fontSize` so fontSize×scaleFactor is integer (small layout drift), (3) icons drawn larger
+   than their 64-150 px source = true upscale blur → only fixable by a replacement texture pack (offline 2x upscale).
+   Check (3) first next time: on-screen px of those icons vs texture px.
 
 ## Rules that applied (keep)
 
