@@ -127,6 +127,21 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Status(out int lastCreateResult, out int lastEvalResult, out int featureAlive);
 
+        /// <summary>D3D12: 1 = the SDK reads Unity's RTs in place (default), 0 = through shim-owned copies. Returns the previous value.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_DirectInputs(int on);
+
+        /// <summary>D3D12 ~60-frame averages: GPU ms of copy-in / upscale / copy-out on the evaluate list, CPU ms waited for a ring slot.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Dlss_Timings(out float copyInMs, out float evalMs, out float copyOutMs, out float ringWaitMs);
+
+        public static string Timings()
+        {
+            if (Handle == IntPtr.Zero || Api() != 12) return "";
+            float ci, ev, co, rw; Dlss_Timings(out ci, out ev, out co, out rw);
+            return "copyInMs=" + ci.ToString("F2") + " evalMs=" + ev.ToString("F2") + " copyOutMs=" + co.ToString("F2") + " ringWaitMs=" + rw.ToString("F2");
+        }
+
         public const int FG_OK = 0, FG_ERR_NOT_D3D12 = 1, FG_ERR_NO_HOOK = 2, FG_ERR_NO_SWAPCHAIN = 3,
                          FG_ERR_NO_PROVIDER = 4, FG_ERR_PROVIDER_FAILED = 5, FG_ERR_UNSUPPORTED_MULTIPLIER = 6;
         public const int FG_CAP_2X = 1, FG_CAP_3X = 2, FG_CAP_4X = 4;

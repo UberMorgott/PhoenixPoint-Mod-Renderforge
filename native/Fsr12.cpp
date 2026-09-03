@@ -105,6 +105,7 @@ struct Fsr12 : IDevice
     int Api() const override { return 12; }
     bool FeatureAlive() const override { return context != NULL; }
     const OwnedSet12* Owned12() const override { return &owned; }
+    const D3D12Ring* Ring12() const override { return &ring; }
 
     int ProviderVersion(char* buf, int cap) override
     {
@@ -282,12 +283,13 @@ struct Fsr12 : IDevice
         } else if (!owned.Ensure(device, ring, color, output)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
+            bool direct = OwnedSet12::Direct();
             struct ffxDispatchDescUpscale d = {};
             d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
             d.commandList = cl;
-            d.color         = ffxApiGetResourceDX12(owned.color, FFX_API_RESOURCE_STATE_COMPUTE_READ);
-            d.depth         = ffxApiGetResourceDX12(owned.depth, FFX_API_RESOURCE_STATE_COMPUTE_READ);
-            d.motionVectors = ffxApiGetResourceDX12(owned.mv,    FFX_API_RESOURCE_STATE_COMPUTE_READ);
+            d.color         = ffxApiGetResourceDX12(direct ? color : owned.color, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+            d.depth         = ffxApiGetResourceDX12(direct ? depth : owned.depth, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+            d.motionVectors = ffxApiGetResourceDX12(direct ? mv    : owned.mv,    FFX_API_RESOURCE_STATE_COMPUTE_READ);
             d.output        = ffxApiGetResourceDX12(owned.out,   FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
             // exposure / reactive / transparencyAndComposition stay empty: AUTO_EXPOSURE is on and both masks
             // are optional for FSR 3.1 and FSR 4 (super-resolution-ml.md:154).
@@ -322,11 +324,13 @@ struct Fsr12 : IDevice
 
             // The ffx DX12 backend restores each resource to the state named in FfxApiResource after the dispatch
             // (ffx_dx12.cpp UnregisterResourcesDX12), so Leave starts from the SDK states we entered.
-            owned.Enter(cl, color, depth, mv);
+            if (direct) owned.EnterDirect(cl, color, depth, mv); else owned.Enter(cl, color, depth, mv);
+            ring.Stamp(1);
             ffxReturnCode_t rc = ffx->Dispatch(&context, &d.header);
             lastEval = Map(rc);
             if (rc != FFX_API_RETURN_OK) lastError = DLSS_ERR_FFX;
-            owned.Leave(cl, output);
+            ring.Stamp(2);
+            if (direct) owned.LeaveDirect(cl, color, depth, mv, output); else owned.Leave(cl, output);
         }
         if (!ring.End(n)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
     }

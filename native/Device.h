@@ -38,6 +38,7 @@ struct CreateParams
 };
 
 struct OwnedSet12;   // D3D12Owned.h: the shim-owned twins a D3D12 backend fills every Evaluate
+struct D3D12Ring;    // D3D12Ring.h: the backend's command-list ring, which also holds its GPU/CPU timings
 
 struct IDevice
 {
@@ -74,6 +75,8 @@ struct IDevice
     // D3D12 backends: the owned twins (depth/mv at render res, out = hud-less at output res) the last Evaluate
     // filled, all resting in COMMON. The FG providers read these instead of Unity's RTs (D3D12Owned.h contract).
     virtual const OwnedSet12* Owned12() const { return NULL; }
+    // D3D12 backends: the ring whose copyInMs/evalMs/copyOutMs/ringWaitMs Dlss_Timings reports.
+    virtual const D3D12Ring* Ring12() const { return NULL; }
 };
 
 // Return the singleton backend if `nativeResource` belongs to that API, else NULL. No allocation.

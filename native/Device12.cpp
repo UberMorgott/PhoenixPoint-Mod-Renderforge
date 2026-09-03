@@ -56,6 +56,7 @@ struct Device12 : IDevice
     int Api() const override { return 12; }
     bool FeatureAlive() const override { return feature != NULL; }
     const OwnedSet12* Owned12() const override { return &owned; }
+    const D3D12Ring* Ring12() const override { return &ring; }
 
     // Ring wrappers: Begin() reports its failure through failCode, which is this device's lastError.
     ID3D12GraphicsCommandList* Begin()
@@ -190,13 +191,14 @@ struct Device12 : IDevice
         } else {
             // With sharpening on, NGX writes sharpen.target and the sharpen pass produces owned.out (D3D12Sharpen.h).
             bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(owned.out, ring);
+            bool direct = OwnedSet12::Direct();
 
             NVSDK_NGX_D3D12_DLSS_Eval_Params ep = {};
-            ep.Feature.pInColor = owned.color;
+            ep.Feature.pInColor = direct ? color : owned.color;
             ep.Feature.pInOutput = doSharpen ? sharpen.target : owned.out;
             ep.Feature.InSharpness = 0;   // deprecated in SDK 310; our own pass uses fp.sharpness
-            ep.pInDepth = owned.depth;
-            ep.pInMotionVectors = owned.mv;
+            ep.pInDepth = direct ? depth : owned.depth;
+            ep.pInMotionVectors = direct ? mv : owned.mv;
             ep.InJitterOffsetX = fp.jitterX;
             ep.InJitterOffsetY = fp.jitterY;
             ep.InRenderSubrectDimensions.Width = fp.renderW;
@@ -207,12 +209,14 @@ struct Device12 : IDevice
             ep.InPreExposure = fp.preExposure;
             ep.InFrameTimeDeltaInMsec = fp.dtMs;
 
-            owned.Enter(cl, color, depth, mv);
+            if (direct) owned.EnterDirect(cl, color, depth, mv); else owned.Enter(cl, color, depth, mv);
+            ring.Stamp(1);
             // NGX "always transitions buffers back to these known states" (guide p.14 3.4), so Leave starts from them.
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
             else if (doSharpen) sharpen.Run(cl, owned.out, fp.sharpness, ring.ringIdx);
-            owned.Leave(cl, output);
+            ring.Stamp(2);
+            if (direct) owned.LeaveDirect(cl, color, depth, mv, output); else owned.Leave(cl, output);
         }
         if (RfDbg::On() && logged != output) {
             logged = output;

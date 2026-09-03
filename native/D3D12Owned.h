@@ -40,6 +40,14 @@
 #include "unity/IUnityInterface.h"
 #include "unity/IUnityGraphicsD3D12.h"
 #include "D3D12Ring.h"
+#include "Fg.h"
+
+// Dlss_DirectInputs (managed D3D12DirectInputs, default on): the SDK reads Unity's colour/depth/mv RTs IN PLACE
+// (pre-state -> NON_PIXEL_SHADER_RESOURCE -> pre-state, no copy) and only `out` stays a twin. Every SDK views the
+// TYPELESS Unity formats as their typed twins itself (XeSS guide "typeless formats" table, ffx_dx12.cpp:520-546,
+// NGX ran on them before the twins existed). The copy-in path stays for A/B and for a live FG chain, whose
+// providers read the depth/mv twins (FgOwned12).
+extern int g_directInputs;
 
 struct OwnedSet12
 {
@@ -163,6 +171,28 @@ struct OwnedSet12
         Barrier(cl, out, D3D12_RESOURCE_STATE_COMMON, kOutSdk);
     }
 
+    // Direct inputs this frame? Off while an FG chain is live: its providers read the depth/mv twins.
+    // ponytail: FG keeps the full copy path; copy only depth/mv when it matters.
+    static bool Direct() { return g_directInputs && !FgHostAlive(); }
+
+    // Direct: Unity's inputs go straight into the SDK state, only `out` is ours.
+    void EnterDirect(ID3D12GraphicsCommandList* cl, ID3D12Resource* uColor, ID3D12Resource* uDepth, ID3D12Resource* uMv)
+    {
+        Barrier(cl, uColor, kUnityColor, kInSdk);
+        Barrier(cl, uDepth, kUnityDepth, kInSdk);
+        Barrier(cl, uMv,    kUnityMv,    kInSdk);
+        Barrier(cl, out, D3D12_RESOURCE_STATE_COMMON, kOutSdk);
+    }
+
+    // Direct: Unity's inputs back to their pre-states (from kInSdk, see Leave), then the output copy.
+    void LeaveDirect(ID3D12GraphicsCommandList* cl, ID3D12Resource* uColor, ID3D12Resource* uDepth, ID3D12Resource* uMv, ID3D12Resource* uOut)
+    {
+        Barrier(cl, uColor, kInSdk, kUnityColor);
+        Barrier(cl, uDepth, kInSdk, kUnityDepth);
+        Barrier(cl, uMv,    kInSdk, kUnityMv);
+        LeaveOut(cl, uOut);
+    }
+
     // Inputs back to COMMON; owned output -> Unity's outRT (put back into its pre-state), out back to COMMON.
     // Starts from the SDK states (NGX and ffx restore them, XeSS never changes them).
     void Leave(ID3D12GraphicsCommandList* cl, ID3D12Resource* uOut)
@@ -170,6 +200,11 @@ struct OwnedSet12
         Barrier(cl, color, kInSdk, D3D12_RESOURCE_STATE_COMMON);
         Barrier(cl, depth, kInSdk, D3D12_RESOURCE_STATE_COMMON);
         Barrier(cl, mv,    kInSdk, D3D12_RESOURCE_STATE_COMMON);
+        LeaveOut(cl, uOut);
+    }
+
+    void LeaveOut(ID3D12GraphicsCommandList* cl, ID3D12Resource* uOut)
+    {
         Barrier(cl, out, kOutSdk, D3D12_RESOURCE_STATE_COPY_SOURCE);
         Barrier(cl, uOut, kUnityOut, D3D12_RESOURCE_STATE_COPY_DEST);
         cl->CopyResource(uOut, out);

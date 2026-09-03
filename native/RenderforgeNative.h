@@ -70,6 +70,13 @@ DLSS_API int __cdecl Dlss_LastError(void);
 DLSS_API int __cdecl Dlss_Sharpener(void);
 // Returns Dlss_Init code; fills last NGX results (as NVSDK_NGX_Result ints) and feature liveness.
 DLSS_API int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* featureAlive);
+// D3D12 only. The SDK reads Unity's colour/depth/mv RTs in place (1) or through shim-owned copies (0, the 2026-09-02
+// contract). Default 1; live, next Evaluate. Ignored while an FG chain is live (its providers read the copies). Returns previous.
+DLSS_API int __cdecl Dlss_DirectInputs(int on);
+// D3D12 only, ~60-frame averages of the evaluate list: GPU ms of copy-in (Unity RTs -> twins, 0 when direct), the
+// upscale (+ sharpen), copy-out (owned out -> Unity outRT), and the CPU ms the render thread waited for a ring slot's
+// fences. All 0 under D3D11 / before the first frame.
+DLSS_API void __cdecl Dlss_Timings(float* copyInMs, float* evalMs, float* copyOutMs, float* ringWaitMs);
 // NVSDK_NGX_Result -> narrow string (static buffer, not thread-safe).
 DLSS_API const char* __cdecl Dlss_ResultString(int ngxResult);
 // Releases the feature immediately. ONLY when the render thread is idle (prefer DLSS_EV_RELEASE).

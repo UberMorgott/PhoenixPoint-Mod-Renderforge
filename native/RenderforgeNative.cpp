@@ -13,7 +13,10 @@
 #include <d3d12.h>
 #include "unity/IUnityGraphicsD3D12.h"
 #include "D3D12Debug.h"
+#include "D3D12Ring.h"
 #include "Fg.h"
+
+int g_directInputs = 1;    // Dlss_DirectInputs; read by the D3D12 backends per Evaluate (D3D12Owned.h)
 
 const char kProjectId[] = "b7a3f2c4-6d1e-4a8b-9c0f-2e5d7a9b1c3d";
 const char kEngineVersion[] = "2019.4.31";
@@ -262,6 +265,17 @@ int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* feature
     if (lastEvalResult)   *lastEvalResult   = S.dev ? (int)S.dev->lastEval : 0;
     if (featureAlive)     *featureAlive     = (S.dev && S.dev->FeatureAlive()) ? 1 : 0;
     return S.initCode;
+}
+
+int __cdecl Dlss_DirectInputs(int on) { int prev = g_directInputs; g_directInputs = on ? 1 : 0; return prev; }
+
+void __cdecl Dlss_Timings(float* copyInMs, float* evalMs, float* copyOutMs, float* ringWaitMs)
+{
+    const D3D12Ring* r = S.dev ? S.dev->Ring12() : NULL;
+    if (copyInMs)  *copyInMs  = r ? r->copyInMs  : 0;
+    if (evalMs)    *evalMs    = r ? r->evalMs    : 0;
+    if (copyOutMs) *copyOutMs = r ? r->copyOutMs : 0;
+    if (ringWaitMs) *ringWaitMs = r ? r->ringWaitMs : 0;
 }
 
 const char* __cdecl Dlss_ResultString(int ngxResult)

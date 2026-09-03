@@ -131,6 +131,7 @@ struct Xess12 : IDevice
     int Api() const override { return 12; }
     bool FeatureAlive() const override { return initialised != 0; }
     const OwnedSet12* Owned12() const override { return &owned; }
+    const D3D12Ring* Ring12() const override { return &ring; }
 
     int ProviderVersion(char* buf, int cap) override
     {
@@ -332,10 +333,11 @@ struct Xess12 : IDevice
                 velScaleX = fp.mvScaleX; velScaleY = fp.mvScaleY;
             }
 
+            bool direct = OwnedSet12::Direct();
             xess_d3d12_execute_params_t ep = {};
-            ep.pColorTexture    = owned.color;
-            ep.pVelocityTexture = owned.mv;
-            ep.pDepthTexture    = owned.depth;
+            ep.pColorTexture    = direct ? color : owned.color;
+            ep.pVelocityTexture = direct ? mv    : owned.mv;
+            ep.pDepthTexture    = direct ? depth : owned.depth;
             ep.pOutputTexture   = doSharpen ? sharpen.target : owned.out;
             ep.jitterOffsetX    = jitterSignX * fp.jitterX;
             ep.jitterOffsetY    = jitterSignY * fp.jitterY;
@@ -347,13 +349,15 @@ struct Xess12 : IDevice
 
             // XeSS neither transitions nor restores (xess_d3d12.h:33-47): the resources are in the SDK states from
             // Enter to Leave, and Leave puts them back at rest.
-            owned.Enter(cl, color, depth, mv);
+            if (direct) owned.EnterDirect(cl, color, depth, mv); else owned.Enter(cl, color, depth, mv);
+            ring.Stamp(1);
             xess_result_t r = xessD3D12Execute(ctx, cl, &ep);
             lastEval = Map(r);
             if (r != XESS_RESULT_SUCCESS) { lastError = DLSS_ERR_XESS; RfDbg::Log("XeSS Execute: failed %d", (int)r); }
             // XeSS binds its own heap/root signature/PSO on this list; the sharpen pass re-binds all three.
             else if (doSharpen) sharpen.Run(cl, owned.out, fp.sharpness, ring.ringIdx);
-            owned.Leave(cl, output);
+            ring.Stamp(2);
+            if (direct) owned.LeaveDirect(cl, color, depth, mv, output); else owned.Leave(cl, output);
         }
         if (RfDbg::On() && logged != output) {
             logged = output;

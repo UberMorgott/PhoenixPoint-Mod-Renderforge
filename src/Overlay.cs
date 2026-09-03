@@ -166,8 +166,16 @@ namespace Renderforge
                       + "\nFG: " + (FrameGen.Live
                             ? FrameGen.ProviderName(FrameGen.Provider) + " " + (Native.Fg_Caps() != 0 ? RenderforgeMod.Instance.Cfg.FrameGen.ToString().Replace("X", "") + "x" : "?")
                             : "off" + (Availability.Reason(Feature.FrameGen) != null ? " (" + Availability.Reason(Feature.FrameGen) + ")" : ""))
-                      + "\n" + fps;
+                      + "\n" + fps
+                      + (live && Availability.IsD3D12 && RenderforgeMod.Available ? "\nGPU: " + GpuLine() : "");
             box.sizeDelta = new Vector2(text.preferredWidth + 2f * Pad, text.preferredHeight + 2f * Pad);
+        }
+
+        /// <summary>D3D12 evaluate-list timings (Dlss_Timings, ~60-frame averages): "in 0.12 eval 0.85 out 0.10 ms, wait 0.03 ms".</summary>
+        private static string GpuLine()
+        {
+            float ci, ev, co, rw; Native.Dlss_Timings(out ci, out ev, out co, out rw);
+            return "in " + ci.ToString("F2") + " eval " + ev.ToString("F2") + " out " + co.ToString("F2") + " ms, wait " + rw.ToString("F2") + " ms";
         }
 
         private static string QualityName(int q)

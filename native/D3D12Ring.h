@@ -58,6 +58,19 @@ struct D3D12Ring
     // previous submission has retired, which Begin() already waits for.
     UnityGraphicsD3D12ResourceState states[kRing][kStates];
 
+    // GPU timestamps, kStamps per list: 0 = Begin, 1 = after copy-in, 2 = after the upscale (+ sharpen), 3 = End
+    // (End() fills any stamp a caller skipped, so the deltas of a passthrough/create list are 0). Resolved into one
+    // persistently mapped READBACK buffer per slot and read in Begin() once that slot has retired (kRing frames
+    // later), so no allocation and no stall per frame. Together with the CPU time Begin() spent waiting on the
+    // slot's fences they feed the four EMAs (alpha 1/60 ~ a 60-frame window) Dlss_Timings reports.
+    static const int kStamps = 4;
+    ID3D12QueryHeap* qheap;
+    ID3D12Resource* qbuf;
+    UINT64* qCpu;
+    double msPerTick;             // 1000 / GetTimestampFrequency, 0 until the first End()
+    int stamped;                  // bitmask of the stamps already recorded into the open list
+    float copyInMs, evalMs, copyOutMs, ringWaitMs;
+
     D3D12Ring() { Zero(); }
 
     void Zero()
@@ -67,6 +80,8 @@ struct D3D12Ring
         fence = NULL; fenceVal = 0; submissions = 0;
         ringIdx = 0; recording = 0; waitEvent = NULL; failCode = 0;
         memset(states, 0, sizeof(states));
+        qheap = NULL; qbuf = NULL; qCpu = NULL; msPerTick = 0; stamped = 0;
+        copyInMs = evalMs = copyOutMs = ringWaitMs = 0;
     }
 
     // The state array to fill for the submission currently being recorded (kStates entries).
@@ -76,6 +91,61 @@ struct D3D12Ring
     {
         device = dev;
         if (device && !fence) device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+        if (device && !qheap) {
+            D3D12_QUERY_HEAP_DESC qd = {};
+            qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+            qd.Count = kRing * kStamps;
+            D3D12_HEAP_PROPERTIES hp = {};
+            hp.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC bd = {};
+            bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            bd.Width = sizeof(UINT64) * kRing * kStamps; bd.Height = 1; bd.DepthOrArraySize = 1; bd.MipLevels = 1;
+            bd.SampleDesc.Count = 1; bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            D3D12_RANGE all = { 0, (SIZE_T)bd.Width };
+            if (FAILED(device->CreateQueryHeap(&qd, IID_PPV_ARGS(&qheap))) ||
+                FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&qbuf))) ||
+                FAILED(qbuf->Map(0, &all, (void**)&qCpu))) {
+                ReleaseTimings();   // no timestamps, everything else works
+            }
+        }
+    }
+
+    void ReleaseTimings()
+    {
+        if (qbuf && qCpu) { D3D12_RANGE noWrite = { 0, 0 }; qbuf->Unmap(0, &noWrite); }
+        if (qbuf) qbuf->Release();
+        if (qheap) qheap->Release();
+        qbuf = NULL; qheap = NULL; qCpu = NULL;
+    }
+
+    // Record timestamp `k` (1 = after copy-in, 2 = after the upscale) into the open list. 0 and 3 are the ring's own.
+    void Stamp(int k)
+    {
+        if (!qheap || !recording || (stamped & (1 << k))) return;
+        list[ringIdx]->EndQuery(qheap, D3D12_QUERY_TYPE_TIMESTAMP, (UINT)(ringIdx * kStamps + k));
+        stamped |= 1 << k;
+    }
+
+    static void Ema(float& a, float x) { a += (x - a) * (1.0f / 60.0f); }
+
+    // Slot `i` has retired: fold its four timestamps into the EMAs.
+    void ReadStamps(int i)
+    {
+        if (!qCpu || !submitted[i] || msPerTick <= 0) return;
+        const UINT64* t = qCpu + i * kStamps;
+        if (t[0] > t[1] || t[1] > t[2] || t[2] > t[3]) return;   // never resolved / garbage
+        Ema(copyInMs,  (float)((t[1] - t[0]) * msPerTick));
+        Ema(evalMs,    (float)((t[2] - t[1]) * msPerTick));
+        Ema(copyOutMs, (float)((t[3] - t[2]) * msPerTick));
+    }
+
+    // Stamps 1..3 (missing ones collapse onto 3) + the resolve into this slot's readback range, before Close().
+    void FinishStamps(int i, ID3D12CommandQueue* q)
+    {
+        if (!qheap) return;
+        if (msPerTick <= 0 && q) { UINT64 f = 0; if (SUCCEEDED(q->GetTimestampFrequency(&f)) && f) msPerTick = 1000.0 / (double)f; }
+        Stamp(1); Stamp(2); Stamp(3);
+        list[i]->ResolveQueryData(qheap, D3D12_QUERY_TYPE_TIMESTAMP, (UINT)(i * kStamps), kStamps, qbuf, (UINT64)i * kStamps * sizeof(UINT64));
     }
 
     // WAIT_OBJECT_0 once `value` has retired on `f` (0 = never submitted, retired by definition), else the
@@ -137,7 +207,13 @@ struct D3D12Ring
         if (!device || !g_unityD3D12 || recording) { failCode = DLSS_ERR_NO_CONTEXT; return NULL; }
         int i = ringIdx;
         // An in-flight allocator must never be reset: on timeout/failure leave the slot alone and bail.
-        if (WaitSlot(i) != WAIT_OBJECT_0) { failCode = DLSS_ERR_FENCE_TIMEOUT; return NULL; }
+        LARGE_INTEGER t0, t1, qpf;
+        QueryPerformanceCounter(&t0);
+        DWORD w = WaitSlot(i);
+        QueryPerformanceCounter(&t1); QueryPerformanceFrequency(&qpf);
+        Ema(ringWaitMs, (float)((t1.QuadPart - t0.QuadPart) * 1000.0 / (double)qpf.QuadPart));
+        if (w != WAIT_OBJECT_0) { failCode = DLSS_ERR_FENCE_TIMEOUT; return NULL; }
+        ReadStamps(i);
         if (!alloc[i] || !list[i]) {
             ReleaseSlot(i);   // a half-built pair from an earlier failure
             if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc[i]))) ||
@@ -150,6 +226,8 @@ struct D3D12Ring
         }
         if (FAILED(alloc[i]->Reset()) || FAILED(list[i]->Reset(alloc[i], NULL))) { failCode = DLSS_ERR_NO_CONTEXT; return NULL; }
         recording = 1;
+        stamped = 0;
+        Stamp(0);
         return list[i];
     }
 
@@ -159,9 +237,10 @@ struct D3D12Ring
     {
         if (!recording) return false;
         int i = ringIdx;
+        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        FinishStamps(i, unity ? unity->GetCommandQueue() : NULL);
         recording = 0;
         ringIdx = (ringIdx + 1) % kRing;
-        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
         if (FAILED(list[i]->Close()) || !unity) return false;
         unityVal[i] = unity->ExecuteCommandList(list[i], stateCount, stateCount ? states[i] : NULL);
         ID3D12CommandQueue* q = unity->GetCommandQueue();
@@ -185,6 +264,7 @@ struct D3D12Ring
     {
         if (!recording || !q) return false;
         int i = ringIdx;
+        FinishStamps(i, q);
         recording = 0;
         ringIdx = (ringIdx + 1) % kRing;
         if (FAILED(list[i]->Close())) return false;
@@ -207,6 +287,7 @@ struct D3D12Ring
         for (int i = 0; i < kRing; ++i) { if (free) ReleaseSlot(i); else { list[i] = NULL; alloc[i] = NULL; } submitted[i] = 0; unityVal[i] = 0; }
         if (waitEvent) { CloseHandle(waitEvent); waitEvent = NULL; }
         if (fence) { if (free) fence->Release(); fence = NULL; }
+        if (free) ReleaseTimings(); else { qbuf = NULL; qheap = NULL; qCpu = NULL; }
         fenceVal = 0; submissions = 0;
         ringIdx = 0; recording = 0; device = NULL; failCode = 0;
     }

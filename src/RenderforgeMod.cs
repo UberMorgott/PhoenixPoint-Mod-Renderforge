@@ -240,6 +240,7 @@ namespace Renderforge
         {
             Overlay.Apply(Cfg);               // before the driver check: under D3D12 there is no driver at all
             FrameGen.Apply(Cfg);              // also reached from OnConfigChanged through this method
+            if (Available) Native.Dlss_DirectInputs(Cfg.D3D12DirectInputs ? 1 : 0);
             var d = DlssDriver.Instance;
             if (d == null) return;
             if (Cfg.Mode != RenderforgeMode.Off) lastOn = Cfg.Mode;
@@ -301,6 +302,17 @@ namespace Renderforge
             FrameGen.Force(id);
             FrameGen.Apply(m.Cfg);
             return "fgProvider=" + name + " " + FrameGen.Status();
+        }
+
+        /// <summary>PPCLI A/B knob: {"member":"SetDirectInputs","args":[false]} - D3D12 upscaler reads Unity's RTs in place (true) or via copies. Live next frame + saved.</summary>
+        public static string SetDirectInputs(bool on)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.D3D12DirectInputs = on;
+            if (Available) Native.Dlss_DirectInputs(on ? 1 : 0);
+            SaveConfig();
+            return "directInputs=" + on + " " + Native.Timings();
         }
 
         /// <summary>PPCLI test knob: {"member":"SetHoldPrepare","args":[true]} - the driver stops feeding FG frames while the chain stays live.</summary>

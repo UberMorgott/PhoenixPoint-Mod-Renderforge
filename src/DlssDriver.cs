@@ -131,7 +131,8 @@ namespace Renderforge
                      + " depthMode=" + (cam ? cam.depthTextureMode.ToString() : "-") + " aa=" + (layer ? layer.antialiasingMode.ToString() : "-")
                      + " colorSpace=" + QualitySettings.activeColorSpace + " reversedZ=" + SystemInfo.usesReversedZBuffer
                      + " path=" + (cam ? cam.actualRenderingPath.ToString() : "-")
-                     + " present=" + (present ? (present.enabled ? "on" : "off") : "none") + " broken=" + broken + " fail=" + lastFail;
+                     + " present=" + (present ? (present.enabled ? "on" : "off") : "none") + " broken=" + broken + " fail=" + lastFail
+                     + " directInputs=" + (RenderforgeMod.Instance?.Cfg.D3D12DirectInputs ?? true) + " " + Native.Timings();
             }
         }
 
