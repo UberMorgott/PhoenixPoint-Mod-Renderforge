@@ -129,8 +129,14 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   `D3D12HalfColor` (colorRT+outRT ARGBHalf Linear, NGX IsHDR, FSR HDR flag, XeSS linear, NIS HDR mode, FP16 twins).
   **FP16 PATH WORKS** (`493115e`, knob `D3D12HalfColor`, A/B `docs\shots\halfcolor\`): screen unique colours 86k (on)
   vs 29k (legacy) vs 59k (D3D11); luma 15.9 / 15.2 / 15.2 = parity, present Blit fine; DLSS Perf/Quality/DLAA, FSR,
-  XeSS all clean. Regressions being fixed before default-on: FG under FP16 (DLSS-G `generated=0`, `hudless skipped
-  fmt 10 vs 28`, `missing common constants`; FSR-FG same skip) and main-menu luma 82 vs ≈56 (idle path presents FP16?).
+  XeSS all clean. Two "regressions" closed before default-on: (1) FG under FP16 (DLSS-G `generated=0`, `hudless skipped
+  fmt 10 vs 28`, `missing common constants`; FSR-FG same skip) — root cause `FgStreamline.cpp`/`FgXess.cpp` `Prepare`
+  returned before the token/constants/tags on a format mismatch; fix `native\FgHudless.h`: the FG host encodes the FP16
+  linear out into an `R8G8B8A8_UNORM` sRGB twin on its prep list, `FgHudless12()` hands it to all three providers, a
+  missing hudless no longer skips token/constants. (2) "menu luma 82 vs 56" was a MEASUREMENT ARTEFACT: the 56 reference
+  is the FULL-image luma of 1280x720 shots, the 82 the fixed 400..2200x300..1200 region of a 2560x1440 shot; same
+  metric: HalfColor menu 55.5 full / 82.0 region vs legacy D3D12 56.5 / 84.1 vs D3D11 56.7 / 84.3 (`scratchpad luma.ps1`,
+  relative region). No menu code path differs. → `D3D12HalfColor` default ON (knob kept).
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 

@@ -60,8 +60,8 @@ namespace Renderforge
         public bool D3D12SrgbViews = false;
         [ConfigField("D3D12 sRGB colour descriptor (diagnostic)", "DirectX 12: create the colour input from an explicit R8G8B8A8_SRGB descriptor so the render-target view is sRGB. Re-creates the feature.")]
         public bool D3D12ColorDesc = false;
-        [ConfigField("D3D12 FP16 colour (diagnostic)", "DirectX 12: render the colour input and the upscaler output as linear FP16 (no 8-bit sRGB storage; NGX IsHDR / FSR HDR / XeSS linear / NIS linear). Re-creates the feature.")]
-        public bool D3D12HalfColor = false;
+        [ConfigField("D3D12 FP16 colour", "DirectX 12: render the colour input and the upscaler output as linear FP16 (no 8-bit sRGB storage; NGX IsHDR / FSR HDR / XeSS linear / NIS linear). Off = the legacy 8-bit path (posterised darks). Re-creates the feature.")]
+        public bool D3D12HalfColor = true;
         // Diagnostic jitter knobs (D3D12 detail-loss hunt): the REPORTED offset (Dlss_SetFrame) vs the RENDERED one (projection).
         [ConfigField("Jitter report sign X (diagnostic)", "+1 / -1, multiplies only the x offset reported to the upscaler")]
         public int JitterReportSignX = 1;
@@ -100,7 +100,7 @@ namespace Renderforge
             { nameof(MvJittered), new[] { "MV с джиттером (диагностика)", "Сообщить апскейлеру, что векторы движения содержат джиттер (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). Пересоздаёт feature." } },
             { nameof(D3D12SrgbViews), new[] { "D3D12 sRGB-виды (диагностика)", "DirectX 12: отдать апскейлеру sRGB-вид входного цвета (он декодирует в линейный) и пометить выход как sRGB, чтобы вывод закодировал. Пересоздаёт feature." } },
             { nameof(D3D12ColorDesc), new[] { "D3D12 sRGB-дескриптор цвета (диагностика)", "DirectX 12: создавать входной цвет из явного дескриптора R8G8B8A8_SRGB, чтобы render-target view был sRGB. Пересоздаёт feature." } },
-            { nameof(D3D12HalfColor), new[] { "D3D12 FP16-цвет (диагностика)", "DirectX 12: входной цвет и выход апскейлера в линейном FP16 (без 8-битного sRGB-хранения; NGX IsHDR / FSR HDR / XeSS linear / NIS linear). Пересоздаёт feature." } },
+            { nameof(D3D12HalfColor), new[] { "D3D12 FP16-цвет", "DirectX 12: входной цвет и выход апскейлера в линейном FP16 (без 8-битного sRGB-хранения; NGX IsHDR / FSR HDR / XeSS linear / NIS linear). Выкл = старый 8-битный путь (постеризация в тенях). Пересоздаёт feature." } },
             { nameof(JitterReportSignX), new[] { "Знак джиттера X (диагностика)", "+1 / -1, множитель только для x-смещения, сообщаемого апскейлеру" } },
             { nameof(JitterReportSignY), new[] { "Знак джиттера Y (диагностика)", "+1 / -1, множитель только для y-смещения, сообщаемого апскейлеру" } },
             { nameof(JitterScale), new[] { "Масштаб джиттера (диагностика)", "Масштабирует джиттер проекции И сообщаемое смещение. 0 = без джиттера." } },
