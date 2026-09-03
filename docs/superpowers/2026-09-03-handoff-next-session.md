@@ -111,8 +111,18 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   SAME on both APIs → jitter is applied and consistent. `ForceReset` every frame: normal ≈ reset on BOTH APIs
   (D3D11 lap 2348/2330, D3D12 2004/2081) yet D3D12 keeps ~half the unique colours (6.6k vs 14.3k) even with reset →
   the loss is NOT temporal. Engine is **Unity 2019.4.31f1** (`Application.unityVersion`), not 2018.4.
-- NEXT (running): entropy of `DumpColorIn` vs `DumpOut` vs screen per API — is the loss already in the SDK INPUT
-  (render path / `D3D12Fix` 2D-LUT grading / RT redirect) or introduced by the SDK?
+- **ROOT CAUSE (2026-09-03, evidence `docs\shots\entropy\`)**: the SDK colour INPUT `colorRT` is already crushed on
+  D3D12 — same `R8G8B8A8_SRGB` format + same dump path, mean luma 1.37 vs 3.86 (Perf), 1.05 vs 3.74 (DLAA), R levels
+  130 vs 166, unique colours −60%. The only sRGB ENCODE in the chain is the RTV of `colorRT` during PPv2's final Uber
+  blit (`PostProcessLayer.cs:935/1018`, intermediates are ARGBHalf linear); Unity sRGB RTs on D3D12 are TYPELESS
+  resources with view-only sRGB-ness, and the RTV for our redirected `colorRT` (`DlssDriver.cs:250`, `ARGB32 +
+  ReadWrite.Default`, `cam.targetTexture = colorRT` :328) is NOT sRGB on D3D12 → linear values stored in 8-bit →
+  darks posterised ("large blurry fragments"). `915e341` (Linear outRT) rescued brightness, not precision.
+  Off-mode brightness difference (29.7 vs 21) is unrelated: `D3D12Fix` 2D-LUT grading + no SSR.
+  Fix candidates ranked: (1) `colorRT` = `ARGBHalf` + `ReadWrite.Linear` on D3D12, SDK gets FP16 linear
+  (`Typed()` already maps R16G16B16A16; NGX IsHDR / FSR-XeSS linear default; out twin + outRT FP16, NIS HDR mode);
+  (2) explicit `RenderTextureDescriptor.graphicsFormat = R8G8B8A8_SRGB` (knob `D3D12ColorDesc`, being tested first —
+  cheapest); (3) no camera redirect, Blit from `CameraTarget`. Confirming experiment: PP layer off → `DumpColorIn`.
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
