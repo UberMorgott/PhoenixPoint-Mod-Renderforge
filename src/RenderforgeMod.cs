@@ -328,6 +328,27 @@ namespace Renderforge
             return GetStatus();
         }
 
+        /// <summary>PPCLI diagnostic: {"member":"SetD3D12ColorDesc","args":[true]} - colorRT from an explicit R8G8B8A8_SRGB
+        /// RenderTextureDescriptor (D3D12: sRGB RTV for PPv2's final encode). Re-creates next frame. Saved.</summary>
+        public static string SetD3D12ColorDesc(bool on)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.D3D12ColorDesc = on;
+            SaveConfig();
+            return GetStatus();
+        }
+
+        /// <summary>PPCLI diagnostic: {"member":"SetPostProcessEnabled","args":[false]} - toggles the bound camera's
+        /// PostProcessLayer.enabled ("is the final PP pass the writer" experiment). Not saved.</summary>
+        public static string SetPostProcessEnabled(bool on)
+        {
+            var l = DlssDriver.Instance?.Layer;
+            if (l == null) return "no PostProcessLayer";
+            l.enabled = on;
+            return "postProcessEnabled=" + l.enabled;
+        }
+
         /// <summary>PPCLI diagnostic: {"member":"ProbeMv","args":[640,360]} - see DlssDriver.ProbeMv.</summary>
         public static string ProbeMv(int x, int y) => DlssDriver.Instance?.ProbeMv(x, y) ?? "no driver";
 
@@ -393,7 +414,7 @@ namespace Renderforge
             " jitterSign=" + c.JitterReportSignX + "," + c.JitterReportSignY + " jitterScale=" + c.JitterScale.ToString("R") + " jitterSwapXY=" + c.JitterReportSwapXY
             + " jitterConst=" + c.JitterConstEnabled + "," + c.JitterConstX.ToString("R") + "," + c.JitterConstY.ToString("R") + " forceReset=" + c.ForceReset;
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " d3d12SrgbViews=" + (Instance?.Cfg?.D3D12SrgbViews ?? false) + JitterKnobs(Instance?.Cfg) + " "
+        public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " d3d12SrgbViews=" + (Instance?.Cfg?.D3D12SrgbViews ?? false) + " d3d12ColorDesc=" + (Instance?.Cfg?.D3D12ColorDesc ?? false) + JitterKnobs(Instance?.Cfg) + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 
