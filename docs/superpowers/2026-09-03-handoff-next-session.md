@@ -127,8 +127,10 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   `colorRT` → D3D11 luma 13.77 / R 181 vs D3D12 6.14 / R 146 → **the 8-bit sRGB RT is not sRGB-encoded on write under
   D3D12 regardless of descriptor** (Unity 2019.4 D3D12 backend). → Fix (1) FP16 linear path being implemented as knob
   `D3D12HalfColor` (colorRT+outRT ARGBHalf Linear, NGX IsHDR, FSR HDR flag, XeSS linear, NIS HDR mode, FP16 twins).
-  Open question for the test: does Unity's present Blit encode a Linear FP16 `outRT` to the sRGB backbuffer on D3D12
-  (Off-mode is bright on D3D12, so the backbuffer path works) — if dark, add a final LinearToSRGB blit.
+  **FP16 PATH WORKS** (`493115e`, knob `D3D12HalfColor`, A/B `docs\shots\halfcolor\`): screen unique colours 86k (on)
+  vs 29k (legacy) vs 59k (D3D11); luma 15.9 / 15.2 / 15.2 = parity, present Blit fine; DLSS Perf/Quality/DLAA, FSR,
+  XeSS all clean. Regressions being fixed before default-on: FG under FP16 (DLSS-G `generated=0`, `hudless skipped
+  fmt 10 vs 28`, `missing common constants`; FSR-FG same skip) and main-menu luma 82 vs ≈56 (idle path presents FP16?).
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
