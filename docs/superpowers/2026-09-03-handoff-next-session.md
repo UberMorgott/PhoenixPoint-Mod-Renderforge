@@ -25,7 +25,7 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   `DebugView.Passthrough` = 141 = DLAA → the DLSS evaluate is ~free; **the whole −32% is the RT redirect/copy plumbing**
   (Unity RT → owned twins → copy back). Sharpness 0 vs 40 = no difference.
 - **Vanilla D3D12 without the mod does not run** (`MultiScaleVO` kernel not found every frame); `src\D3D12Fix.cs` is why it
-  works at all → MSVO ambient occlusion is OFF under D3D12 (confound vs D3D11 numbers; visual difference for players).
+  works at all → MSVO replaced by SAO under D3D12 (AO stays on; minor confound vs D3D11 numbers).
 - User crash #1 root cause: FG enabled in the MAIN MENU → no camera Prepare → SL pacer wedge. #2: hook recursion via a
   later vtable patch (Steam overlay). Both fixed; #2 fix NOT yet confirmed on the user's Steam process.
 - Player.log is SHARED by all installs (LocalLow) — user evidence gets overwritten by agent runs. fg log
@@ -45,9 +45,12 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
    directly to the SDKs using the measured deterministic pre-states (DESIGN.md owned-resource contract) instead of
    copying into twins, keep only the `out` twin; check the ring's wait on Unity's frame fence for CPU stalls. Gate:
    DLAA ≥ 190 fps tac (shim-idle 207), debug layer 0 on our lists, FSR/XeSS/DLSS all still correct.
-3. **MSVO under D3D12** (`src\D3D12Fix.cs`): find why the compute kernel is missing on D3D12 (PPv2 `MultiScaleVO`
-   compute shader variant not in the build for D3D12?) — if it is unfixable, document "AO off under DX12" in README
-   and show it in the picker tooltip; if fixable (e.g. force the fallback SAO path), do it.
+3. ~~MSVO under D3D12~~ DONE (Opus research 2026-09-03): player built with D3D11 only → ComputeShader kernels absent
+   for D3D12 (`ComputeShader.FindKernel` throws `Kernel 'MultiScaleVODownsample1' not found`, MultiScaleVO.cs:232;
+   `AmbientOcclusion.IsEnabledAndSupported` only checks asset non-null). `D3D12Fix.FixAo` already forces SAO (pixel
+   shader) → **AO is ON under DX12** (SAO, matches D3D11 per DESIGN.md:482). Real MSVO = rebuild 4 compute assets in
+   Unity editor, not worth it. TODO 5 min: null `res.computeShaders.gaussianDownsample` in `D3D12Fix.Apply` (same
+   false-positive gate in `ScreenSpaceReflections.IsEnabledAndSupported`, latent under Deferred).
 4. Resolution-change robustness under D3D12 (DLSS `FAIL_PlatformError` → regen instead of off).
 5. Frame-pacing metric (PresentMon `MsBetweenDisplayChange` CoV) still unmeasured; resize under XeSS/DLSS-G not exercised.
 6. Phase 6 Tasks 7-8 (version bump 1.2.0, `build\release.ps1 -WithFrameGen`, GitHub release, Workshop) — USER-GATED.
