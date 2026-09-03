@@ -191,14 +191,13 @@ struct Device12 : IDevice
         } else {
             // With sharpening on, NGX writes sharpen.target and the sharpen pass produces owned.out (D3D12Sharpen.h).
             bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(owned.out, ring);
-            bool direct = OwnedSet12::Direct();
 
             NVSDK_NGX_D3D12_DLSS_Eval_Params ep = {};
-            ep.Feature.pInColor = direct ? color : owned.color;
+            ep.Feature.pInColor = owned.color;
             ep.Feature.pInOutput = doSharpen ? sharpen.target : owned.out;
             ep.Feature.InSharpness = 0;   // deprecated in SDK 310; our own pass uses fp.sharpness
-            ep.pInDepth = direct ? depth : owned.depth;
-            ep.pInMotionVectors = direct ? mv : owned.mv;
+            ep.pInDepth = owned.depth;
+            ep.pInMotionVectors = owned.mv;
             ep.InJitterOffsetX = fp.jitterX;
             ep.InJitterOffsetY = fp.jitterY;
             ep.InRenderSubrectDimensions.Width = fp.renderW;
@@ -209,14 +208,14 @@ struct Device12 : IDevice
             ep.InPreExposure = fp.preExposure;
             ep.InFrameTimeDeltaInMsec = fp.dtMs;
 
-            if (direct) owned.EnterDirect(cl, color, depth, mv); else owned.Enter(cl, color, depth, mv);
+            owned.Enter(cl, color, depth, mv);
             ring.Stamp(1);
             // NGX "always transitions buffers back to these known states" (guide p.14 3.4), so Leave starts from them.
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
             else if (doSharpen) sharpen.Run(cl, owned.out, fp.sharpness, ring.ringIdx);
             ring.Stamp(2);
-            if (direct) owned.LeaveDirect(cl, color, depth, mv, output); else owned.Leave(cl, output);
+            owned.Leave(cl, output);
         }
         if (RfDbg::On() && logged != output) {
             logged = output;

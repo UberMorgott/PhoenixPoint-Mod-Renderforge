@@ -16,8 +16,6 @@
 #include "D3D12Ring.h"
 #include "Fg.h"
 
-int g_directInputs = 1;    // Dlss_DirectInputs; read by the D3D12 backends per Evaluate (D3D12Owned.h)
-
 const char kProjectId[] = "b7a3f2c4-6d1e-4a8b-9c0f-2e5d7a9b1c3d";
 const char kEngineVersion[] = "2019.4.31";
 
@@ -266,8 +264,6 @@ int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* feature
     if (featureAlive)     *featureAlive     = (S.dev && S.dev->FeatureAlive()) ? 1 : 0;
     return S.initCode;
 }
-
-int __cdecl Dlss_DirectInputs(int on) { int prev = g_directInputs; g_directInputs = on ? 1 : 0; return prev; }
 
 void __cdecl Dlss_Timings(float* copyInMs, float* evalMs, float* copyOutMs, float* ringWaitMs)
 {

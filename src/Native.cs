@@ -127,10 +127,6 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Status(out int lastCreateResult, out int lastEvalResult, out int featureAlive);
 
-        /// <summary>D3D12: 1 = the SDK reads Unity's RTs in place (default), 0 = through shim-owned copies. Returns the previous value.</summary>
-        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
-        public static extern int Dlss_DirectInputs(int on);
-
         /// <summary>D3D12 ~60-frame averages: GPU ms of copy-in / upscale / copy-out on the evaluate list, CPU ms waited for a ring slot.</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_Timings(out float copyInMs, out float evalMs, out float copyOutMs, out float ringWaitMs);
