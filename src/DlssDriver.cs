@@ -35,6 +35,7 @@ namespace Renderforge
 
         private int jitterIndex, phaseCount;
         private float jx, jy;
+        private float reportJx, reportJy;   // what the last Dlss_SetFrame actually got (after the diagnostic sign/swap knobs)
         private bool resetNext;
         private Vector3 lastPos;
         private float lastFov;
@@ -370,6 +371,9 @@ namespace Renderforge
                 Halton(jitterIndex, out jx, out jy);
                 jitterIndex = (jitterIndex + 1) % phaseCount;
                 if (passthrough) { jx = 0f; jy = 0f; }
+                var cfg = RenderforgeMod.Instance?.Cfg;
+                float jscale = cfg?.JitterScale ?? 1f;
+                jx *= jscale; jy *= jscale;          // JitterScale: rendered AND reported jitter (0 = none)
                 var p = cam.projectionMatrix;
                 cam.nonJitteredProjectionMatrix = p;
                 // PPv2 sign convention (RuntimeUtilities.GetJitteredPerspectiveProjectionMatrix, decompiled): proj[0,2] += 2*jx/w.
@@ -396,8 +400,12 @@ namespace Renderforge
                 // FSR needs the camera frustum (cameraNear/Far/FovAngleVertical); NGX ignores it. Cached in the
                 // shim and copied into the frame slot, so the ABI of Dlss_SetFrame stays untouched.
                 Native.SetCamera(cam.nearClipPlane, cam.farClipPlane, cam.fieldOfView * Mathf.Deg2Rad);
+                // Diagnostic (D3D12 detail-loss hunt): sign/swap knobs touch ONLY the offset reported to the SDK, not the projection.
+                float rjx = -jx * (cfg?.JitterReportSignX ?? 1), rjy = -jy * (cfg?.JitterReportSignY ?? 1);
+                if (cfg != null && cfg.JitterReportSwapXY) { float t = rjx; rjx = rjy; rjy = t; }
+                reportJx = rjx; reportJy = rjy;
                 IntPtr slot = Native.Dlss_GetFrameSlot();
-                Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, -jx, -jy, -renderW, -renderH,
+                Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, rjx, rjy, -renderW, -renderH,
                     reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
@@ -458,7 +466,38 @@ namespace Renderforge
                 tex.Apply(false);
                 Color c = tex.GetPixel(0, 0);
                 return "x=" + x + ",y=" + y + " mvx=" + c.r.ToString("R") + " mvy=" + c.g.ToString("R")
-                     + " jitterx=" + (-jx).ToString("R") + " jittery=" + (-jy).ToString("R") + " render=" + renderW + "x" + renderH + " fmt=" + mvRT.format;
+                     + " jitterx=" + reportJx.ToString("R") + " jittery=" + reportJy.ToString("R") + " render=" + renderW + "x" + renderH + " fmt=" + mvRT.format;
+            }
+            finally
+            {
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(tmp);
+                Destroy(tex);
+            }
+        }
+
+        /// <summary>Diagnostic: outRT (the SDK output BEFORE Unity's present Blit) to PNG. Works on D3D12 (Blit into an
+        /// sRGB-less ARGB32 temp, ReadPixels from there). Returns the path + WxH.</summary>
+        public string DumpOut(string absPath) => DumpRt(outRT, "outRT", absPath);
+
+        /// <summary>Diagnostic: colorRT (the SDK colour input, render res) to PNG.</summary>
+        public string DumpColorIn(string absPath) => DumpRt(colorRT, "colorRT", absPath);
+
+        private string DumpRt(RenderTexture rt, string what, string absPath)
+        {
+            if (gen != Gen.Live || rt == null) return "not live (gen=" + gen + ")";
+            int w = rt.width, h = rt.height;
+            var tmp = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            var prev = RenderTexture.active;
+            try
+            {
+                Graphics.Blit(rt, tmp);
+                RenderTexture.active = tmp;
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0, false);
+                tex.Apply(false);
+                System.IO.File.WriteAllBytes(absPath, tex.EncodeToPNG());
+                return what + " -> " + absPath + " " + w + "x" + h + " fmt=" + rt.graphicsFormat;
             }
             finally
             {

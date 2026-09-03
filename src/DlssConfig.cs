@@ -56,6 +56,15 @@ namespace Renderforge
         public FrameGenMode FrameGen = FrameGenMode.Off;
         [ConfigField("MV jittered (diagnostic)", "Tell the upscaler the motion vectors carry the jitter (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). Re-creates the feature.")]
         public bool MvJittered = false;
+        // Diagnostic jitter knobs (D3D12 detail-loss hunt): the REPORTED offset (Dlss_SetFrame) vs the RENDERED one (projection).
+        [ConfigField("Jitter report sign X (diagnostic)", "+1 / -1, multiplies only the x offset reported to the upscaler")]
+        public int JitterReportSignX = 1;
+        [ConfigField("Jitter report sign Y (diagnostic)", "+1 / -1, multiplies only the y offset reported to the upscaler")]
+        public int JitterReportSignY = 1;
+        [ConfigField("Jitter scale (diagnostic)", "Scales the rendered projection jitter AND the reported offset. 0 = no jitter.")]
+        public float JitterScale = 1f;
+        [ConfigField("Jitter report swap XY (diagnostic)", "Swap x/y of the reported offset only")]
+        public bool JitterReportSwapXY = false;
 
         // field ID -> (RU label, RU description); English comes from the attribute above.
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
@@ -75,6 +84,10 @@ namespace Renderforge
             { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, Intel → XeSS, иначе FSR (XeSS, если нет DLL AMD). FSR/XeSS требуют DirectX 12. Смена требует перезапуска." } },
             { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12. 3x и 4x — DLSS-G на видеокарте RTX 50." } },
             { nameof(MvJittered), new[] { "MV с джиттером (диагностика)", "Сообщить апскейлеру, что векторы движения содержат джиттер (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). Пересоздаёт feature." } },
+            { nameof(JitterReportSignX), new[] { "Знак джиттера X (диагностика)", "+1 / -1, множитель только для x-смещения, сообщаемого апскейлеру" } },
+            { nameof(JitterReportSignY), new[] { "Знак джиттера Y (диагностика)", "+1 / -1, множитель только для y-смещения, сообщаемого апскейлеру" } },
+            { nameof(JitterScale), new[] { "Масштаб джиттера (диагностика)", "Масштабирует джиттер проекции И сообщаемое смещение. 0 = без джиттера." } },
+            { nameof(JitterReportSwapXY), new[] { "Поменять X/Y джиттера (диагностика)", "Поменять местами x/y только сообщаемого смещения" } },
         };
 
         /// <summary>True while the game runs in Russian (I2 LocalizationManager.CurrentLanguage, "English"/"Russian"/…).</summary>

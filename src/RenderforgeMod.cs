@@ -320,7 +320,48 @@ namespace Renderforge
         /// <summary>PPCLI diagnostic: {"member":"ProbeMv","args":[640,360]} - see DlssDriver.ProbeMv.</summary>
         public static string ProbeMv(int x, int y) => DlssDriver.Instance?.ProbeMv(x, y) ?? "no driver";
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " "
+        // ---- jitter diagnostics (D3D12 detail-loss hunt). Applied next frame, no feature re-create. Saved.
+        /// <summary>{"member":"SetJitterReportSign","args":[1,-1]} - ±1 each; multiplies ONLY the offset reported to the SDK.</summary>
+        public static string SetJitterReportSign(int x, int y)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.JitterReportSignX = x < 0 ? -1 : 1;
+            m.Cfg.JitterReportSignY = y < 0 ? -1 : 1;
+            SaveConfig();
+            return GetStatus();
+        }
+
+        /// <summary>{"member":"SetJitterScale","args":[0.5]} - scales the rendered projection jitter AND the reported offset; 0 = no jitter.</summary>
+        public static string SetJitterScale(float s)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.JitterScale = s;
+            SaveConfig();
+            return GetStatus();
+        }
+
+        /// <summary>{"member":"SetJitterReportSwapXY","args":[true]} - swap x/y of the reported offset only.</summary>
+        public static string SetJitterReportSwapXY(bool on)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.JitterReportSwapXY = on;
+            SaveConfig();
+            return GetStatus();
+        }
+
+        /// <summary>{"member":"DumpOut","args":["C:\\Temp\\out.png"]} - outRT (SDK output, before the present Blit) to PNG.</summary>
+        public static string DumpOut(string absPath) => DlssDriver.Instance?.DumpOut(absPath) ?? "no driver";
+
+        /// <summary>{"member":"DumpColorIn","args":["C:\\Temp\\in.png"]} - colorRT (SDK colour input) to PNG.</summary>
+        public static string DumpColorIn(string absPath) => DlssDriver.Instance?.DumpColorIn(absPath) ?? "no driver";
+
+        private static string JitterKnobs(DlssConfig c) => c == null ? "" :
+            " jitterSign=" + c.JitterReportSignX + "," + c.JitterReportSignY + " jitterScale=" + c.JitterScale.ToString("R") + " jitterSwapXY=" + c.JitterReportSwapXY;
+
+        public static string GetStatus() => "provider=" + Upscalers.Running + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + JitterKnobs(Instance?.Cfg) + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 
