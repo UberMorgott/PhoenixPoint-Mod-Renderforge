@@ -164,7 +164,7 @@ void __cdecl Dlss_SetCreateParams(unsigned w, unsigned h, unsigned outW, unsigne
     // DLSS_F_HDR deliberately NOT mapped to NVSDK_NGX_DLSS_Feature_Flags_IsHDR: the FP16 colour (D3D12HalfColor) holds
     // linear LDR values - exactly what D3D11 feeds NGX via the hardware-decoded sRGB SRV with IsHDR=0 (proven stable).
     // IsHDR=1 needs an exposure source (exposure texture / AutoExposure) we do not provide -> temporal instability.
-    // FSR (Fsr12.cpp) and XeSS (Xess12.cpp) keep their own DLSS_F_HDR semantics.
+    // FSR (Fsr12.cpp) and XeSS (Xess12.cpp) ignore DLSS_F_HDR the same way (LDR flags, parity with IsHDR=0).
     if (flags & DLSS_F_DEPTH_INVERTED) f |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
     if (flags & DLSS_F_MV_LOW_RES)     f |= NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
     if (flags & DLSS_F_MV_JITTERED)    f |= NVSDK_NGX_DLSS_Feature_Flags_MVJittered;

@@ -606,8 +606,8 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
     WaitGpu();
     ev(DLSS_EV_RELEASE);
 
-    // D3D12HalfColor: FP16 linear colour + FP16 out (with UAV; sharpen pass runs its NIS linear-HDR variant on it),
-    // DLSS_F_HDR -> no XESS_INIT_FLAG_LDR_INPUT_COLOR.
+    // D3D12HalfColor: FP16 linear colour + FP16 out (with UAV; sharpen pass runs its NIS linear-HDR variant on it).
+    // DLSS_F_HDR is informational: XESS_INIT_FLAG_LDR_INPUT_COLOR stays set (values are 0..1), same as NGX IsHDR=0.
     ID3D12Resource* colorHalf = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, kColorRest);
     ID3D12Resource* outHalf   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, kOutRest);
     if (!colorHalf || !outHalf) return 1;

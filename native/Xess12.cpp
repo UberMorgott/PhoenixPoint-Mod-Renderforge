@@ -64,12 +64,12 @@ xess_quality_settings_t ToXessQuality(int quality)
 
 // DLSS_F_* -> xess_init_flags_t. Never set: USE_NDC_VELOCITY (Unity MVs are UV-space, scaled to pixels by the
 // driver's mvScale), EXPOSURE_SCALE_TEXTURE / RESPONSIVE_PIXEL_MASK (no such textures), EXTERNAL_DESCRIPTOR_HEAP
-// (XeSS manages its own heap). LDR colour = "disable tonemapping for input and output" (xess.h:121) and the
-// guide's LDR rule: exposure 1.0, no auto-exposure.
+// (XeSS manages its own heap). LDR_INPUT_COLOR = "disable tonemapping for input and output" (xess.h:121) is ALWAYS
+// set: both ARGB32 and the FP16 D3D12HalfColor colour hold display-referred 0..1 values (range, not encoding), like
+// NGX IsHDR=0. DLSS_F_HDR is ignored. Guide's LDR rule: exposure 1.0, no auto-exposure.
 uint32_t ToXessInitFlags(int rawFlags)
 {
-    uint32_t f = XESS_INIT_FLAG_NONE;
-    if (!(rawFlags & DLSS_F_HDR))         f |= XESS_INIT_FLAG_LDR_INPUT_COLOR;
+    uint32_t f = XESS_INIT_FLAG_LDR_INPUT_COLOR;
     if (rawFlags & DLSS_F_DEPTH_INVERTED) f |= XESS_INIT_FLAG_INVERTED_DEPTH;        // Unity reversed-Z
     if (rawFlags & DLSS_F_MV_JITTERED)    f |= XESS_INIT_FLAG_JITTERED_MV;
     // DLSS_F_MV_LOW_RES means "MVs are at render resolution", which is the XeSS default; its ABSENCE is the flag.

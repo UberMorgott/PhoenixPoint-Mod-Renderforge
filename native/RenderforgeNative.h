@@ -24,9 +24,10 @@ enum { DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMA
        DLSS_Q_ULTRA_QUALITY = 5, DLSS_Q_ULTRA_QUALITY_PLUS = 6 };
 
 // Dlss_SetCreateParams flags bitmask (ours).
-// DLSS_F_HDR: the colour input is linear (FP16, D3D12HalfColor) -> FFX HIGH_DYNAMIC_RANGE, XeSS without
-// LDR_INPUT_COLOR. NGX stays IsHDR=0 (RenderforgeNative.cpp Dlss_SetCreateParams): linear LDR FP16 is the same thing
-// D3D11's sRGB SRV feeds with IsHDR=0, and IsHDR=1 would need an exposure source we do not have.
+// DLSS_F_HDR: informational only - the colour input is FP16 linear (D3D12HalfColor), but it holds display-referred
+// LDR 0..1 values, so NO provider maps it: NGX stays IsHDR=0 (RenderforgeNative.cpp Dlss_SetCreateParams), FSR never
+// sets FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE (Fsr12.cpp), XeSS always sets XESS_INIT_FLAG_LDR_INPUT_COLOR (Xess12.cpp).
+// Linear LDR FP16 is the same thing D3D11's sRGB SRV feeds with IsHDR=0; HDR mode would need an exposure source we lack.
 // The sharpen pass follows the OUTPUT format instead (Sharpen.h SharpenIsHdr).
 // DLSS_F_SRGB_VIEWS (D3D12 only, diagnostic): the colour input is sRGB-encoded - the owned colour twin is created
 // as *_UNORM_SRGB so every SDK's SRV decodes it to linear (D3D12Owned.h). Output stays UNORM (no sRGB UAV in D3D12).

@@ -255,8 +255,8 @@ namespace Renderforge
             // D3D12HalfColor: measured 2026-09-03 that on D3D12 an 8-bit sRGB RT used as camera target is NOT sRGB-encoded
             // on write (DumpColorIn luma 6.14 vs 13.77 on D3D11; the explicit R8G8B8A8_SRGB descriptor changed nothing),
             // so linear values land in 8 bits and the darks crush. FP16 linear colour + FP16 linear out avoid 8-bit sRGB
-            // storage entirely; the SDKs get DLSS_F_HDR (FFX HIGH_DYNAMIC_RANGE / XeSS without LDR_INPUT_COLOR; NGX stays IsHDR=0 -
-            // linear LDR like D3D11's sRGB SRV, no exposure source for HDR mode)
+            // storage entirely; DLSS_F_HDR is passed as information only - every SDK stays LDR (NGX IsHDR=0, FSR without
+            // HIGH_DYNAMIC_RANGE, XeSS with LDR_INPUT_COLOR: values are display-referred 0..1, no exposure source for HDR mode)
             // and the shim's NIS pass runs its linear variant on the FP16 out twin. Wins over ColorDesc/SrgbViews.
             liveHalfColor = WantHalfColor;
             liveColorDesc = WantColorDesc && !liveHalfColor;

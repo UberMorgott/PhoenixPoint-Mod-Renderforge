@@ -42,10 +42,11 @@ uint32_t ToFfxQuality(int quality)
 // finite far plane and the FSR debug checker warns when INFINITE is combined with a small cameraFar.
 // AUTO_EXPOSURE is always on regardless of DLSS_F_AUTO_EXPOSURE: the driver never hands us an exposure texture,
 // and ffx only allows omitting it when that flag is set (super-resolution-ml.md:111,167).
+// HIGH_DYNAMIC_RANGE ("the input color data provided is using a high-dynamic range", ffx_upscale.h:49) is never set:
+// the FP16 colour (D3D12HalfColor) holds display-referred linear 0..1 - LDR, like NGX IsHDR=0. DLSS_F_HDR is ignored.
 uint32_t ToFfxCreateFlags(int rawFlags)
 {
     uint32_t f = FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
-    if (rawFlags & DLSS_F_HDR)            f |= FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE;
     if (rawFlags & DLSS_F_DEPTH_INVERTED) f |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;       // Unity reversed-Z
     if (rawFlags & DLSS_F_MV_JITTERED)    f |= FFX_UPSCALE_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION;
     // DLSS_F_MV_LOW_RES means "MVs are at render resolution", which is the ffx default; its ABSENCE is the flag.
