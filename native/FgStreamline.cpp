@@ -203,6 +203,8 @@ struct ProviderStreamline : IFgProvider
     unsigned            caps;
     int                 wantOn, isOn;  // desired / applied DLSSGMode (render thread applies in Generate)
     unsigned            sentW, sentH;  // mvecDepthWidth/Height last issued via slDLSSGSetOptions (re-issued on a quality switch)
+    unsigned            failW, failH;  // last refused options size + result: logged once, retried every frame
+    int                 failRc;
     unsigned            frames;        // Prepare calls on this chain
     // Tokens awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent pops
     // exactly one per Present so the PRESENT_START/END markers name the frame whose inputs were tagged (DLSS_G.md:933).
@@ -223,7 +225,7 @@ struct ProviderStreamline : IFgProvider
     void Zero()
     {
         proxy = NULL; proxyFactory = NULL; queue = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = buffers = 0;
-        framesToGen = 1; caps = 0; wantOn = isOn = 0; sentW = sentH = 0; frames = 0; token = NULL; marked = 0; lastStatus = 0;
+        framesToGen = 1; caps = 0; wantOn = isOn = 0; sentW = sentH = failW = failH = 0; failRc = 0; frames = 0; token = NULL; marked = 0; lastStatus = 0;
         for (unsigned i = 0; i < kTokens; ++i) fifo[i] = NULL;
         head = tail = 0;
         generated = 0; warned = 0; havePrev = 0;
@@ -325,11 +327,36 @@ struct ProviderStreamline : IFgProvider
         }
     }
 
+    // Frame boundary, render thread = the presenting thread (DLSS_G.md:483-491: options take effect at the next Present;
+    // set them on the presenting thread), before this frame's token, constants and tags. The options carry the mvec/depth
+    // size (sl_dlss_g.h:89-91): a quality switch resizes the owned twins while the chain (outW/outH/backFmt) stays - re-issue
+    // on a size change, or DLSS-G interpolates with stale dimensions (heat-haze shimmer at Quality/Performance, DLAA fine).
+    // eWarnOutOfVRAM (39, sl_result.h:74) = options applied, DXGI budget exhausted (commonInterface.cpp:556-565); treating it
+    // as a failure re-issued the options every frame until the device was removed (measured 2026-09-03). A real refusal is
+    // logged once per size/result and retried next frame.
+    void IssueOptions(unsigned w, unsigned h)
+    {
+        if (wantOn == isOn && (!wantOn || (w == sentW && h == sentH))) return;
+        sl::DLSSGOptions op{};
+        Options(op, wantOn ? (unsigned)sl::DLSSGMode::eOn : (unsigned)sl::DLSSGMode::eOff);
+        sl::ViewportHandle vp(0u);
+        sl::Result r = g_sl.fgSetOptions(vp, op);
+        if (r == sl::Result::eOk || r == sl::Result::eWarnOutOfVRAM) {
+            isOn = wantOn; sentW = w; sentH = h; failRc = 0;
+            FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u, options %ux%u -> %ux%u fmt %u%s", wantOn ? "eOn" : "eOff", framesToGen, w, h, outW, outH, (unsigned)backFmt,
+                  r == sl::Result::eWarnOutOfVRAM ? " (eWarnOutOfVRAM: DXGI budget exhausted)" : "");
+        } else if (failRc != (int)r || failW != w || failH != h) {
+            failRc = (int)r; failW = w; failH = h;
+            FgLog("sl: slDLSSGSetOptions(%d) %d for %ux%u - retrying every frame", wantOn, (int)r, w, h);
+        }
+    }
+
     // Render thread, DLSS_EV_FG_PREPARE (after the upscaler list wrote the owned twins, same Unity queue order).
     void Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
         if (!proxy || !o || !o->depth || !o->mv || !o->out) return;
+        IssueOptions(o->w, o->h);
         // The hud-less in the back buffer's format (FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16
         // out). Without one the frame still gets its token, constants and depth/mv tags - a skipped hudless is a quality
         // loss, a skipped token/constants wedges DLSS-G ("missing common constants", generated=0; measured 2026-09-03).
@@ -400,29 +427,9 @@ struct ProviderStreamline : IFgProvider
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetTagForFrame %d", (int)r); }
     }
 
-    // Render thread, Present hook, before the host copies into the proxy's back buffer: options only (DLSS_G.md:483-491
-    // want the presenting thread). The markers come after the copy, in BeforePresent.
-    int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT)
-    {
-        if (!proxy) return 0;
-        // Options carry the mvec/depth size (sl_dlss_g.h:89-91): a quality switch resizes the owned twins while the
-        // chain (outW/outH/backFmt) stays - re-issue on a size change, or DLSS-G interpolates with stale dimensions
-        // (heat-haze shimmer at Quality/Performance, DLAA fine). Twins NULL at enable -> 0 sent -> re-issued on first frame.
-        const OwnedSet12* owned = FgOwned12();
-        unsigned w = owned ? owned->w : 0, h = owned ? owned->h : 0;
-        if (wantOn != isOn || (wantOn && (w != sentW || h != sentH))) {
-            sl::DLSSGOptions o{};
-            Options(o, wantOn ? (unsigned)sl::DLSSGMode::eOn : (unsigned)sl::DLSSGMode::eOff);
-            sl::ViewportHandle vp(0u);
-            sl::Result r = g_sl.fgSetOptions(vp, o);
-            if (r != sl::Result::eOk) { if (warned < 8) { ++warned; FgLog("sl: slDLSSGSetOptions(%d) %d", wantOn, (int)r); } }
-            else {
-                isOn = wantOn; sentW = w; sentH = h;
-                FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u, options %ux%u -> %ux%u fmt %u", wantOn ? "eOn" : "eOff", framesToGen, w, h, outW, outH, (unsigned)backFmt);
-            }
-        }
-        return 0;
-    }
+    // Render thread, Present hook: nothing to do here - the options went out in Prepare (IssueOptions), the markers
+    // come after the copy, in BeforePresent.
+    int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT) { return 0; }
 
     // Render thread, the copy into the proxy's current back buffer is submitted, Present is next: pop THIS frame's token
     // and close its submit / open its present (sl_dlss_g: GetBuffer -> writes -> RENDERSUBMIT_END -> PRESENT_START -> Present).
@@ -470,7 +477,7 @@ struct ProviderStreamline : IFgProvider
     }
 
     // ponytail: off is applied HERE (main thread) because DLSS-G must be eOff before the chain is released
-    // (DLSS_G.md:745-748); on waits for the presenting thread (Generate).
+    // (DLSS_G.md:745-748); on waits for the presenting thread (Prepare -> IssueOptions).
     void SetEnabled(bool on)
     {
         wantOn = on ? 1 : 0;
