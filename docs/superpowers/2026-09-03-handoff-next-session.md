@@ -35,8 +35,10 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
 
 ## Next steps, in order (say "продолжаем" → run these)
 
-1. **USER TEST on Steam** (needs the user at the machine): D3D12, main menu → FG 2x (DLSS) → no crash, ratio 2.0 in the
-   overlay (Ctrl+Alt+O, `FPS: real / presented`), then in a mission; Alt-Tab and back; upscaler switch live; brightness = D3D11.
+1. **USER TEST on Steam** (needs the user at the machine; Steam has `d7ad827`): D3D12, main menu → FG 2x (DLSS) → no
+   crash, ratio 2.0 in the overlay (Ctrl+Alt+O, `FPS: real / presented`), then in a mission; Alt-Tab and back; upscaler
+   switch live; brightness = D3D11; **DLSS Quality/Balanced/Performance image no longer "blurry fragments"** (FP16 path).
+   If still bad: `GetStatus` must show `d3d12HalfColor=True`; toggle `D3D12HalfColor` in the mod settings to compare.
    If it crashes: read `Mods\Renderforge\renderforge_fg.log` first — the new `hook: first re-entry … caller <module+off>`
    line names the re-patcher. Then fix accordingly (if it is the Steam overlay: consider installing our hook AFTER
    the overlay's, or detour-safe chaining).
@@ -140,8 +142,10 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   VERIFIED on `d7ad827` (scout, Instance2, `docs\shots\halfcolor-verify\`): default on, formats R16G16B16A16_SFloat both;
   menu full luma 55.58; tactical unique colours 140k; DLSS-G X2 `presented=2 generated>0`, no hudless-skip / missing
   constants, FSR-FG + XeSS-FG live; live toggle with FG live OK; provider cycle OK. OPEN: debug layer shows id=527 681 /
-  id=538 452 on Unity RenderTextures (0 on `hudless8`/`Renderforge ring`) — A/B on vs off running to tell FP16-caused
-  from pre-existing Unity noise. Steam deploy after that verdict.
+  id=538 452 on Unity RenderTextures (0 on `hudless8`/`Renderforge ring`) — A/B on vs off: PRE-EXISTING Unity noise
+  (off 202/138, on 117/78, off 107/81, on+FG 101/72 per 15 s; only `RenderTexture-*-Committed` shadow/cube/depth RTs,
+  same as the "~1600/min" in DESIGN.md). **Steam install deployed with `d7ad827` (2026-09-03 afternoon).**
+  → USER TEST covers both: FG crash fix (a01afe5) AND D3D12 image quality below DLAA (this fix). Then release 1.2.1.
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
