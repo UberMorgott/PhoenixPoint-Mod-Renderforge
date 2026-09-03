@@ -202,6 +202,7 @@ struct ProviderStreamline : IFgProvider
     unsigned            framesToGen;   // multiplier - 1
     unsigned            caps;
     int                 wantOn, isOn;  // desired / applied DLSSGMode (render thread applies in Generate)
+    unsigned            sentW, sentH;  // mvecDepthWidth/Height last issued via slDLSSGSetOptions (re-issued on a quality switch)
     unsigned            frames;        // Prepare calls on this chain
     // Tokens awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent pops
     // exactly one per Present so the PRESENT_START/END markers name the frame whose inputs were tagged (DLSS_G.md:933).
@@ -222,7 +223,7 @@ struct ProviderStreamline : IFgProvider
     void Zero()
     {
         proxy = NULL; proxyFactory = NULL; queue = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = buffers = 0;
-        framesToGen = 1; caps = 0; wantOn = isOn = 0; frames = 0; token = NULL; marked = 0; lastStatus = 0;
+        framesToGen = 1; caps = 0; wantOn = isOn = 0; sentW = sentH = 0; frames = 0; token = NULL; marked = 0; lastStatus = 0;
         for (unsigned i = 0; i < kTokens; ++i) fifo[i] = NULL;
         head = tail = 0;
         generated = 0; warned = 0; havePrev = 0;
@@ -404,13 +405,21 @@ struct ProviderStreamline : IFgProvider
     int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT)
     {
         if (!proxy) return 0;
-        if (wantOn != isOn) {
+        // Options carry the mvec/depth size (sl_dlss_g.h:89-91): a quality switch resizes the owned twins while the
+        // chain (outW/outH/backFmt) stays - re-issue on a size change, or DLSS-G interpolates with stale dimensions
+        // (heat-haze shimmer at Quality/Performance, DLAA fine). Twins NULL at enable -> 0 sent -> re-issued on first frame.
+        const OwnedSet12* owned = FgOwned12();
+        unsigned w = owned ? owned->w : 0, h = owned ? owned->h : 0;
+        if (wantOn != isOn || (wantOn && (w != sentW || h != sentH))) {
             sl::DLSSGOptions o{};
             Options(o, wantOn ? (unsigned)sl::DLSSGMode::eOn : (unsigned)sl::DLSSGMode::eOff);
             sl::ViewportHandle vp(0u);
             sl::Result r = g_sl.fgSetOptions(vp, o);
             if (r != sl::Result::eOk) { if (warned < 8) { ++warned; FgLog("sl: slDLSSGSetOptions(%d) %d", wantOn, (int)r); } }
-            else { isOn = wantOn; FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u", wantOn ? "eOn" : "eOff", framesToGen); }
+            else {
+                isOn = wantOn; sentW = w; sentH = h;
+                FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u, options %ux%u -> %ux%u fmt %u", wantOn ? "eOn" : "eOff", framesToGen, w, h, outW, outH, (unsigned)backFmt);
+            }
         }
         return 0;
     }
