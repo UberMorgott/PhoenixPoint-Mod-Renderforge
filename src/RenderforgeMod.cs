@@ -306,7 +306,21 @@ namespace Renderforge
         /// <summary>PPCLI test knob: {"member":"SetHoldPrepare","args":[true]} - the driver stops feeding FG frames while the chain stays live.</summary>
         public static string SetHoldPrepare(bool on) { FrameGen.HoldPrepare = on; return "holdPrepare=" + on + " " + FrameGen.Status(); }
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " "
+        /// <summary>PPCLI diagnostic: {"member":"SetMvJittered","args":[true]} - DLSS_F_MV_JITTERED in the create flags
+        /// (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). The driver re-creates the feature next frame. Saved.</summary>
+        public static string SetMvJittered(bool on)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.MvJittered = on;
+            SaveConfig();
+            return GetStatus();
+        }
+
+        /// <summary>PPCLI diagnostic: {"member":"ProbeMv","args":[640,360]} - see DlssDriver.ProbeMv.</summary>
+        public static string ProbeMv(int x, int y) => DlssDriver.Instance?.ProbeMv(x, y) ?? "no driver";
+
+        public static string GetStatus() => "provider=" + Upscalers.Running + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 

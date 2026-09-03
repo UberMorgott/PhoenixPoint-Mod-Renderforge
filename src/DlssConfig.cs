@@ -54,6 +54,8 @@ namespace Renderforge
         public UpscalerKind Upscaler = UpscalerKind.Auto;
         [ConfigField("Frame generation", "Off / 2x / 3x / 4x. DirectX 12 only. 3x and 4x need DLSS-G on an RTX 50 GPU.")]
         public FrameGenMode FrameGen = FrameGenMode.Off;
+        [ConfigField("MV jittered (diagnostic)", "Tell the upscaler the motion vectors carry the jitter (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). Re-creates the feature.")]
+        public bool MvJittered = false;
 
         // field ID -> (RU label, RU description); English comes from the attribute above.
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
@@ -72,6 +74,7 @@ namespace Renderforge
             { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный, требуется перезапуск." } },
             { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, Intel → XeSS, иначе FSR (XeSS, если нет DLL AMD). FSR/XeSS требуют DirectX 12. Смена требует перезапуска." } },
             { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12. 3x и 4x — DLSS-G на видеокарте RTX 50." } },
+            { nameof(MvJittered), new[] { "MV с джиттером (диагностика)", "Сообщить апскейлеру, что векторы движения содержат джиттер (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). Пересоздаёт feature." } },
         };
 
         /// <summary>True while the game runs in Russian (I2 LocalizationManager.CurrentLanguage, "English"/"Russian"/…).</summary>

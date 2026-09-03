@@ -31,6 +31,7 @@ namespace Renderforge
         private bool passthrough;
         private int renderW, renderH, outW, outH, quality;
         private bool wantsFeature;          // false in Passthrough: no NGX feature is created at all
+        private bool liveMvJittered;        // DLSS_F_MV_JITTERED the feature was created with (Cfg.MvJittered, diagnostic)
 
         private int jitterIndex, phaseCount;
         private float jx, jy;
@@ -123,7 +124,7 @@ namespace Renderforge
                 int c, e, alive; int init = Native.Dlss_Status(out c, out e, out alive);
                 return "gen=" + gen + " mode=" + liveMode + " view=" + liveView + " want=" + wantMode + "/" + wantView
                      + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " screen=" + Screen.width + "x" + Screen.height
-                     + " q=" + quality + " passthrough=" + passthrough + " frames=" + frames + " resets=" + resets + " fov=" + (cam ? cam.fieldOfView.ToString("F3") : "-") + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
+                     + " q=" + quality + " passthrough=" + passthrough + " liveMvJittered=" + liveMvJittered + " frames=" + frames + " resets=" + resets + " fov=" + (cam ? cam.fieldOfView.ToString("F3") : "-") + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
                      + " init=" + init + " api=" + Native.Api() + " unityIface=" + Native.UnityIface()
                      + " create=0x" + c.ToString("X") + "(" + Native.Dlss_ResultString(c) + ") eval=0x" + e.ToString("X") + "(" + Native.Dlss_ResultString(e) + ")"
                      + " feature=" + alive + " lastError=" + Native.Dlss_LastError() + " sharpen=" + Native.SharpenerName(Native.Dlss_Sharpener())
@@ -194,7 +195,7 @@ namespace Renderforge
                     // Bound camera deactivated (CameraManager swapped to another one): a present camera left on would
                     // blit a stale outRT over whatever renders now. Release; Idle re-creates on the rebound camera.
                     if (!cam.isActiveAndEnabled || wantMode == RenderforgeMode.Off || wantMode != liveMode || !SameSizeClass(liveView, wantView)
-                        || Screen.width != outW || Screen.height != outH)
+                        || Screen.width != outW || Screen.height != outH || liveMvJittered != WantMvJittered)
                     {
                         BeginRelease();
                         break;
@@ -278,7 +279,9 @@ namespace Renderforge
             Native.Dlss_Passthrough(passthrough ? 1 : 0);
             if (wantsFeature)
             {
-                int flags = Native.DLSS_F_MV_LOW_RES | (SystemInfo.usesReversedZBuffer ? Native.DLSS_F_DEPTH_INVERTED : 0);
+                liveMvJittered = WantMvJittered;
+                int flags = Native.DLSS_F_MV_LOW_RES | (SystemInfo.usesReversedZBuffer ? Native.DLSS_F_DEPTH_INVERTED : 0)
+                          | (liveMvJittered ? Native.DLSS_F_MV_JITTERED : 0);
                 Native.Dlss_SetCreateParams((uint)renderW, (uint)renderH, (uint)outW, (uint)outH, quality, flags);
                 GL.IssuePluginEvent(evFn, Native.DLSS_EV_CREATE);
             }
@@ -434,6 +437,36 @@ namespace Renderforge
         }
 
         // ---------------------------------------------------------------- helpers
+
+        private static bool WantMvJittered => RenderforgeMod.Instance?.Cfg?.MvJittered ?? false;
+
+        /// <summary>Diagnostic: one texel of mvRT (the BuiltinRenderTextureType.MotionVectors copy the SDK is fed), render-res
+        /// coordinates, y from the bottom (ReadPixels). RGHalf is not ReadPixels-readable, so Blit into an ARGBFloat temp first.
+        /// Jitter = what this frame's Dlss_SetFrame got (pixels, render res; the driver passes -jx,-jy).</summary>
+        public string ProbeMv(int x, int y)
+        {
+            if (gen != Gen.Live || mvRT == null) return "not live (gen=" + gen + ")";
+            if (x < 0 || y < 0 || x >= renderW || y >= renderH) return "out of range: render=" + renderW + "x" + renderH;
+            var tmp = RenderTexture.GetTemporary(renderW, renderH, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var tex = new Texture2D(1, 1, TextureFormat.RGBAFloat, false);
+            var prev = RenderTexture.active;
+            try
+            {
+                Graphics.Blit(mvRT, tmp);
+                RenderTexture.active = tmp;
+                tex.ReadPixels(new Rect(x, y, 1, 1), 0, 0, false);
+                tex.Apply(false);
+                Color c = tex.GetPixel(0, 0);
+                return "x=" + x + ",y=" + y + " mvx=" + c.r.ToString("R") + " mvy=" + c.g.ToString("R")
+                     + " jitterx=" + (-jx).ToString("R") + " jittery=" + (-jy).ToString("R") + " render=" + renderW + "x" + renderH + " fmt=" + mvRT.format;
+            }
+            finally
+            {
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(tmp);
+                Destroy(tex);
+            }
+        }
 
         private static int QualityFor(RenderforgeMode mode, int outH)
         {
