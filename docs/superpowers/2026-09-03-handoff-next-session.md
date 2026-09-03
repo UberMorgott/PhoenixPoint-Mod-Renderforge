@@ -97,6 +97,16 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   sharpness metric, same sweep on D3D11; the optimum that differs between APIs is the root cause. Also diff `outRT`
   dumps (SDK output before Unity's present Blit) D3D11 vs D3D12 to split SDK-side loss from the present path
   (`outRT` Linear on D3D12, `915e341`; `D3D12Owned.h:82` maps sRGB→UNORM views — candidate for the ratio-independent 6%).
+- LATER THE SAME DAY: jitter sign sweep = not the cause (D3D11 sign-insensitive); sharpen alive on D3D12 (`sharpen=NIS`,
+  0→80 = +8.8% lap, weaker than D3D11 +17.5%); frame-sync/race REFUTED by code (Unity `ExecuteCommandList` at
+  `AfterEverything`, states declared, ring waits) and frozen-frame A/B (<1% live vs frozen); `DumpOut` lap was a
+  colour-space artefact (dump temp always Linear). Unique colours centre region: D3D12 Perf 16k vs D3D11 52k, Off 60k.
+  → LAST STANDING HYPOTHESIS: colour space. D3D11 hands the SDK Unity's sRGB resource (decoded), D3D12 `Typed()`
+  views it as UNORM (gamma bytes as linear). Knob `D3D12SrgbViews` landed (`b267e48`): colour-in twin `_UNORM_SRGB`,
+  out UNORM UAV linear, `outRT` sRGB-tagged. A/B running (scout, Instance2). If it wins: make it default, drop the
+  Linear-outRT workaround, re-check luma ≈ 56 and FG.
+- Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
+  may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
 ## Rules that applied (keep)
 
