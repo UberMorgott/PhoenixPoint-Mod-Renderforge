@@ -40,11 +40,13 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
    If it crashes: read `Mods\Renderforge\renderforge_fg.log` first — the new `hook: first re-entry … caller <module+off>`
    line names the re-patcher. Then fix accordingly (if it is the Steam overlay: consider installing our hook AFTER
    the overlay's, or detour-safe chaining).
-2. **D3D12 copy-plumbing cost (−32% at DLAA)** — one fable coder, Instance3 at 1440p no-vsync: profile with GPU
-   timestamps (`evalMs`, `copyInMs`, `copyOutMs`, `ringWaitMs` in `GetStatus`), then cut: feed Unity's colorRT/depthRT/mvRT
-   directly to the SDKs using the measured deterministic pre-states (DESIGN.md owned-resource contract) instead of
-   copying into twins, keep only the `out` twin; check the ring's wait on Unity's frame fence for CPU stalls. Gate:
-   DLAA ≥ 190 fps tac (shim-idle 207), debug layer 0 on our lists, FSR/XeSS/DLSS all still correct.
+2. ~~D3D12 copy-plumbing cost~~ MEASURED 2026-09-03 (`cdc2087` timings, Instance3 1440p, Nest_48x48 seed 12345):
+   idle 184 / DLAA 159 / Quality 226; GPU `copyIn 0.08 eval 0.90 copyOut 0.02 ringWait 0.00` ms → **the DLAA cost is
+   the DLSS evaluate itself (0.9 ms), copies are noise.** The earlier "−32% = plumbing" was scene-dependent/wrong.
+   Direct SDK inputs gave +0 fps and crashed `ReinitNative` on provider switch → REVERTED (kept `Dlss_Timings` +
+   overlay `GPU:` line). Next lever if wanted: DLSS preset (transformer J/K vs CNN E/F) exposed in config — eval
+   0.9 ms is transformer-class; CNN ≈ half. Open: one crash DLSS→FSR switch AFTER FG teardown with copy path —
+   re-test after the revert (scout).
 3. ~~MSVO under D3D12~~ DONE (Opus research 2026-09-03): player built with D3D11 only → ComputeShader kernels absent
    for D3D12 (`ComputeShader.FindKernel` throws `Kernel 'MultiScaleVODownsample1' not found`, MultiScaleVO.cs:232;
    `AmbientOcclusion.IsEnabledAndSupported` only checks asset non-null). `D3D12Fix.FixAo` already forces SAO (pixel
