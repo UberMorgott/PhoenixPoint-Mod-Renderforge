@@ -73,6 +73,7 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
 - Model routing (user 2026-09-03): code `model:"fable"`; research/RCA/design `opus` (Opus 5); web search Codex
   `cx -Search` + `web-scout` (Opus 4.6); review Codex `cx -Review` + `opus` reviewer — NEVER Fable for review/research
   (`cx`, thread `01a062e8-cda9-79b3-b4f7-8aa9bf741017` for the FG architecture; start a fresh one if gone).
+  In-game test/measure runs = `scout` (Opus 4.6); a scout logs PPCLI defects to `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md`.
 - Instances: Instance2 = profile `...592`, Instance3 = profile `...593`, run agents in parallel on both; the Steam
   install is deployed on the user's explicit ask only, never launched/killed by agents. Nothing downloaded to C:.
 - fps measurements: 2560x1440 borderless, vsync 0, `LimitFrameRate false`, NO debug layer; luminance checks at any res.
