@@ -61,6 +61,12 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
    or non-pixel-perfect canvas (`Canvas.pixelPerfect`). Match logic: `Base.UI.CanvasScalerController` (aspect → match).
    Step 1 = PPCLI diagnosis: `Font.dynamic` of used fonts, `Canvas.renderMode/scaleFactor/pixelPerfect`, UI camera RT.
    Icons: 1080p atlases, no cheap fix except a UI-only sharpen (CAS on the canvas layer).
+   WEB (Codex 2026-09-03, full report `C:\Temp\cx\19b1e9395f984e3ea54a77d2bdcfafaa.out.md`): no existing PP mod fixes
+   UI blur (only "Geoscape Objectives Font Size", nexusmods.com/phoenixpoint/mods/6). UI font = **Purista** (Suitcase
+   Type Foundry, commercial, $39/style, no free/Google version → cannot bundle TTF; `Font.CreateDynamicFontFromOSFont`
+   only if the user has it installed → fallback to a metric-similar free font, opt-in). Engine = Unity 2018.4.15f1
+   (PCGamingWiki). Legacy-Text pattern reference: newman55/unity-mod-manager `UnityModManager/UI.cs`. UI-only CAS =
+   UI camera → full-res transparent RT → CAS blit → composite (no ready package).
 
 ## Rules that applied (keep)
 
