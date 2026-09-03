@@ -1,7 +1,7 @@
 {
   "ID": "com.morgott.Renderforge",
   "AssemblyName": "Renderforge.dll",
-  "Version": "1.2.0",
+  "Version": "1.2.1",
   "Author": [
     { "Key": "English", "Value": "Morgott" }
   ],
