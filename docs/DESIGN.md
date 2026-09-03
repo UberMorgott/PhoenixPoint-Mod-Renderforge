@@ -232,7 +232,9 @@ Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xe
 - NGX v1 flag matrix: `MVLowRes=1`, `MVJittered=0` (MVs come from the non-jittered matrices),
   `DepthInverted=SystemInfo.usesReversedZBuffer`, `IsHDR=0` (PPv2 output is display-referred
   LDR: tonemapped + dithered; `colorRT` = `ARGB32`... unless PPv2 is found to blit HDR, then
-  `ARGBHalf` still with `IsHDR=0`), `AutoExposure=0`. `InMVScale = (-renderW, -renderH)`
+  `ARGBHalf` still with `IsHDR=0` — this is exactly the `D3D12HalfColor` path: linear LDR FP16, NGX
+  `IsHDR=0`, `DLSS_F_HDR` reaches only FSR/XeSS; `IsHDR=1` without an exposure source was temporally
+  unstable), `AutoExposure=0`. `InMVScale = (-renderW, -renderH)`
   (Unity MV = NDC previous→current; DLSS wants current→previous in pixels). Both signs are still
   confirmed live by the ghosting direction on a moving unit.
   **Live signs (2026-09-01, DLAA 1280×720, Instance2):** projection gets `proj[0,2] += 2jx/w`,
