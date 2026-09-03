@@ -24,6 +24,8 @@ enum { DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMA
        DLSS_Q_ULTRA_QUALITY = 5, DLSS_Q_ULTRA_QUALITY_PLUS = 6 };
 
 // Dlss_SetCreateParams flags bitmask (ours).
+// DLSS_F_HDR: the colour input is linear (FP16, D3D12HalfColor) -> NGX IsHDR, FFX HIGH_DYNAMIC_RANGE, XeSS without
+// LDR_INPUT_COLOR; the sharpen pass follows the OUTPUT format instead (Sharpen.h SharpenIsHdr).
 // DLSS_F_SRGB_VIEWS (D3D12 only, diagnostic): the colour input is sRGB-encoded - the owned colour twin is created
 // as *_UNORM_SRGB so every SDK's SRV decodes it to linear (D3D12Owned.h). Output stays UNORM (no sRGB UAV in D3D12).
 enum { DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_MV_JITTERED = 8, DLSS_F_AUTO_EXPOSURE = 16, DLSS_F_SRGB_VIEWS = 32 };

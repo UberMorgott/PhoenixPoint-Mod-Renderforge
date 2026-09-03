@@ -339,6 +339,17 @@ namespace Renderforge
             return GetStatus();
         }
 
+        /// <summary>PPCLI diagnostic: {"member":"SetD3D12HalfColor","args":[true]} - colorRT + outRT as linear ARGBHalf and
+        /// DLSS_F_HDR in the create flags (D3D12: no 8-bit sRGB storage anywhere, see DlssDriver.StartGeneration). Re-creates next frame. Saved.</summary>
+        public static string SetD3D12HalfColor(bool on)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.D3D12HalfColor = on;
+            SaveConfig();
+            return GetStatus();
+        }
+
         /// <summary>PPCLI diagnostic: {"member":"SetPostProcessEnabled","args":[false]} - toggles the bound camera's
         /// PostProcessLayer.enabled ("is the final PP pass the writer" experiment). Not saved.</summary>
         public static string SetPostProcessEnabled(bool on)
@@ -414,7 +425,7 @@ namespace Renderforge
             " jitterSign=" + c.JitterReportSignX + "," + c.JitterReportSignY + " jitterScale=" + c.JitterScale.ToString("R") + " jitterSwapXY=" + c.JitterReportSwapXY
             + " jitterConst=" + c.JitterConstEnabled + "," + c.JitterConstX.ToString("R") + "," + c.JitterConstY.ToString("R") + " forceReset=" + c.ForceReset;
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " d3d12SrgbViews=" + (Instance?.Cfg?.D3D12SrgbViews ?? false) + " d3d12ColorDesc=" + (Instance?.Cfg?.D3D12ColorDesc ?? false) + JitterKnobs(Instance?.Cfg) + " "
+        public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " d3d12SrgbViews=" + (Instance?.Cfg?.D3D12SrgbViews ?? false) + " d3d12ColorDesc=" + (Instance?.Cfg?.D3D12ColorDesc ?? false) + " d3d12HalfColor=" + (Instance?.Cfg?.D3D12HalfColor ?? false) + JitterKnobs(Instance?.Cfg) + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 

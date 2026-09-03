@@ -606,10 +606,30 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
     WaitGpu();
     ev(DLSS_EV_RELEASE);
 
+    // D3D12HalfColor: FP16 linear colour + FP16 out (with UAV; sharpen pass runs its NIS linear-HDR variant on it),
+    // DLSS_F_HDR -> no XESS_INIT_FLAG_LDR_INPUT_COLOR.
+    ID3D12Resource* colorHalf = MakeTex12(RW, RH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, kColorRest);
+    ID3D12Resource* outHalf   = MakeTex12(OW, OH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, kOutRest);
+    if (!colorHalf || !outHalf) return 1;
+    Dlss_SetCreateParams(RW, RH, OW, OH, DLSS_Q_QUALITY, DLSS_F_HDR | DLSS_F_DEPTH_INVERTED | DLSS_F_MV_LOW_RES);
+    ev(DLSS_EV_CREATE);
+    Dlss_Status(&c, &e, &alive);
+    Report("Create[FP16 HDR]", c);
+    {
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, colorHalf, depth, mv, outHalf, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.5f);
+        evd(DLSS_EV_EVALUATE, slot);
+        Dlss_Status(&c, &e, &alive);
+        Report("Execute[FP16 HDR]", e);
+    }
+    WaitGpu();
+    ev(DLSS_EV_RELEASE);
+    if (Dlss_LastError() != 0) { printf("FP16 HDR run: lastError=%d\n", Dlss_LastError()); g_failed = 1; }
+
     Dlss_Shutdown();
     WaitGpu();
     CheckStateErrors();
-    colorSrgb->Release();
+    colorSrgb->Release(); colorHalf->Release(); outHalf->Release();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
     g_fence->Release(); g_queue->Release(); g_dev12->Release();
     return g_failed ? 1 : 0;

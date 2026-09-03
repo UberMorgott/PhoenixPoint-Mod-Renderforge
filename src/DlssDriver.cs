@@ -34,6 +34,7 @@ namespace Renderforge
         private bool liveMvJittered;        // DLSS_F_MV_JITTERED the feature was created with (Cfg.MvJittered, diagnostic)
         private bool liveSrgbViews;         // DLSS_F_SRGB_VIEWS the generation was created with (Cfg.D3D12SrgbViews, D3D12 only)
         private bool liveColorDesc;         // colorRT created from an explicit R8G8B8A8_SRGB descriptor (Cfg.D3D12ColorDesc, D3D12 only)
+        private bool liveHalfColor;         // colorRT + outRT linear ARGBHalf, DLSS_F_HDR (Cfg.D3D12HalfColor, D3D12 only)
 
         private int jitterIndex, phaseCount;
         private float jx, jy;
@@ -198,7 +199,7 @@ namespace Renderforge
                     // Bound camera deactivated (CameraManager swapped to another one): a present camera left on would
                     // blit a stale outRT over whatever renders now. Release; Idle re-creates on the rebound camera.
                     if (!cam.isActiveAndEnabled || wantMode == RenderforgeMode.Off || wantMode != liveMode || !SameSizeClass(liveView, wantView)
-                        || Screen.width != outW || Screen.height != outH || liveMvJittered != WantMvJittered || liveSrgbViews != WantSrgbViews || liveColorDesc != WantColorDesc)
+                        || Screen.width != outW || Screen.height != outH || liveMvJittered != WantMvJittered || liveSrgbViews != WantSrgbViews || liveColorDesc != WantColorDesc || liveHalfColor != WantHalfColor)
                     {
                         BeginRelease();
                         break;
@@ -251,8 +252,15 @@ namespace Renderforge
             // D3D12ColorDesc (diagnostic): on D3D12 the ARGB32/Default RTV is not *_UNORM_SRGB, so PPv2's final Uber blit
             // (the only sRGB encode in the chain) writes linear bytes into an sRGB-tagged RT -> crushed darks. An explicit
             // R8G8B8A8_SRGB descriptor asks for the sRGB RTV outright.
-            liveColorDesc = WantColorDesc;
-            if (liveColorDesc)
+            // D3D12HalfColor: measured 2026-09-03 that on D3D12 an 8-bit sRGB RT used as camera target is NOT sRGB-encoded
+            // on write (DumpColorIn luma 6.14 vs 13.77 on D3D11; the explicit R8G8B8A8_SRGB descriptor changed nothing),
+            // so linear values land in 8 bits and the darks crush. FP16 linear colour + FP16 linear out avoid 8-bit sRGB
+            // storage entirely; the SDKs get DLSS_F_HDR (NGX IsHDR / FFX HIGH_DYNAMIC_RANGE / XeSS without LDR_INPUT_COLOR)
+            // and the shim's NIS pass runs its linear variant on the FP16 out twin. Wins over ColorDesc/SrgbViews.
+            liveHalfColor = WantHalfColor;
+            liveColorDesc = WantColorDesc && !liveHalfColor;
+            if (liveHalfColor) colorRT = Make("DLSS color", renderW, renderH, RenderTextureFormat.ARGBHalf, false, RenderTextureReadWrite.Linear);
+            else if (liveColorDesc)
             {
                 var desc = new RenderTextureDescriptor(renderW, renderH)
                 {
@@ -273,9 +281,11 @@ namespace Renderforge
             // D3D12SrgbViews (diagnostic) selects the other combination: the shim views the colour input as
             // *_UNORM_SRGB (the SDK decodes to linear - D3D12Owned.h Typed), the SDK writes LINEAR values into a UNORM
             // UAV (no sRGB UAV in D3D12), and outRT stays sRGB-tagged (Default) so Unity's present Blit encodes it.
-            liveSrgbViews = WantSrgbViews;
+            liveSrgbViews = WantSrgbViews && !liveHalfColor;
             var outRW = SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && !liveSrgbViews ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.Default;
-            outRT = Make("DLSS out", outW, outH, RenderTextureFormat.ARGB32, true, outRW);
+            // HalfColor: the present Blit reads linear FP16; whether Unity's D3D12 backbuffer write encodes it is for the
+            // in-game check (if the frame comes out dark, a LinearToSRGB blit belongs here - not added blind).
+            outRT = Make("DLSS out", outW, outH, liveHalfColor ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32, true, outRW);
             colorPtr = colorRT.GetNativeTexturePtr(); depthPtr = depthRT.GetNativeTexturePtr();
             mvPtr = mvRT.GetNativeTexturePtr(); outPtr = outRT.GetNativeTexturePtr();
 
@@ -303,12 +313,13 @@ namespace Renderforge
                 liveMvJittered = WantMvJittered;
                 int flags = Native.DLSS_F_MV_LOW_RES | (SystemInfo.usesReversedZBuffer ? Native.DLSS_F_DEPTH_INVERTED : 0)
                           | (liveMvJittered ? Native.DLSS_F_MV_JITTERED : 0)
-                          | (liveSrgbViews ? Native.DLSS_F_SRGB_VIEWS : 0);
+                          | (liveSrgbViews ? Native.DLSS_F_SRGB_VIEWS : 0)
+                          | (liveHalfColor ? Native.DLSS_F_HDR : 0);
                 Native.Dlss_SetCreateParams((uint)renderW, (uint)renderH, (uint)outW, (uint)outH, quality, flags);
                 GL.IssuePluginEvent(evFn, Native.DLSS_EV_CREATE);
             }
             gen = Gen.Creating; genFrames = 0; frames = 0;
-            RenderforgeMod.Instance?.Logger.LogInfo("DLSS generation: mode=" + liveMode + " view=" + liveView + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " q=" + quality + " phases=" + phaseCount + " colorRT=" + colorRT.graphicsFormat + " sRGB=" + colorRT.sRGB + " colorDesc=" + liveColorDesc + " outRT=" + outRT.graphicsFormat);
+            RenderforgeMod.Instance?.Logger.LogInfo("DLSS generation: mode=" + liveMode + " view=" + liveView + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " q=" + quality + " phases=" + phaseCount + " colorRT=" + colorRT.graphicsFormat + " sRGB=" + colorRT.sRGB + " colorDesc=" + liveColorDesc + " halfColor=" + liveHalfColor + " outRT=" + outRT.graphicsFormat);
         }
 
         private static RenderTexture Make(string name, int w, int h, RenderTextureFormat fmt, bool uav, RenderTextureReadWrite rw = RenderTextureReadWrite.Default)
@@ -472,6 +483,7 @@ namespace Renderforge
         // D3D12 only: on D3D11 the SDK views Unity's sRGB resource directly (Device11.cpp) and the knob is a no-op.
         private static bool WantSrgbViews => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && (RenderforgeMod.Instance?.Cfg?.D3D12SrgbViews ?? false);
         private static bool WantColorDesc => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && (RenderforgeMod.Instance?.Cfg?.D3D12ColorDesc ?? false);
+        private static bool WantHalfColor => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && (RenderforgeMod.Instance?.Cfg?.D3D12HalfColor ?? false);
 
         /// <summary>Diagnostic: one texel of mvRT (the BuiltinRenderTextureType.MotionVectors copy the SDK is fed), render-res
         /// coordinates, y from the bottom (ReadPixels). RGHalf is not ReadPixels-readable, so Blit into an ARGBFloat temp first.
@@ -502,7 +514,8 @@ namespace Renderforge
         }
 
         /// <summary>Diagnostic: outRT (the SDK output BEFORE Unity's present Blit) to PNG. Works on D3D12 (Blit into an
-        /// sRGB-less ARGB32 temp, ReadPixels from there). Returns the path + WxH.</summary>
+        /// sRGB-less ARGB32 temp, ReadPixels from there; an ARGBHalf source (D3D12HalfColor) stays linear in the PNG -
+        /// the string's fmt= says which). Returns the path + WxH.</summary>
         public string DumpOut(string absPath) => DumpRt(outRT, "outRT", absPath);
 
         /// <summary>Diagnostic: colorRT (the SDK colour input, render res) to PNG.</summary>

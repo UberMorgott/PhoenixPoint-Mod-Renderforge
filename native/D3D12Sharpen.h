@@ -32,6 +32,7 @@ struct SharpenPass12
     ID3D12Resource* target;         // the upscaler's output when the pass runs; ours, created UNORDERED_ACCESS
     unsigned targetW, targetH;
     DXGI_FORMAT targetFmt;
+    bool psoHdr;                    // the PSO was compiled with NIS_HDR_MODE linear (FP16 output, D3D12HalfColor)
     ID3D12Resource* logged;         // RENDERFORGE_D3D12_DEBUG: output whose pass was already logged
 
     SharpenPass12() { Zero(); }
@@ -40,7 +41,7 @@ struct SharpenPass12
     {
         device = NULL; owner = NULL;
         rootSig = NULL; pso = NULL; descHeap = NULL; descSize = 0; cb = NULL; cbCpu = NULL;
-        target = NULL; targetW = targetH = 0; targetFmt = DXGI_FORMAT_UNKNOWN;
+        target = NULL; targetW = targetH = 0; targetFmt = DXGI_FORMAT_UNKNOWN; psoHdr = false;
         logged = NULL;
     }
 
@@ -61,14 +62,28 @@ struct SharpenPass12
         cl->ResourceBarrier(1, &b);
     }
 
-    bool Ensure()
+    // hdr = the output format is FP16 (SharpenIsHdr): the PSO variant follows it. A flip (D3D12HalfColor toggled
+    // live) rebuilds only the PSO; the caller has waited on the ring. Everything else is created once.
+    bool Ensure(bool hdr)
     {
-        if (pso) return true;
+        if (pso && psoHdr == hdr) return true;
         if (owner->sharpenDead || !device) return false;
 
         int kind = 0;
-        ID3DBlob* blob = CompileSharpenBlob(&kind);
+        ID3DBlob* blob = CompileSharpenBlob(&kind, hdr);
         if (!blob) { Fail(); return false; }
+        if (pso) { pso->Release(); pso = NULL; }
+        if (rootSig) {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC pd = {};
+            pd.pRootSignature = rootSig;
+            pd.CS.pShaderBytecode = blob->GetBufferPointer();
+            pd.CS.BytecodeLength = blob->GetBufferSize();
+            HRESULT hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
+            blob->Release();
+            if (FAILED(hr)) { Fail(); return false; }
+            psoHdr = hdr; owner->sharpener = kind;
+            return true;
+        }
 
         D3D12_DESCRIPTOR_RANGE ranges[2] = {};
         ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -116,6 +131,7 @@ struct SharpenPass12
         hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
         blob->Release();
         if (FAILED(hr)) { Fail(); return false; }
+        psoHdr = hdr;
 
         D3D12_DESCRIPTOR_HEAP_DESC hd = {};
         hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -156,16 +172,16 @@ struct SharpenPass12
     bool TargetEnsure(ID3D12Resource* output, D3D12Ring& ring)
     {
         if (owner->sharpenDead || !output || !device) return false;
-        if (!Ensure()) return false;
 
         D3D12_RESOURCE_DESC od = output->GetDesc();
         // CreateUnorderedAccessView is void: a UAV on a resource without this flag is a debug-layer error
         // and garbage at runtime, so this is the D3D12 twin of the D3D11 CreateUnorderedAccessView guard.
         if (!(od.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) { Fail(); return false; }
         unsigned w = (unsigned)od.Width, h = od.Height;
-        if (target && targetW == w && targetH == h && targetFmt == od.Format) return true;
+        if (target && targetW == w && targetH == h && targetFmt == od.Format && pso) return true;
 
         if (target) { ring.WaitIdle(); target->Release(); target = NULL; }
+        if (!Ensure(SharpenIsHdr(od.Format))) return false;
         D3D12_HEAP_PROPERTIES hp = {};
         hp.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC td = od;
@@ -186,10 +202,10 @@ struct SharpenPass12
         DXGI_FORMAT viewFmt = SharpenViewFormat(targetFmt);
         if (logged != output) {
             logged = output;
-            RfDbg::Log("Sharpen: kind=%d sharpness=%.2f fmt=%d viewFmt=%d %ux%u slot=%d", owner->sharpener, sharpness, (int)targetFmt, (int)viewFmt, w, h, slot);
+            RfDbg::Log("Sharpen: kind=%d sharpness=%.2f fmt=%d viewFmt=%d hdr=%d %ux%u slot=%d", owner->sharpener, sharpness, (int)targetFmt, (int)viewFmt, (int)psoHdr, w, h, slot);
         }
 
-        FillSharpenConstants(cbCpu + 256 * (size_t)slot, owner->sharpener, sharpness, w, h);
+        FillSharpenConstants(cbCpu + 256 * (size_t)slot, owner->sharpener, sharpness, w, h, psoHdr);
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = descHeap->GetCPUDescriptorHandleForHeapStart();
         D3D12_GPU_DESCRIPTOR_HANDLE gpu = descHeap->GetGPUDescriptorHandleForHeapStart();

@@ -39,9 +39,10 @@ static const char kRcasHlsl[] =
 "}\n";
 
 // NIS sharpen-only: the NIS_Main.hlsl example's bindings + NVSharpen entry. Block/group sizes = NISOptimizer(isUpscaling=false,
-// NVIDIA_Generic) in NIS_Config.h (32 x 32, 128 threads). NIS_HDR_MODE 0: the DLSS output is display-referred LDR.
+// NVIDIA_Generic) in NIS_Config.h (32 x 32, 128 threads). NIS_HDR_MODE 0: the DLSS output is display-referred LDR;
+// NIS_HDR_MODE 1 (linear) when the output is linear FP16 (D3D12HalfColor) - CompileNis prepends the define.
 static const char kNisPreamble[] =
-"#define NIS_HLSL 1\n#define NIS_SCALER 0\n#define NIS_HDR_MODE 0\n"
+"#define NIS_HLSL 1\n#define NIS_SCALER 0\n"
 "#define NIS_BLOCK_WIDTH 32\n#define NIS_BLOCK_HEIGHT 32\n#define NIS_THREAD_GROUP_SIZE 128\n"
 "cbuffer cb : register(b0) {\n"
 " float kDetectRatio; float kDetectThres; float kMinContrastRatio; float kRatioNorm;\n"
@@ -67,32 +68,33 @@ static ID3DBlob* Compile(const char* src, size_t len, const char* name)
     return code;
 }
 
-static ID3DBlob* CompileNis(void)
+static ID3DBlob* CompileNis(bool hdr)
 {
-    size_t a = sizeof(kNisPreamble) - 1, b = strlen((const char*)kNisScalerHlsl), c = sizeof(kNisMain) - 1;
-    char* src = (char*)malloc(a + b + c + 1);
+    const char* mode = hdr ? "#define NIS_HDR_MODE 1\n" : "#define NIS_HDR_MODE 0\n";
+    size_t m = strlen(mode), a = sizeof(kNisPreamble) - 1, b = strlen((const char*)kNisScalerHlsl), c = sizeof(kNisMain) - 1;
+    char* src = (char*)malloc(m + a + b + c + 1);
     if (!src) return NULL;
-    memcpy(src, kNisPreamble, a); memcpy(src + a, kNisScalerHlsl, b); memcpy(src + a + b, kNisMain, c + 1);
-    ID3DBlob* blob = Compile(src, a + b + c, "nis_sharpen");
+    memcpy(src, mode, m); memcpy(src + m, kNisPreamble, a); memcpy(src + m + a, kNisScalerHlsl, b); memcpy(src + m + a + b, kNisMain, c + 1);
+    ID3DBlob* blob = Compile(src, m + a + b + c, "nis_sharpen");
     free(src);
     return blob;
 }
 
-ID3DBlob* CompileSharpenBlob(int* outKind)
+ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr)
 {
-    ID3DBlob* blob = CompileNis();
+    ID3DBlob* blob = CompileNis(hdr);
     if (blob) { if (outKind) *outKind = DLSS_SHARPEN_NIS; return blob; }
     blob = Compile(kRcasHlsl, sizeof(kRcasHlsl) - 1, "rcas");
     if (blob && outKind) *outKind = DLSS_SHARPEN_RCAS;
     return blob;
 }
 
-void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h)
+void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h, bool hdr)
 {
     memset(dst256, 0, 256);
     if (kind == DLSS_SHARPEN_NIS) {
         NISConfig cfg = {};
-        NVSharpenUpdateConfig(cfg, sharpness, 0, 0, w, h, w, h, 0, 0, NISHDRMode::None);
+        NVSharpenUpdateConfig(cfg, sharpness, 0, 0, w, h, w, h, 0, 0, hdr ? NISHDRMode::Linear : NISHDRMode::None);
         memcpy(dst256, &cfg, sizeof(cfg));
     } else {
         // RCAS mapping = the FSR1 sample's: attenuation stops = 2*(1-s), con = exp2(-stops), so s=1 -> con=1.
