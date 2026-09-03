@@ -121,8 +121,14 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   Off-mode brightness difference (29.7 vs 21) is unrelated: `D3D12Fix` 2D-LUT grading + no SSR.
   Fix candidates ranked: (1) `colorRT` = `ARGBHalf` + `ReadWrite.Linear` on D3D12, SDK gets FP16 linear
   (`Typed()` already maps R16G16B16A16; NGX IsHDR / FSR-XeSS linear default; out twin + outRT FP16, NIS HDR mode);
-  (2) explicit `RenderTextureDescriptor.graphicsFormat = R8G8B8A8_SRGB` (knob `D3D12ColorDesc`, being tested first —
-  cheapest); (3) no camera redirect, Blit from `CameraTarget`. Confirming experiment: PP layer off → `DumpColorIn`.
+  (2) explicit `RenderTextureDescriptor.graphicsFormat = R8G8B8A8_SRGB` (knob `D3D12ColorDesc`, `e8a6d32`) — TESTED,
+  NO EFFECT (input identical to legacy); (3) no camera redirect, Blit from `CameraTarget`.
+  PP-off experiment (`SetPostProcessEnabled(false)`, same scene, `docs\shots\colordesc\`): camera writes straight into
+  `colorRT` → D3D11 luma 13.77 / R 181 vs D3D12 6.14 / R 146 → **the 8-bit sRGB RT is not sRGB-encoded on write under
+  D3D12 regardless of descriptor** (Unity 2019.4 D3D12 backend). → Fix (1) FP16 linear path being implemented as knob
+  `D3D12HalfColor` (colorRT+outRT ARGBHalf Linear, NGX IsHDR, FSR HDR flag, XeSS linear, NIS HDR mode, FP16 twins).
+  Open question for the test: does Unity's present Blit encode a Linear FP16 `outRT` to the sRGB backbuffer on D3D12
+  (Off-mode is bright on D3D12, so the backbuffer path works) — if dark, add a final LinearToSRGB blit.
 - Side bug: `Time.timeScale = 0` + `connect screenshot` hangs the game under D3D12 only (PPCLI\ISSUES.md entry) —
   may be ours (ring/fence wait with no new frame?) — verify once the colour-space bug is closed.
 
