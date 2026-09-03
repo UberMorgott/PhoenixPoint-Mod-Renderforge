@@ -108,6 +108,7 @@ struct Xess12 : IDevice
     xess_context_handle_t ctx;      // NULL until needed; destroyed by ReleaseFeature/Shutdown
     int initialised;                // xessD3D12Init succeeded on `ctx` for the current CreateParams
     unsigned outW, outH;
+    bool srgbViews;                 // DLSS_F_SRGB_VIEWS of the live init -> owned.Ensure (D3D12Owned.h Typed)
     float velScaleX, velScaleY;     // last values pushed with xessSetVelocityScale
     float jitterSignX, jitterSignY; // kJitterSign* unless RENDERFORGE_XESS_JITTER_SIGN overrides
     char version[64];              // "2.0.2 DP4a" / "2.0.2 XMX"
@@ -119,7 +120,7 @@ struct Xess12 : IDevice
     void Zero()
     {
         device = NULL; lib = NULL; ctx = NULL; initialised = 0;
-        outW = outH = 0; velScaleX = velScaleY = 0.0f; version[0] = 0; dllDir[0] = 0; logged = NULL;
+        outW = outH = 0; srgbViews = false; velScaleX = velScaleY = 0.0f; version[0] = 0; dllDir[0] = 0; logged = NULL;
         jitterSignX = kJitterSignX; jitterSignY = kJitterSignY;
         ring.Zero();
         owned.Zero();
@@ -280,6 +281,7 @@ struct Xess12 : IDevice
         if (r != XESS_RESULT_SUCCESS) { initialised = 0; lastError = DLSS_ERR_XESS; RfDbg::Log("XeSS Create: init failed %d", (int)r); return; }
         initialised = 1;
         outW = cp.outW; outH = cp.outH;
+        srgbViews = cp.SrgbViews();
         // Jitter arrives in render-resolution pixels in [-0.5, 0.5] already (only the axis signs are applied, per
         // frame); LDR colour means exposure 1.0 (guide "Color"). Velocity scale is pushed by the first Evaluate.
         xessSetJitterScale(ctx, 1.0f, 1.0f);
@@ -320,7 +322,7 @@ struct Xess12 : IDevice
         if (passthrough) {
             OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
-        } else if (!owned.Ensure(device, ring, color, output)) {
+        } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
             bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(owned.out, ring);

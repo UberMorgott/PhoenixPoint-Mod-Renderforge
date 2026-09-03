@@ -76,6 +76,7 @@ struct Fsr12 : IDevice
     const ffxFunctions* ffx;
     ffxContext context;
     unsigned outW, outH;                       // upscaleSize of the live context
+    bool srgbViews;                            // DLSS_F_SRGB_VIEWS of the live context -> owned.Ensure (D3D12Owned.h Typed)
     float jitterSignX, jitterSignY;            // applied to fp.jitter in Evaluate; RENDERFORGE_FSR_JITTER_SIGN overrides
     char version[64];                         // provider version name, copied out of ffx global memory at once
     wchar_t dllDir[MAX_PATH];
@@ -90,7 +91,7 @@ struct Fsr12 : IDevice
     void Zero()
     {
         device = NULL; ffx = NULL; context = NULL;
-        outW = outH = 0; version[0] = 0; dllDir[0] = 0;
+        outW = outH = 0; version[0] = 0; dllDir[0] = 0; srgbViews = false;
         jitterSignX = -1.0f; jitterSignY = 1.0f;
         memset(&descUpscale, 0, sizeof(descUpscale));
         memset(&descVersion, 0, sizeof(descVersion));
@@ -237,6 +238,7 @@ struct Fsr12 : IDevice
         lastCreate = Map(rc);
         if (rc != FFX_API_RETURN_OK) { context = NULL; lastError = DLSS_ERR_FFX; return; }
         outW = cp.outW; outH = cp.outH;
+        srgbViews = cp.SrgbViews();
 
         // Which provider did we actually get? The name lives in ffx global memory and a later query may
         // overwrite it (ffx-api.md:243), so copy it now.
@@ -280,7 +282,7 @@ struct Fsr12 : IDevice
         if (passthrough) {
             OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
-        } else if (!owned.Ensure(device, ring, color, output)) {
+        } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
             struct ffxDispatchDescUpscale d = {};

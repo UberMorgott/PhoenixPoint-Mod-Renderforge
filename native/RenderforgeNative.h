@@ -24,7 +24,9 @@ enum { DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMA
        DLSS_Q_ULTRA_QUALITY = 5, DLSS_Q_ULTRA_QUALITY_PLUS = 6 };
 
 // Dlss_SetCreateParams flags bitmask (ours).
-enum { DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_MV_JITTERED = 8, DLSS_F_AUTO_EXPOSURE = 16 };
+// DLSS_F_SRGB_VIEWS (D3D12 only, diagnostic): the colour input is sRGB-encoded - the owned colour twin is created
+// as *_UNORM_SRGB so every SDK's SRV decodes it to linear (D3D12Owned.h). Output stays UNORM (no sRGB UAV in D3D12).
+enum { DLSS_F_HDR = 1, DLSS_F_DEPTH_INVERTED = 2, DLSS_F_MV_LOW_RES = 4, DLSS_F_MV_JITTERED = 8, DLSS_F_AUTO_EXPOSURE = 16, DLSS_F_SRGB_VIEWS = 32 };
 
 // Render event ids for the callbacks returned by Dlss_GetRenderEventFunc / Dlss_GetRenderEventAndDataFunc.
 enum { DLSS_EV_CREATE = 1, DLSS_EV_EVALUATE = 2, DLSS_EV_RELEASE = 3 };

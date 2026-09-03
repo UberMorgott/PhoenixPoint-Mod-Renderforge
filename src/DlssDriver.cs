@@ -32,6 +32,7 @@ namespace Renderforge
         private int renderW, renderH, outW, outH, quality;
         private bool wantsFeature;          // false in Passthrough: no NGX feature is created at all
         private bool liveMvJittered;        // DLSS_F_MV_JITTERED the feature was created with (Cfg.MvJittered, diagnostic)
+        private bool liveSrgbViews;         // DLSS_F_SRGB_VIEWS the generation was created with (Cfg.D3D12SrgbViews, D3D12 only)
 
         private int jitterIndex, phaseCount;
         private float jx, jy;
@@ -125,7 +126,7 @@ namespace Renderforge
                 int c, e, alive; int init = Native.Dlss_Status(out c, out e, out alive);
                 return "gen=" + gen + " mode=" + liveMode + " view=" + liveView + " want=" + wantMode + "/" + wantView
                      + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " screen=" + Screen.width + "x" + Screen.height
-                     + " q=" + quality + " passthrough=" + passthrough + " liveMvJittered=" + liveMvJittered + " frames=" + frames + " resets=" + resets + " fov=" + (cam ? cam.fieldOfView.ToString("F3") : "-") + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
+                     + " q=" + quality + " passthrough=" + passthrough + " liveMvJittered=" + liveMvJittered + " liveSrgbViews=" + liveSrgbViews + " frames=" + frames + " resets=" + resets + " fov=" + (cam ? cam.fieldOfView.ToString("F3") : "-") + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
                      + " init=" + init + " api=" + Native.Api() + " unityIface=" + Native.UnityIface()
                      + " create=0x" + c.ToString("X") + "(" + Native.Dlss_ResultString(c) + ") eval=0x" + e.ToString("X") + "(" + Native.Dlss_ResultString(e) + ")"
                      + " feature=" + alive + " lastError=" + Native.Dlss_LastError() + " sharpen=" + Native.SharpenerName(Native.Dlss_Sharpener())
@@ -196,7 +197,7 @@ namespace Renderforge
                     // Bound camera deactivated (CameraManager swapped to another one): a present camera left on would
                     // blit a stale outRT over whatever renders now. Release; Idle re-creates on the rebound camera.
                     if (!cam.isActiveAndEnabled || wantMode == RenderforgeMode.Off || wantMode != liveMode || !SameSizeClass(liveView, wantView)
-                        || Screen.width != outW || Screen.height != outH || liveMvJittered != WantMvJittered)
+                        || Screen.width != outW || Screen.height != outH || liveMvJittered != WantMvJittered || liveSrgbViews != WantSrgbViews)
                     {
                         BeginRelease();
                         break;
@@ -254,7 +255,11 @@ namespace Renderforge
             // 2026-09-03: menu luma 28 vs 56; Passthrough was dark too, so the shim's bit-exact copies/twins were never
             // at fault). A Linear outRT passes the already-encoded bytes through untouched. D3D11 keeps Default:
             // Linear there double-encodes. colorRT's flag changes nothing (its bytes are the same either way).
-            var outRW = SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.Default;
+            // D3D12SrgbViews (diagnostic) selects the other combination: the shim views the colour input as
+            // *_UNORM_SRGB (the SDK decodes to linear - D3D12Owned.h Typed), the SDK writes LINEAR values into a UNORM
+            // UAV (no sRGB UAV in D3D12), and outRT stays sRGB-tagged (Default) so Unity's present Blit encodes it.
+            liveSrgbViews = WantSrgbViews;
+            var outRW = SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && !liveSrgbViews ? RenderTextureReadWrite.Linear : RenderTextureReadWrite.Default;
             outRT = Make("DLSS out", outW, outH, RenderTextureFormat.ARGB32, true, outRW);
             colorPtr = colorRT.GetNativeTexturePtr(); depthPtr = depthRT.GetNativeTexturePtr();
             mvPtr = mvRT.GetNativeTexturePtr(); outPtr = outRT.GetNativeTexturePtr();
@@ -282,7 +287,8 @@ namespace Renderforge
             {
                 liveMvJittered = WantMvJittered;
                 int flags = Native.DLSS_F_MV_LOW_RES | (SystemInfo.usesReversedZBuffer ? Native.DLSS_F_DEPTH_INVERTED : 0)
-                          | (liveMvJittered ? Native.DLSS_F_MV_JITTERED : 0);
+                          | (liveMvJittered ? Native.DLSS_F_MV_JITTERED : 0)
+                          | (liveSrgbViews ? Native.DLSS_F_SRGB_VIEWS : 0);
                 Native.Dlss_SetCreateParams((uint)renderW, (uint)renderH, (uint)outW, (uint)outH, quality, flags);
                 GL.IssuePluginEvent(evFn, Native.DLSS_EV_CREATE);
             }
@@ -447,6 +453,8 @@ namespace Renderforge
         // ---------------------------------------------------------------- helpers
 
         private static bool WantMvJittered => RenderforgeMod.Instance?.Cfg?.MvJittered ?? false;
+        // D3D12 only: on D3D11 the SDK views Unity's sRGB resource directly (Device11.cpp) and the knob is a no-op.
+        private static bool WantSrgbViews => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && (RenderforgeMod.Instance?.Cfg?.D3D12SrgbViews ?? false);
 
         /// <summary>Diagnostic: one texel of mvRT (the BuiltinRenderTextureType.MotionVectors copy the SDK is fed), render-res
         /// coordinates, y from the bottom (ReadPixels). RGHalf is not ReadPixels-readable, so Blit into an ARGBFloat temp first.

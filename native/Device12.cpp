@@ -39,12 +39,13 @@ struct Device12 : IDevice
     SharpenPass12 sharpen;        // our own NIS/RCAS pass; NGX writes sharpen.target when it runs (D3D12Sharpen.h)
 
     ID3D12Resource* logged;        // RENDERFORGE_D3D12_DEBUG: output whose descs were already logged
+    bool srgbViews;                // DLSS_F_SRGB_VIEWS of the live feature -> owned.Ensure (D3D12Owned.h Typed)
 
     Device12() { Zero(); }
 
     void Zero()
     {
-        device = NULL; params = NULL; feature = NULL;
+        device = NULL; params = NULL; feature = NULL; srgbViews = false;
         ngxInitialized = 0; initCode = 0; needsDriver = 0; minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
         ring.Zero();
         owned.Zero();
@@ -140,6 +141,7 @@ struct Device12 : IDevice
         dcp.Feature.InTargetHeight = cp.outH;
         dcp.Feature.InPerfQualityValue = ToNgxQuality(cp.quality);
         dcp.InFeatureCreateFlags = cp.ngxFlags;
+        srgbViews = cp.SrgbViews();
 
         ID3D12GraphicsCommandList* cl = Begin();
         if (!cl) { lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; return; }   // Begin() set lastError
@@ -186,7 +188,7 @@ struct Device12 : IDevice
         if (passthrough) {
             OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
-        } else if (!owned.Ensure(device, ring, color, output)) {
+        } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
             // With sharpening on, NGX writes sharpen.target and the sharpen pass produces owned.out (D3D12Sharpen.h).

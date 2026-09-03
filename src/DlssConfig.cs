@@ -56,6 +56,8 @@ namespace Renderforge
         public FrameGenMode FrameGen = FrameGenMode.Off;
         [ConfigField("MV jittered (diagnostic)", "Tell the upscaler the motion vectors carry the jitter (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). Re-creates the feature.")]
         public bool MvJittered = false;
+        [ConfigField("D3D12 sRGB views (diagnostic)", "DirectX 12: hand the upscaler an sRGB view of the colour input (it decodes to linear) and tag the output sRGB so the present encodes. Re-creates the feature.")]
+        public bool D3D12SrgbViews = false;
         // Diagnostic jitter knobs (D3D12 detail-loss hunt): the REPORTED offset (Dlss_SetFrame) vs the RENDERED one (projection).
         [ConfigField("Jitter report sign X (diagnostic)", "+1 / -1, multiplies only the x offset reported to the upscaler")]
         public int JitterReportSignX = 1;
@@ -84,6 +86,7 @@ namespace Renderforge
             { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, Intel → XeSS, иначе FSR (XeSS, если нет DLL AMD). FSR/XeSS требуют DirectX 12. Смена требует перезапуска." } },
             { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12. 3x и 4x — DLSS-G на видеокарте RTX 50." } },
             { nameof(MvJittered), new[] { "MV с джиттером (диагностика)", "Сообщить апскейлеру, что векторы движения содержат джиттер (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). Пересоздаёт feature." } },
+            { nameof(D3D12SrgbViews), new[] { "D3D12 sRGB-виды (диагностика)", "DirectX 12: отдать апскейлеру sRGB-вид входного цвета (он декодирует в линейный) и пометить выход как sRGB, чтобы вывод закодировал. Пересоздаёт feature." } },
             { nameof(JitterReportSignX), new[] { "Знак джиттера X (диагностика)", "+1 / -1, множитель только для x-смещения, сообщаемого апскейлеру" } },
             { nameof(JitterReportSignY), new[] { "Знак джиттера Y (диагностика)", "+1 / -1, множитель только для y-смещения, сообщаемого апскейлеру" } },
             { nameof(JitterScale), new[] { "Масштаб джиттера (диагностика)", "Масштабирует джиттер проекции И сообщаемое смещение. 0 = без джиттера." } },

@@ -76,11 +76,17 @@ struct OwnedSet12
     }
 
     // A fully typed twin of a Unity RT format: CopyResource needs the same family, the SDKs need a typed view.
-    static DXGI_FORMAT Typed(DXGI_FORMAT f)
+    // srgb (DLSS_F_SRGB_VIEWS, colour-in twin only): keep/make the 8-bit twin *_UNORM_SRGB so the SDK's SRV decodes the
+    // sRGB-encoded bytes to linear instead of reading them raw. The out twin never takes it: D3D12 has no sRGB UAV, so
+    // the SDK writes LINEAR values into a UNORM out, and the driver tags Unity's outRT sRGB so the present Blit encodes
+    // (DlssDriver.cs StartGeneration). NGX (pInColor), ffx (ffxApiGetResourceDX12 -> ffxApiGetSurfaceFormatDX12,
+    // ffx_api_dx12.h:128 = FFX_API_SURFACE_FORMAT_R8G8B8A8_SRGB) and XeSS (pColorTexture) all view the resource's own
+    // format, so the resource format IS the view format.
+    static DXGI_FORMAT Typed(DXGI_FORMAT f, bool srgb = false)
     {
         switch (f) {
-        case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM;
-        case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return srgb ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
+        case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return srgb ? DXGI_FORMAT_B8G8R8A8_UNORM_SRGB : DXGI_FORMAT_B8G8R8A8_UNORM;
         case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
         case DXGI_FORMAT_R10G10B10A2_TYPELESS:  return DXGI_FORMAT_R10G10B10A2_UNORM;
         case DXGI_FORMAT_R32_TYPELESS:          return DXGI_FORMAT_R32_FLOAT;
@@ -105,11 +111,12 @@ struct OwnedSet12
     }
 
     // Sized/formatted after the Unity RTs of this frame; idempotent while they do not change. A change waits for
-    // every list still referencing the old set before it is released (render thread).
-    bool Ensure(ID3D12Device* dev, D3D12Ring& ring, ID3D12Resource* unityColor, ID3D12Resource* unityOut)
+    // every list still referencing the old set before it is released (render thread). A flipped srgbIn changes cf,
+    // so the twins are re-created through the same path.
+    bool Ensure(ID3D12Device* dev, D3D12Ring& ring, ID3D12Resource* unityColor, ID3D12Resource* unityOut, bool srgbIn = false)
     {
         D3D12_RESOURCE_DESC cd = unityColor->GetDesc(), od = unityOut->GetDesc();
-        DXGI_FORMAT cf = Typed(cd.Format), of = Typed(od.Format);
+        DXGI_FORMAT cf = Typed(cd.Format, srgbIn), of = Typed(od.Format);
         unsigned cw = (unsigned)cd.Width, ch = cd.Height, ow = (unsigned)od.Width, oh = od.Height;
         if (color && fmt == cf && outFmt == of && w == cw && h == ch && outW == ow && outH == oh) return true;
         if (color) ring.WaitIdle();

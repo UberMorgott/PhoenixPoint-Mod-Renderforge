@@ -317,6 +317,17 @@ namespace Renderforge
             return GetStatus();
         }
 
+        /// <summary>PPCLI diagnostic: {"member":"SetD3D12SrgbViews","args":[true]} - DLSS_F_SRGB_VIEWS in the create flags
+        /// (D3D12: sRGB colour-in view for the SDK + sRGB-tagged outRT, see DlssDriver.StartGeneration). Re-creates next frame. Saved.</summary>
+        public static string SetD3D12SrgbViews(bool on)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.D3D12SrgbViews = on;
+            SaveConfig();
+            return GetStatus();
+        }
+
         /// <summary>PPCLI diagnostic: {"member":"ProbeMv","args":[640,360]} - see DlssDriver.ProbeMv.</summary>
         public static string ProbeMv(int x, int y) => DlssDriver.Instance?.ProbeMv(x, y) ?? "no driver";
 
@@ -361,7 +372,7 @@ namespace Renderforge
         private static string JitterKnobs(DlssConfig c) => c == null ? "" :
             " jitterSign=" + c.JitterReportSignX + "," + c.JitterReportSignY + " jitterScale=" + c.JitterScale.ToString("R") + " jitterSwapXY=" + c.JitterReportSwapXY;
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + JitterKnobs(Instance?.Cfg) + " "
+        public static string GetStatus() => "provider=" + Upscalers.Running + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " d3d12SrgbViews=" + (Instance?.Cfg?.D3D12SrgbViews ?? false) + JitterKnobs(Instance?.Cfg) + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 

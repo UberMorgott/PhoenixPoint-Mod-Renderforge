@@ -343,10 +343,28 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     printf("Release        featureAlive=%d\n", alive);
     if (alive) g_failed = 1;
 
+    // DLSS_F_SRGB_VIEWS: an 8-bit TYPELESS colour (Unity's sRGB RT) becomes an R8G8B8A8_UNORM_SRGB owned twin
+    // (D3D12Owned.h Typed); NGX must accept the sRGB SRV. Output stays a UNORM UAV.
+    ID3D12Resource* colorSrgb = MakeTex12(RW, RH, DXGI_FORMAT_R8G8B8A8_TYPELESS, false, kColorRest);
+    if (!colorSrgb) return 1;
+    Dlss_SetCreateParams(RW, RH, OW, OH, DLSS_Q_QUALITY, DLSS_F_DEPTH_INVERTED | DLSS_F_MV_LOW_RES | DLSS_F_SRGB_VIEWS);
+    ev(DLSS_EV_CREATE);
+    Dlss_Status(&c, &e, &alive);
+    Report("Create[sRGB views]", c);
+    {
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, colorSrgb, depth, mv, outSrgb, jit[0][0], jit[0][1], (float)RW, (float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f);
+        evd(DLSS_EV_EVALUATE, slot);
+        Dlss_Status(&c, &e, &alive);
+        Report("Evaluate[sRGB views]", e);
+    }
+    WaitGpu();
+    ev(DLSS_EV_RELEASE);
+
     Dlss_Shutdown();
     WaitGpu();
     CheckStateErrors();
-    out2->Release(); outSrgb->Release();
+    out2->Release(); outSrgb->Release(); colorSrgb->Release();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
     g_fence->Release(); g_queue->Release(); g_dev12->Release();
     return g_failed ? 1 : 0;
@@ -439,9 +457,29 @@ static int RunFsr(const wchar_t* dllDir, const wchar_t* cwd)
     printf("Release        contextAlive=%d\n", alive);
     if (alive) g_failed = 1;
 
+    // DLSS_F_SRGB_VIEWS: 8-bit TYPELESS colour -> R8G8B8A8_UNORM_SRGB owned twin (D3D12Owned.h Typed), which
+    // ffxApiGetResourceDX12 reports as FFX_API_SURFACE_FORMAT_R8G8B8A8_SRGB (ffx_api_dx12.h:128). LDR, UNORM out.
+    ID3D12Resource* colorSrgb = MakeTex12(RW, RH, DXGI_FORMAT_R8G8B8A8_TYPELESS, false, kColorRest);
+    ID3D12Resource* outSrgb   = MakeTex12(OW, OH, DXGI_FORMAT_R8G8B8A8_TYPELESS, true, kOutRest);
+    if (!colorSrgb || !outSrgb) return 1;
+    Dlss_SetCreateParams(RW, RH, OW, OH, DLSS_Q_QUALITY, DLSS_F_DEPTH_INVERTED | DLSS_F_MV_LOW_RES | DLSS_F_SRGB_VIEWS);
+    ev(DLSS_EV_CREATE);
+    Dlss_Status(&c, &e, &alive);
+    Report("Create[sRGB views]", c);
+    {
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, colorSrgb, depth, mv, outSrgb, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f);
+        evd(DLSS_EV_EVALUATE, slot);
+        Dlss_Status(&c, &e, &alive);
+        Report("Dispatch[sRGB views]", e);
+    }
+    WaitGpu();
+    ev(DLSS_EV_RELEASE);
+
     Dlss_Shutdown();
     WaitGpu();
     CheckStateErrors();
+    colorSrgb->Release(); outSrgb->Release();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
     g_fence->Release(); g_queue->Release(); g_dev12->Release();
     return g_failed ? 1 : 0;
@@ -550,9 +588,28 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
     if (!alive) g_failed = 1;
     ev(DLSS_EV_RELEASE);
 
+    // DLSS_F_SRGB_VIEWS: 8-bit TYPELESS colour -> R8G8B8A8_UNORM_SRGB owned twin (D3D12Owned.h Typed); XeSS views
+    // pColorTexture in the resource's own format, so it must accept the sRGB SRV. UNORM out.
+    ID3D12Resource* colorSrgb = MakeTex12(RW, RH, DXGI_FORMAT_R8G8B8A8_TYPELESS, false, kColorRest);
+    if (!colorSrgb) return 1;
+    Dlss_SetCreateParams(RW, RH, OW, OH, DLSS_Q_QUALITY, DLSS_F_DEPTH_INVERTED | DLSS_F_MV_LOW_RES | DLSS_F_SRGB_VIEWS);
+    ev(DLSS_EV_CREATE);
+    Dlss_Status(&c, &e, &alive);
+    Report("Create[sRGB views]", c);
+    {
+        void* slot = Dlss_GetFrameSlot();
+        Dlss_SetFrame(slot, colorSrgb, depth, mv, out, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f);
+        evd(DLSS_EV_EVALUATE, slot);
+        Dlss_Status(&c, &e, &alive);
+        Report("Execute[sRGB views]", e);
+    }
+    WaitGpu();
+    ev(DLSS_EV_RELEASE);
+
     Dlss_Shutdown();
     WaitGpu();
     CheckStateErrors();
+    colorSrgb->Release();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
     g_fence->Release(); g_queue->Release(); g_dev12->Release();
     return g_failed ? 1 : 0;

@@ -5,6 +5,7 @@
 
 #include <windows.h>
 #include "nvsdk_ngx.h"
+#include "RenderforgeNative.h"
 
 // NGX project identity, defined in RenderforgeNative.cpp, used by both backends.
 extern const char kProjectId[];
@@ -35,6 +36,7 @@ struct CreateParams
     int quality;      // DLSS_Q_*
     int ngxFlags;     // already translated to NVSDK_NGX_DLSS_Feature_Flags
     int rawFlags;     // the untranslated DLSS_F_* bitmask, for providers that map them differently (FSR, XeSS)
+    bool SrgbViews() const { return (rawFlags & DLSS_F_SRGB_VIEWS) != 0; }   // D3D12Owned.h Typed(): colour-in twin sRGB
 };
 
 struct OwnedSet12;   // D3D12Owned.h: the shim-owned twins a D3D12 backend fills every Evaluate
