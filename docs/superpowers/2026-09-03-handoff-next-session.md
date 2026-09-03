@@ -51,6 +51,10 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
 4. Resolution-change robustness under D3D12 (DLSS `FAIL_PlatformError` → regen instead of off).
 5. Frame-pacing metric (PresentMon `MsBetweenDisplayChange` CoV) still unmeasured; resize under XeSS/DLSS-G not exercised.
 6. Phase 6 Tasks 7-8 (version bump 1.2.0, `build\release.ps1 -WithFrameGen`, GitHub release, Workshop) — USER-GATED.
+7. **BACKLOG — blurry UI** (Discord, d4reptile 2026-09-03): icons/text/sprites soft with visible bilinear interpolation
+   at 1440p/4K. Hypothesis: Unity Canvas atlases + font authored for 1080p, `CanvasScaler` stretches them; UI composited
+   after the scene so NIS/DLSS never touch it. Investigate: atlas texture filter/mip settings, `CanvasScaler` mode
+   (`ScaleWithScreenSize` → reference res), font atlas size, a UI-only sharpen pass. Not promised to the user.
 
 ## Rules that applied (keep)
 
