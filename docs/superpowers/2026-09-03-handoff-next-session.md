@@ -81,6 +81,23 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
    than their 64-150 px source = true upscale blur → only fixable by a replacement texture pack (offline 2x upscale).
    Check (3) first next time: on-screen px of those icons vs texture px.
 
+## OPEN BUG (user report 2026-09-03): D3D12 output loses detail below DLAA
+
+- User: D3D12 + any DLSS mode < DLAA = "large blurry fragments"; D3D11 same settings = native-perfect; D3D12 DLAA ok.
+- Repro (scout, Instance2, shots `docs\shots\d3d12quality\`, untracked): PNG entropy D3D12 Quality 2553 KB vs D3D11
+  4337 KB (−40%); **D3D12 DLAA also −6% vs D3D11 DLAA** → ratio-independent component. FSR/XeSS on D3D12 lose the
+  same → input plumbing, not one SDK. NGX eval Success, jitter cycles, params byte-identical to D3D11.
+- REJECTED with evidence: mv/depth twins sized from colorRT (all input RTs = RenderW×RenderH: color ARGB32, depth RFloat,
+  mv RGHalf; out ARGB32 at screen); MV jitter residual (ProbeMv: mv < 1.2e-7 px on static geometry, both APIs); jitter
+  latency (mv ≠ previous jitter either). MV debug-view "outlines" on D3D12 = something else (debug shader?), not data.
+- CLUE: `MvJittered=true` (SDK subtracts reported jitter from MVs) makes D3D12 +7.6% sharper although MVs are zero →
+  the jitter REPORTED to the SDK ≠ the jitter RENDERED on D3D12 (sign / y-flip / scale), matches on D3D11.
+- Tooling landed: `b3acfbd` (`MvJittered` cfg + `RenderforgeMod.SetMvJittered/ProbeMv`), next commit: jitter report
+  sign/scale/swap knobs + `DumpOut`/`DumpColorIn`. Plan: sweep report-sign × MvJittered on D3D12 Perf with a Laplacian
+  sharpness metric, same sweep on D3D11; the optimum that differs between APIs is the root cause. Also diff `outRT`
+  dumps (SDK output before Unity's present Blit) D3D11 vs D3D12 to split SDK-side loss from the present path
+  (`outRT` Linear on D3D12, `915e341`; `D3D12Owned.h:82` maps sRGB→UNORM views — candidate for the ratio-independent 6%).
+
 ## Rules that applied (keep)
 
 - Model routing (user 2026-09-03): code `model:"fable"`; research/RCA/design `opus` (Opus 5); web search Codex
