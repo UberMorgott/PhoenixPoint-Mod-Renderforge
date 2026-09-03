@@ -169,6 +169,11 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   `f39232b` FSR/XeSS LDR flags on the FP16 path (menu luma 57.9 / 55.4 = parity). `c21b6a1` FSR jitter sign per FFX
   doc (effective (+x,−y); A/B shake 0.405→0.248), FSR-FG aligned. **Steam deployed with `c21b6a1` (~15:15).**
   RULE learned: never run two game instances during FG/VRAM tests — DXGI budget per process ≈ 6.2 GB on 16 GB.
+  FSR sign verify (Instance3, `docs\shots\fsrsign-i3\`): new vs old sign neutral within run (0.86 vs 0.85), no ghosting
+  in pan crops, FSR+FG ok. CAVEAT on the shake metric: it flips between runs (DLSS-Q 0.26 in one run, 4.98 in the
+  next; FSR 4.6 vs 0.22) — it measures animated FX/units inside the region as much as upscaler jitter. Only WITHIN-run,
+  same-camera, same-region comparisons are meaningful; never compare shake across launches.
+  USER on Steam (`c21b6a1`, evening): "вроде получше стало" → release 1.2.1 (single Full zip per user).
   OPEN: (a) idle/`prepared==0` path skips the FG proxy → SL pacer resets on menu/load transitions (FgHost.cpp:458-465);
   (b) per-cycle VRAM drift; (c) XeSS `JitterReportSign(-1,-1)` also measured −27% shake but its guide says our sign is
   right — unresolved, left as is.
