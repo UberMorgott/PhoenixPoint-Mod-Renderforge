@@ -57,7 +57,7 @@ namespace Renderforge
                 { Upscalers.Failed = Upscalers.Resolve(Cfg.Upscaler); Upscalers.FailedCode = InitCode; }
                 Logger.LogInfo((Available ? "upscaler available" : "upscaler unavailable (code " + InitCode + "): " + Reason(InitCode))
                                + " provider=" + Upscalers.Running + " version=" + Native.ProviderVersion()
-                               + " api=" + Native.Api() + " unityIface=" + Native.UnityIface() + " renderer=" + Availability.ApiName);
+                               + " api=" + Native.Api() + " unityIface=" + Native.UnityIface() + " renderer=" + Availability.ApiName + " unity=" + Application.unityVersion);
             }
             else
             {
@@ -363,6 +363,26 @@ namespace Renderforge
             return GetStatus();
         }
 
+        /// <summary>{"member":"SetJitterConst","args":[true,0.25,-0.25]} - replace the Halton sample with a constant (render-res pixels) every frame; rendered AND reported.</summary>
+        public static string SetJitterConst(bool on, float x, float y)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.JitterConstEnabled = on; m.Cfg.JitterConstX = x; m.Cfg.JitterConstY = y;
+            SaveConfig();
+            return GetStatus();
+        }
+
+        /// <summary>{"member":"SetForceReset","args":[true]} - pass the history-reset flag every frame (NGX InReset / FSR reset / XeSS resetHistory).</summary>
+        public static string SetForceReset(bool on)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.ForceReset = on;
+            SaveConfig();
+            return GetStatus();
+        }
+
         /// <summary>{"member":"DumpOut","args":["C:\\Temp\\out.png"]} - outRT (SDK output, before the present Blit) to PNG.</summary>
         public static string DumpOut(string absPath) => DlssDriver.Instance?.DumpOut(absPath) ?? "no driver";
 
@@ -370,9 +390,10 @@ namespace Renderforge
         public static string DumpColorIn(string absPath) => DlssDriver.Instance?.DumpColorIn(absPath) ?? "no driver";
 
         private static string JitterKnobs(DlssConfig c) => c == null ? "" :
-            " jitterSign=" + c.JitterReportSignX + "," + c.JitterReportSignY + " jitterScale=" + c.JitterScale.ToString("R") + " jitterSwapXY=" + c.JitterReportSwapXY;
+            " jitterSign=" + c.JitterReportSignX + "," + c.JitterReportSignY + " jitterScale=" + c.JitterScale.ToString("R") + " jitterSwapXY=" + c.JitterReportSwapXY
+            + " jitterConst=" + c.JitterConstEnabled + "," + c.JitterConstX.ToString("R") + "," + c.JitterConstY.ToString("R") + " forceReset=" + c.ForceReset;
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " d3d12SrgbViews=" + (Instance?.Cfg?.D3D12SrgbViews ?? false) + JitterKnobs(Instance?.Cfg) + " "
+        public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " d3d12SrgbViews=" + (Instance?.Cfg?.D3D12SrgbViews ?? false) + JitterKnobs(Instance?.Cfg) + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 

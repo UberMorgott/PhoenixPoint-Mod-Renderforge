@@ -67,6 +67,14 @@ namespace Renderforge
         public float JitterScale = 1f;
         [ConfigField("Jitter report swap XY (diagnostic)", "Swap x/y of the reported offset only")]
         public bool JitterReportSwapXY = false;
+        [ConfigField("Constant jitter (diagnostic)", "Replace the Halton sample with JitterConstX/Y (render-res pixels) every frame; JitterScale still applies.")]
+        public bool JitterConstEnabled = false;
+        [ConfigField("Constant jitter X (diagnostic)", "render-res pixels, used when Constant jitter is on")]
+        public float JitterConstX = 0f;
+        [ConfigField("Constant jitter Y (diagnostic)", "render-res pixels, used when Constant jitter is on")]
+        public float JitterConstY = 0f;
+        [ConfigField("Force reset (diagnostic)", "Pass the history-reset flag to the upscaler every frame (NGX InReset / FSR reset / XeSS resetHistory).")]
+        public bool ForceReset = false;
 
         // field ID -> (RU label, RU description); English comes from the attribute above.
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
@@ -91,6 +99,10 @@ namespace Renderforge
             { nameof(JitterReportSignY), new[] { "Знак джиттера Y (диагностика)", "+1 / -1, множитель только для y-смещения, сообщаемого апскейлеру" } },
             { nameof(JitterScale), new[] { "Масштаб джиттера (диагностика)", "Масштабирует джиттер проекции И сообщаемое смещение. 0 = без джиттера." } },
             { nameof(JitterReportSwapXY), new[] { "Поменять X/Y джиттера (диагностика)", "Поменять местами x/y только сообщаемого смещения" } },
+            { nameof(JitterConstEnabled), new[] { "Постоянный джиттер (диагностика)", "Заменять выборку Халтона на JitterConstX/Y (пиксели рендера) каждый кадр; JitterScale тоже применяется." } },
+            { nameof(JitterConstX), new[] { "Постоянный джиттер X (диагностика)", "пиксели рендера, при включённом постоянном джиттере" } },
+            { nameof(JitterConstY), new[] { "Постоянный джиттер Y (диагностика)", "пиксели рендера, при включённом постоянном джиттере" } },
+            { nameof(ForceReset), new[] { "Принудительный сброс (диагностика)", "Передавать апскейлеру флаг сброса истории каждый кадр (NGX InReset / FSR reset / XeSS resetHistory)." } },
         };
 
         /// <summary>True while the game runs in Russian (I2 LocalizationManager.CurrentLanguage, "English"/"Russian"/…).</summary>

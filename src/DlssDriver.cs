@@ -378,6 +378,7 @@ namespace Renderforge
                 jitterIndex = (jitterIndex + 1) % phaseCount;
                 if (passthrough) { jx = 0f; jy = 0f; }
                 var cfg = RenderforgeMod.Instance?.Cfg;
+                if (cfg != null && cfg.JitterConstEnabled && !passthrough) { jx = cfg.JitterConstX; jy = cfg.JitterConstY; }   // JitterConst: rendered AND reported
                 float jscale = cfg?.JitterScale ?? 1f;
                 jx *= jscale; jy *= jscale;          // JitterScale: rendered AND reported jitter (0 = none)
                 var p = cam.projectionMatrix;
@@ -390,7 +391,7 @@ namespace Renderforge
                 // clean matrix keep hard aliased edges (seen live on the tactical path lines).
                 cam.useJitteredProjectionMatrixForTransparentRendering = true;
 
-                int reset = resetNext ? 1 : 0;
+                int reset = resetNext || (cfg != null && cfg.ForceReset) ? 1 : 0;   // ForceReset: NGX InReset / FSR reset / XeSS resetHistory every frame
                 Vector3 pos = cam.transform.position;
                 if ((pos - lastPos).sqrMagnitude > 50f * 50f || !Mathf.Approximately(cam.fieldOfView, lastFov)) reset = 1;
                 lastPos = pos; lastFov = cam.fieldOfView; resetNext = false;
