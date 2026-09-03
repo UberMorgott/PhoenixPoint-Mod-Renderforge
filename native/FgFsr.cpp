@@ -214,9 +214,12 @@ struct ProviderFsr : IFgProvider
         cfg.frameID = f.frameId;
         // Hud-less UI mode (decision 5): the owned `out` is the upscaled frame before Unity draws the HUD. The FI
         // context copies it into its history, so its format must equal the back buffer's (ffx_frameinterpolation.cpp:887).
-        if (o->outFmt == backFmt && o->outW == outW && o->outH == outH)
-            cfg.HUDLessColor = ffxApiGetResourceDX12(o->out, FFX_API_RESOURCE_STATE_COMMON);
-        else if (!hudlessWarned) { hudlessWarned = 1; FgLog("fsr: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)o->outFmt, outW, outH, (unsigned)backFmt); }
+        // FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16 out (D3D12HalfColor) - always back-buffer format.
+        DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
+        ID3D12Resource* hud = FgHudless12(&hudFmt);
+        if (hud && hudFmt == backFmt && o->outW == outW && o->outH == outH)
+            cfg.HUDLessColor = ffxApiGetResourceDX12(hud, FFX_API_RESOURCE_STATE_COMMON);
+        else if (!hudlessWarned) { hudlessWarned = 1; FgLog("fsr: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
         lastRc = (int)fn->Configure(&fgCtx, &cfg.header);
         if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: configure %d", lastRc); return; }
 

@@ -184,9 +184,13 @@ struct ProviderXess : IFgProvider
     {
         const OwnedSet12* o = FgOwned12();
         if (!fg || !o || !o->depth || !o->mv || !o->out) return;
-        if (o->outFmt != backFmt || o->outW != outW || o->outH != outH) {
-            if (warned < 8) { ++warned; FgLog("xess: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)o->outFmt, outW, outH, (unsigned)backFmt); }
-            return;
+        // FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16 out (D3D12HalfColor) - always back-buffer
+        // format. No match = tag depth/mv/constants anyway (XeSS-FG interpolates from the back buffer; hudless is optional).
+        DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
+        ID3D12Resource* hud = FgHudless12(&hudFmt);
+        if (!hud || hudFmt != backFmt || o->outW != outW || o->outH != outH) {
+            if (warned < 8) { ++warned; FgLog("xess: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
+            hud = NULL;
         }
         ++presentId;
         marked = 0;
@@ -198,7 +202,7 @@ struct ProviderXess : IFgProvider
 
         Tag(XEFG_SWAPCHAIN_RES_MOTION_VECTOR, o->mv, o->w, o->h, "mv");
         Tag(XEFG_SWAPCHAIN_RES_DEPTH, o->depth, o->w, o->h, "depth");
-        Tag(XEFG_SWAPCHAIN_RES_HUDLESS_COLOR, o->out, o->outW, o->outH, "hudless");
+        if (hud) Tag(XEFG_SWAPCHAIN_RES_HUDLESS_COLOR, hud, o->outW, o->outH, "hudless");
 
         xefg_swapchain_frame_constant_data_t c = {};
         memcpy(c.viewMatrix, f.view, sizeof(c.viewMatrix));         // row-major, non-jittered (guide :879-880)

@@ -74,6 +74,7 @@ add_library(RenderforgeNative SHARED
     Fg.h
     FgHook.cpp
     FgHost.cpp
+    FgHudless.h
     FgWnd.cpp
     FgFsr.cpp
     FgXess.cpp

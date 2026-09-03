@@ -110,6 +110,11 @@ struct IFgProvider
 // The live upscaler backend's owned twins (RenderforgeNative.cpp); NULL when no D3D12 backend is up.
 struct OwnedSet12;
 const OwnedSet12* FgOwned12(void);
+// Render thread, inside Prepare only: the hud-less colour to tag, ALWAYS in the app back buffer's format - the owned
+// out twin itself, or (FP16 out, D3D12HalfColor) the host's 8-bit sRGB-encoded twin written on the prep list right
+// before Prepare (FgHudless.h). NULL when no matching twin exists this frame (*fmt then says what the out twin is).
+// Rests in COMMON like every owned twin.
+ID3D12Resource* FgHudless12(DXGI_FORMAT* fmt);
 
 IFgProvider* MakeFgProviderNone(void);
 IFgProvider* MakeFgProviderFsr(void);

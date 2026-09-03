@@ -320,7 +320,7 @@ struct ProviderStreamline : IFgProvider
         if (owned) {
             o.mvecDepthWidth = owned->w; o.mvecDepthHeight = owned->h;
             o.mvecBufferFormat = DXGI_FORMAT_R16G16_FLOAT; o.depthBufferFormat = DXGI_FORMAT_R32_FLOAT;
-            o.hudLessBufferFormat = owned->outFmt;
+            o.hudLessBufferFormat = (unsigned)backFmt;   // what FgHudless12 hands Prepare: the out twin, or its 8-bit twin
         }
     }
 
@@ -329,9 +329,14 @@ struct ProviderStreamline : IFgProvider
     {
         const OwnedSet12* o = FgOwned12();
         if (!proxy || !o || !o->depth || !o->mv || !o->out) return;
-        if (o->outFmt != backFmt || o->outW != outW || o->outH != outH) {
-            if (warned < 8) { ++warned; FgLog("sl: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)o->outFmt, outW, outH, (unsigned)backFmt); }
-            return;
+        // The hud-less in the back buffer's format (FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16
+        // out). Without one the frame still gets its token, constants and depth/mv tags - a skipped hudless is a quality
+        // loss, a skipped token/constants wedges DLSS-G ("missing common constants", generated=0; measured 2026-09-03).
+        DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
+        ID3D12Resource* hud = FgHudless12(&hudFmt);
+        if (!hud || hudFmt != backFmt || o->outW != outW || o->outH != outH) {
+            if (warned < 8) { ++warned; FgLog("sl: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
+            hud = NULL;
         }
         if (tail - head >= kTokens) { if (warned < 8) { ++warned; FgLog("sl: %u frames prepared without a Present - dropping the oldest token", kTokens); } ++head; }
         ++frames;
@@ -381,7 +386,7 @@ struct ProviderStreamline : IFgProvider
         // Owned twins rest in COMMON (D3D12Owned.h); SL copies them on `list` (eOnlyValidNow, ManualHooking.md:501-517).
         sl::Resource rDepth(sl::ResourceType::eTex2d, o->depth, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
         sl::Resource rMv(sl::ResourceType::eTex2d, o->mv, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
-        sl::Resource rHud(sl::ResourceType::eTex2d, o->out, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
+        sl::Resource rHud(sl::ResourceType::eTex2d, hud, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
         sl::Extent eRender{}, eOut{};                            // full-size extents, explicit (SL warns on an unset 0x0 extent)
         eRender.width = o->w; eRender.height = o->h;
         eOut.width = o->outW; eOut.height = o->outH;
@@ -390,7 +395,7 @@ struct ProviderStreamline : IFgProvider
             sl::ResourceTag(&rMv,    sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eOnlyValidNow, &eRender),
             sl::ResourceTag(&rHud,   sl::kBufferTypeHUDLessColor,  sl::ResourceLifecycle::eOnlyValidNow, &eOut),
         };
-        r = g_sl.setTag(*t, vp, tags, 3, list);
+        r = g_sl.setTag(*t, vp, tags, hud ? 3 : 2, list);
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetTagForFrame %d", (int)r); }
     }
 

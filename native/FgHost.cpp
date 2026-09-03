@@ -26,6 +26,8 @@
 #include "Fg.h"
 #include "RenderforgeNative.h"
 #include "D3D12Ring.h"
+#include "D3D12Owned.h"
+#include "FgHudless.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -50,7 +52,9 @@ struct Chain
     unsigned              scFlags;      // DXGI_SWAP_CHAIN_FLAG_* the shadow chain was created with
     HWND                  child;        // our own WS_CHILD window the chain sits on
     int                   logged;       // 0 nothing, 1 first present, 2 first present result
-    Chain() : prov(NULL), app(NULL), shadow(NULL), factory(NULL), xfence(NULL), xval(0), scFlags(0), child(NULL), logged(0) {}
+    DXGI_FORMAT           backFmt;      // the app chain's back-buffer format = what the providers want the hud-less in
+    Hudless8              hud;          // 8-bit sRGB-encoded twin of an FP16 owned out (FgHudless.h), else unused
+    Chain() : prov(NULL), app(NULL), shadow(NULL), factory(NULL), xfence(NULL), xval(0), scFlags(0), child(NULL), logged(0), backFmt(DXGI_FORMAT_UNKNOWN) {}
 };
 
 struct Host
@@ -136,7 +140,8 @@ bool CopyBackBuffer(Chain& c, ID3D12Resource* src, ID3D12Resource* dst)
 // Main thread, no lock held. GPU objects of a chain whose provider is already gone (or never came up).
 void ReleaseGpu(Chain& c)
 {
-    c.prep.Release();
+    c.prep.Release();                   // waits idle: the hud twin's last reader/writer has retired
+    c.hud.Release();
     c.copy.Release();
     SafeRelease(c.xfence);
     c.xval = 0;
@@ -340,6 +345,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     if (s.desc.BufferCount < 3) s.desc.BufferCount = 3;
     H.outW = s.desc.Width; H.outH = s.desc.Height;
     H.multiplier = s.multiplier;
+    c.backFmt = s.desc.Format;
 
     IDXGISwapChain4* shadow = NULL;
     FgHookHide();                                          // the new chain's vtable shows dxgi, not us (Fg.h)
@@ -416,10 +422,31 @@ void FgHostPrepare(void)
         H.prepared = 1;
         if (H.c.prov->Id() != FG_PROVIDER_NONE) {
             ID3D12GraphicsCommandList* l = H.c.prep.Begin();
-            if (l) { H.c.prov->Prepare(l, H.cur); H.c.prep.End(0); }
+            if (l) {
+                // FP16 out (D3D12HalfColor): encode it into the 8-bit twin FIRST, on this list, so the provider's tags
+                // reference a hud-less in the back buffer's format (FgHudless.h). Same list = same queue order.
+                const OwnedSet12* o = FgOwned12();
+                if (o && o->out && o->outFmt != H.c.backFmt && H.c.hud.Ensure(H.device, H.c.prep, o->outW, o->outH, H.c.backFmt))
+                    H.c.hud.Run(l, o->out, o->outFmt, H.c.prep.ringIdx);
+                H.c.prov->Prepare(l, H.cur);
+                H.c.prep.End(0);
+            }
         }
     }
     Unpin(NULL);
+}
+
+// Render thread, inside Prepare (chain pinned). The owned out twin when it already has the back buffer's format, else
+// the encoded 8-bit twin FgHostPrepare just wrote; NULL (fmt = the out twin's) when neither matches.
+ID3D12Resource* FgHudless12(DXGI_FORMAT* fmt)
+{
+    const OwnedSet12* o = FgOwned12();
+    if (!o || !o->out) { if (fmt) *fmt = DXGI_FORMAT_UNKNOWN; return NULL; }
+    if (o->outFmt == H.c.backFmt) { if (fmt) *fmt = o->outFmt; return o->out; }
+    Hudless8& h = H.c.hud;
+    if (h.tex && h.w == o->outW && h.h == o->outH) { if (fmt) *fmt = h.fmt; return h.tex; }
+    if (fmt) *fmt = o->outFmt;
+    return NULL;
 }
 
 bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
