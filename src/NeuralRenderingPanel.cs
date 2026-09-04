@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Base.UI;
 using I2.Loc;
 using PhoenixPoint.Common.View.ViewModules;
 using UnityEngine;
@@ -7,8 +8,7 @@ using UnityEngine.UI;
 
 namespace Renderforge
 {
-    /// <summary>The four dimensionless numeric controls exposed by the private DLSSNR 310.8 parameter ABI.
-    /// Values are scaled by 100 only for the game's whole-number slider prefab; config/native values stay floats.</summary>
+    /// <summary>The four dimensionless numeric controls exposed by the private DLSSNR 310.8 parameter ABI.</summary>
     internal static class NeuralRenderingPanel
     {
         private static readonly string[] Names =
@@ -53,17 +53,25 @@ namespace Renderforge
                 if (Values[i] != null) Values[i].gameObject.SetActive(true);
                 var slider = Sliders[i];
                 slider.gameObject.SetActive(true);
-                slider.wholeNumbers = true;
-                slider.minValue = i == 3 ? -100 : 0;
-                slider.maxValue = i == 3 ? 100 : 200;
-                slider.SetValueWithoutNotify(Mathf.Round(Mathf.Clamp(current[i], slider.minValue / 100f, slider.maxValue / 100f) * 100f));
+                slider.wholeNumbers = false;
+                slider.minValue = i == 3 ? -1f : 0f;
+                slider.maxValue = i == 3 ? 1f : 2f;
+                slider.SetValueWithoutNotify(Mathf.Clamp(current[i], slider.minValue, slider.maxValue));
+                var formatter = row.GetComponentInChildren<SliderTextFormatter>(true);
+                if (formatter != null)
+                {
+                    formatter.Slider = slider;
+                    formatter.LerpValue = false;
+                    formatter.TextFormat = "{0:0.00}";
+                    if (Values[i] != null) formatter.Text = Values[i].GetComponent<Text>();
+                }
                 int slot = i;
                 slider.onValueChanged.RemoveAllListeners();
                 slider.onValueChanged.AddListener(v => OnValue(slot, v));
                 GraphicsPanel.Tip(slider.gameObject, i == 3
                     ? DlssConfig.Loc("Runtime range: -1.00 to 1.00", "Диапазон runtime: от -1,00 до 1,00")
                     : DlssConfig.Loc("Runtime range: 0.00 to 2.00", "Диапазон runtime: от 0,00 до 2,00"));
-                Show(i, slider.value / 100f);
+                Show(i, slider.value);
             }
             Sync();
             return Rows[Rows.Length - 1];
@@ -107,7 +115,8 @@ namespace Renderforge
             {
                 var cfg = RenderforgeMod.Instance?.Cfg;
                 if (cfg == null || cfg.NeuralRendering != NeuralRenderingMode.Auto) return;
-                float value = raw / 100f;
+                float value = Mathf.Round(raw * 100f) / 100f;
+                Sliders[slot].SetValueWithoutNotify(value);
                 switch (slot)
                 {
                     case 0: cfg.NeuralIntensity = value; break;
