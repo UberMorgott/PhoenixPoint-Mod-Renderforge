@@ -215,10 +215,6 @@ struct Device12 : IDevice
             ep.InMVScaleY = fp.mvScaleY;
             ep.InPreExposure = fp.preExposure;
             ep.InFrameTimeDeltaInMsec = fp.dtMs;
-            // Unity's D3D12 backbuffer is vertically inverted for NGX's optional verification HUD.
-            // This is the SDK's public indicator-only correction; it does not alter image inputs.
-            ep.InIndicatorInvertYAxis = 1;
-
             owned.Enter(cl, color, depth, mv);
             ring.Stamp(1);
             bool nrSucceeded = false;
