@@ -17,14 +17,27 @@ namespace Renderforge
         private static Transform value;
         private static bool loggedError;
 
-        private static string[] Labels => new[]
+        private static string[] Labels
         {
-            DlssConfig.Loc("Off", "Выкл"),
-            DlssConfig.Loc("Realistic Desaturated", "Реалистичный приглушённый"),
-            DlssConfig.Loc("Neutral", "Нейтральный"),
-            DlssConfig.Loc("Cinematic Bleach", "Кино: bleach bypass"),
-            DlssConfig.Loc("Vivid", "Насыщенный")
-        };
+            get
+            {
+                var presets = (LutPreset[])Enum.GetValues(typeof(LutPreset));
+                return Array.ConvertAll(presets, Label);
+            }
+        }
+
+        private static string Label(LutPreset preset)
+        {
+            switch (preset)
+            {
+                case LutPreset.Off: return DlssConfig.Loc("Off", "Выкл");
+                case LutPreset.RealisticDesaturated: return DlssConfig.Loc("Realistic Desaturated", "Реалистичный приглушённый");
+                case LutPreset.Neutral: return DlssConfig.Loc("Neutral", "Нейтральный");
+                case LutPreset.CinematicBleach: return DlssConfig.Loc("Cinematic Bleach", "Кино: bleach bypass");
+                case LutPreset.Vivid: return DlssConfig.Loc("Vivid", "Насыщенный");
+                default: return preset.ToString();
+            }
+        }
 
         internal static Transform Build(UIModuleGraphicsOptionsPanel panel, Transform after, DlssConfig cfg)
         {
@@ -145,7 +158,7 @@ namespace Renderforge
 
         private static void ShowStrength(int current)
         {
-            if (value != null) GraphicsPanel.SetRaw(value.GetComponent<Localize>(), value.GetComponent<Text>(), current.ToString());
+            if (value != null) GraphicsPanel.SetRaw(value.GetComponent<Localize>(), value.GetComponent<Text>(), current + "%");
         }
 
         private static void Log(string what, Exception ex)
