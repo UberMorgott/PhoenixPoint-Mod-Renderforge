@@ -300,8 +300,12 @@ namespace Renderforge
             occluderMesh.triangles = new[] { 0, 1, 2, 0, 2, 3, 2, 1, 0, 3, 2, 0 };
             occluderMesh.RecalculateBounds();
             occluder.AddComponent<MeshFilter>().sharedMesh = occluderMesh;
-            var mat = new Material(Shader.Find(cutout ? "Unlit/Colored Cutout" : "Unlit/Color"));
+            var shader = Shader.Find(cutout ? "Unlit/Colored Cutout" : "Unlit/Color");
+            if (shader == null || !shader.isSupported) throw new InvalidOperationException("Occluder shader unavailable.");
+            var mat = new Material(shader);
             materials.Add(mat);
+            foreach (var property in cutout ? new[] { "_Color", "_MainTex", "_Cutoff" } : new[] { "_Color" })
+                if (!mat.HasProperty(property)) throw new InvalidOperationException("Missing occluder shader property: " + property);
             mat.SetColor("_Color", Color.magenta);
             if (cutout)
             {
@@ -328,7 +332,21 @@ namespace Renderforge
         }
         private void Fail(Exception exception) { if (evidence != null) { evidence["status"] = "failed"; evidence["error"] = exception.ToString(); } Finish(); }
         private void WriteEvidence() { File.WriteAllText(Path.Combine(directory, "evidence.json"), evidence.ToString()); }
-        private void Finish() { finished = true; Cleanup(); evidence["temporaryResourcesReleased"] = true; WriteEvidence(); Destroy(gameObject); }
+        private void Finish()
+        {
+            finished = true;
+            try
+            {
+                Cleanup();
+                if (evidence != null)
+                {
+                    evidence["temporaryResourcesReleased"] = true;
+                    try { WriteEvidence(); }
+                    catch (Exception exception) { Debug.LogWarning("Renderforge diagnostic evidence could not be saved: " + exception.Message); }
+                }
+            }
+            finally { Destroy(gameObject); }
+        }
         private void OnDestroy() { Cleanup(); }
         private void Cleanup()
         {
