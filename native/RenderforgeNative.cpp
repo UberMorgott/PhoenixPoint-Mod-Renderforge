@@ -180,7 +180,7 @@ void* __cdecl Dlss_GetFrameSlot(void)
 void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void* output,
                            float jitterX, float jitterY, float mvScaleX, float mvScaleY,
                            int reset, float dtMs, unsigned renderW, unsigned renderH,
-                           float preExposure, float sharpness)
+                           float preExposure, float sharpness, int lutPreset, float lutStrength)
 {
     FrameParams* p = (FrameParams*)slot;
     if (!p) return;
@@ -194,6 +194,8 @@ void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void*
     p->renderW = renderW; p->renderH = renderH;
     p->preExposure = preExposure;
     p->sharpness = sharpness < 0 ? 0 : sharpness > 1 ? 1 : sharpness;
+    p->lutPreset = (lutPreset >= DLSS_LUT_REALISTIC_DESATURATED && lutPreset <= DLSS_LUT_VIVID) ? lutPreset : DLSS_LUT_OFF;
+    p->lutStrength = lutStrength > 0 ? (lutStrength < 1 ? lutStrength : 1) : 0;   // NaN also disables the pass
     p->nearZ = S.nearZ; p->farZ = S.farZ; p->fovY = S.fovY;
 }
 

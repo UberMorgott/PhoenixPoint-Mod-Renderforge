@@ -1,7 +1,7 @@
 {
   "ID": "com.morgott.Renderforge",
   "AssemblyName": "Renderforge.dll",
-  "Version": "1.2.1",
+  "Version": "1.3.0",
   "Author": [
     { "Key": "English", "Value": "Morgott" }
   ],
@@ -9,7 +9,7 @@
     { "Key": "English", "Value": "Renderforge" }
   ],
   "Description": [
-    { "Key": "English", "Value": "DLSS / FSR / XeSS upscaling, DLAA, NIS sharpening, DirectX 12 renderer switch, frame-rate limit and a benchmark overlay for Phoenix Point." }
+    { "Key": "English", "Value": "DLSS / FSR / XeSS upscaling, DLAA, NIS sharpening, live LUT filters, DirectX 12 renderer switch, frame-rate limit and a benchmark overlay for Phoenix Point." }
   ],
   "Dependencies": []
 }

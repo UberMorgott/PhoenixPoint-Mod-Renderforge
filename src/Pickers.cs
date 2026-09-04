@@ -105,6 +105,7 @@ namespace Renderforge
             renderer = upscaler = frameGen = neuralRendering = null;
             onChanged = null;
             NeuralRenderingPanel.Clear();
+            LutPanel.Clear();
         }
 
         internal static void Hide(Transform content)

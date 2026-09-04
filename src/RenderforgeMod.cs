@@ -4,6 +4,7 @@ using Base.Core;
 using Base.Levels;
 using HarmonyLib;
 using PhoenixPoint.Modding;
+using PhoenixPoint.Tactical.Levels;
 using UnityEngine;
 
 namespace Renderforge
@@ -18,6 +19,20 @@ namespace Renderforge
         /// so Assembly.Location is empty and this is the only source of the mod folder.</summary>
         public static string ModDir { get; private set; }
         public DlssConfig Cfg => (DlssConfig)Config;
+
+        /// <summary>Reliable mission gate: the active Level must be Playing and own the game's tactical controller.</summary>
+        internal static bool TacticalActive
+        {
+            get
+            {
+                try
+                {
+                    Level level = GameUtl.CurrentLevel();
+                    return level != null && level.IsPlaying && level.GetComponent<TacticalLevelController>() != null;
+                }
+                catch { return false; }
+            }
+        }
 
         // Kept alive for the life of the mod: NGX holds the D3D11/D3D12 device it was taken from.
         private static Texture2D probeTex;
@@ -284,6 +299,27 @@ namespace Renderforge
             return "sharpness=" + m.Cfg.Sharpness;
         }
 
+        internal static void ApplyLutSettings()
+        {
+            var m = Instance;
+            if (m != null) m.AttachAndApply();
+        }
+
+        /// <summary>PPCLI/live A-B surface: preset = Off/RealisticDesaturated/Neutral/CinematicBleach/Vivid.</summary>
+        public static string SetLut(string preset, int strength)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            LutPreset value;
+            if (!Enum.TryParse(preset, true, out value)) return "bad LUT preset '" + preset + "'";
+            m.Cfg.Lut = value;
+            m.Cfg.LutStrength = Mathf.Clamp(strength, 0, 100);
+            m.AttachAndApply();
+            SaveConfig();
+            LutPanel.Sync();
+            return "lut=" + value + " strength=" + m.Cfg.LutStrength + " | " + GetStatus();
+        }
+
         /// <summary>PPCLI: {"member":"SetFrameGen","args":["X2"]} - Off / X2 / X3 / X4. Live next frame + saved.</summary>
         public static string SetFrameGen(string mode)
         {
@@ -465,7 +501,7 @@ namespace Renderforge
             + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset
             + " nrJitterSuppressed=" + NeuralRenderingSupport.ShouldEnable(Instance?.Cfg);
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
+        public static string GetStatus() => "provider=" + Upscalers.Running + " lut=" + (Instance?.Cfg?.Lut ?? LutPreset.Off) + " lutStrength=" + (Instance?.Cfg?.LutStrength ?? 0) + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 

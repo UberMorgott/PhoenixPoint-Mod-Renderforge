@@ -320,12 +320,16 @@ struct Xess12 : IDevice
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            OwnedSet12::Passthrough(cl, color, output);
+            bool wantPost = fp.sharpness > 0.0f || ColorGradeEnabled(fp.lutPreset, fp.lutStrength);
+            if (!wantPost || !sharpen.RunPassthrough(cl, color, output, owned, ring, srgbViews, false,
+                                                      fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx))
+                OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
         } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
-            bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(owned.out, ring);
+            bool grade = ColorGradeEnabled(fp.lutPreset, fp.lutStrength);
+            bool doPost = (fp.sharpness > 0.0f || grade) && sharpen.TargetEnsure(owned.out, ring, grade);
 
             // Motion vectors: Unity's texture is (current - previous) in UV space; the driver's negative scale
             // turns it into "current -> previous in pixels", which is exactly XeSS's convention (guide "Motion
@@ -339,7 +343,7 @@ struct Xess12 : IDevice
             ep.pColorTexture    = owned.color;
             ep.pVelocityTexture = owned.mv;
             ep.pDepthTexture    = owned.depth;
-            ep.pOutputTexture   = doSharpen ? sharpen.target : owned.out;
+            ep.pOutputTexture   = doPost ? sharpen.target : owned.out;
             ep.jitterOffsetX    = jitterSignX * fp.jitterX;
             ep.jitterOffsetY    = jitterSignY * fp.jitterY;
             ep.exposureScale    = fp.preExposure > 0.0f ? fp.preExposure : 1.0f;
@@ -356,7 +360,7 @@ struct Xess12 : IDevice
             lastEval = Map(r);
             if (r != XESS_RESULT_SUCCESS) { lastError = DLSS_ERR_XESS; RfDbg::Log("XeSS Execute: failed %d", (int)r); }
             // XeSS binds its own heap/root signature/PSO on this list; the sharpen pass re-binds all three.
-            else if (doSharpen) sharpen.Run(cl, owned.out, fp.sharpness, ring.ringIdx);
+            else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx);
             ring.Stamp(2);
             owned.Leave(cl, output);
         }

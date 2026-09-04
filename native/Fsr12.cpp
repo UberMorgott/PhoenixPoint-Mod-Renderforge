@@ -13,6 +13,7 @@
 #include "RenderforgeNative.h"
 #include "D3D12Ring.h"
 #include "D3D12Owned.h"
+#include "D3D12Sharpen.h"
 #include "FfxLoader.h"
 #include "D3D12Debug.h"
 
@@ -74,6 +75,7 @@ struct Fsr12 : IDevice
     ID3D12Device* device;
     D3D12Ring ring;
     OwnedSet12 owned;                          // the resources ffx touches; Unity's RTs are only copied (D3D12Owned.h)
+    SharpenPass12 post;                        // analytic color grade after FSR's built-in RCAS
     const ffxFunctions* ffx;
     ffxContext context;
     unsigned outW, outH;                       // upscaleSize of the live context
@@ -99,8 +101,9 @@ struct Fsr12 : IDevice
         memset(&descBackend, 0, sizeof(descBackend));
         ring.Zero();
         owned.Zero();
+        post.Zero();
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; initCode = 0;
-        sharpener = DLSS_SHARPEN_NONE;   // becomes RCAS per Evaluate when sharpness > 0; the shim's own pass is never used
+        sharpener = DLSS_SHARPEN_NONE;   // becomes RCAS per Evaluate when sharpness > 0; post may also grade
         sharpenDead = 0;
     }
 
@@ -143,6 +146,7 @@ struct Fsr12 : IDevice
 
         if (!g_unityD3D12) { device->Release(); device = NULL; return DLSS_ERR_NO_UNITY_IFACE; }
         ring.Attach(device);
+        post.Attach(device, this);
         RfDbg::Attach(device);
         ReadJitterSign("RENDERFORGE_FSR_JITTER_SIGN", &jitterSignX, &jitterSignY);
         RfDbg::Log("FSR: jitterSign=%d,%d", (int)jitterSignX, (int)jitterSignY);
@@ -281,18 +285,23 @@ struct Fsr12 : IDevice
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            OwnedSet12::Passthrough(cl, color, output);
+            bool wantPost = fp.sharpness > 0.0f || ColorGradeEnabled(fp.lutPreset, fp.lutStrength);
+            if (!wantPost || !post.RunPassthrough(cl, color, output, owned, ring, srgbViews, false,
+                                                   fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx))
+                OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
         } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
+            bool grade = ColorGradeEnabled(fp.lutPreset, fp.lutStrength);
+            bool doPost = grade && post.TargetEnsure(owned.out, ring, true);
             struct ffxDispatchDescUpscale d = {};
             d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
             d.commandList = cl;
             d.color         = ffxApiGetResourceDX12(owned.color, FFX_API_RESOURCE_STATE_COMPUTE_READ);
             d.depth         = ffxApiGetResourceDX12(owned.depth, FFX_API_RESOURCE_STATE_COMPUTE_READ);
             d.motionVectors = ffxApiGetResourceDX12(owned.mv,    FFX_API_RESOURCE_STATE_COMPUTE_READ);
-            d.output        = ffxApiGetResourceDX12(owned.out,   FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
+            d.output        = ffxApiGetResourceDX12(doPost ? post.target : owned.out, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
             // exposure / reactive / transparencyAndComposition stay empty: AUTO_EXPOSURE is on and both masks
             // are optional for FSR 3.1 and FSR 4 (super-resolution-ml.md:154).
 
@@ -333,6 +342,7 @@ struct Fsr12 : IDevice
             ffxReturnCode_t rc = ffx->Dispatch(&context, &d.header);
             lastEval = Map(rc);
             if (rc != FFX_API_RETURN_OK) lastError = DLSS_ERR_FFX;
+            else if (doPost) post.Run(cl, owned.out, 0.0f, fp.lutPreset, fp.lutStrength, ring.ringIdx);
             ring.Stamp(2);
             owned.Leave(cl, output);
         }
@@ -346,6 +356,7 @@ struct Fsr12 : IDevice
         DestroyContext();
         ring.Release();
         owned.Release();
+        post.Release();
         if (device) { device->Release(); device = NULL; }
         Zero();                 // the loaded AMD modules stay resident; FfxLoad is idempotent by design
     }

@@ -32,6 +32,7 @@ struct Device11 : IDevice
     ID3D11Resource* outUavRes;     // the resource outUav was built for
     unsigned scratchW, scratchH;
     DXGI_FORMAT scratchFmt;
+    bool csGrade;
 
     Device11() { Zero(); }
     void Zero()
@@ -39,7 +40,7 @@ struct Device11 : IDevice
         device = NULL; params = NULL; feature = NULL; ngxInitialized = 0; initCode = 0; needsDriver = 0;
         minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
         cs = NULL; cb = NULL; sampler = NULL; scratch = NULL; scratchSrv = NULL; outUav = NULL; outUavRes = NULL;
-        scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN;
+        scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN; csGrade = false;
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; sharpener = 0; sharpenDead = 0;
     }
 
@@ -56,31 +57,39 @@ struct Device11 : IDevice
         scratchW = scratchH = 0;
     }
 
-    int EnsureSharpenShader()
+    int EnsureSharpenShader(bool colorGrade)
     {
-        if (cs) return 1;
+        if (cs && csGrade == colorGrade) return 1;
+        if (cs) { cs->Release(); cs = NULL; }
         int kind = 0;
-        ID3DBlob* blob = CompileSharpenBlob(&kind);
+        ID3DBlob* blob = CompileSharpenBlob(&kind, false, colorGrade);
         if (!blob) { SharpenFail(); return 0; }
         HRESULT hr = device->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), NULL, &cs);
         blob->Release();
         if (FAILED(hr) || !cs) { SharpenFail(); return 0; }
+        csGrade = colorGrade;
         sharpener = kind;
-        D3D11_BUFFER_DESC bd = {};
-        bd.ByteWidth = 256; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        if (FAILED(device->CreateBuffer(&bd, NULL, &cb))) { SharpenFail(); return 0; }
-        D3D11_SAMPLER_DESC sd = {};
-        sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-        sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sd.MaxLOD = D3D11_FLOAT32_MAX;
-        if (FAILED(device->CreateSamplerState(&sd, &sampler))) { SharpenFail(); return 0; }
+        if (!cb) {
+            D3D11_BUFFER_DESC bd = {};
+            bd.ByteWidth = 256; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            if (FAILED(device->CreateBuffer(&bd, NULL, &cb))) { SharpenFail(); return 0; }
+        }
+        if (!sampler) {
+            D3D11_SAMPLER_DESC sd = {};
+            sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+            sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+            sd.MaxLOD = D3D11_FLOAT32_MAX;
+            if (FAILED(device->CreateSamplerState(&sd, &sampler))) { SharpenFail(); return 0; }
+        }
         return 1;
     }
 
-    void Sharpen(ID3D11DeviceContext* ctx, ID3D11Resource* output, float sharpness)
+    void Sharpen(ID3D11DeviceContext* ctx, ID3D11Resource* output, float sharpness,
+                 int lutPreset, float lutStrength)
     {
         if (sharpenDead || !output || !device) return;
-        if (!EnsureSharpenShader()) return;
+        bool grade = ColorGradeEnabled(lutPreset, lutStrength);
+        if (!EnsureSharpenShader(grade)) return;
 
         ID3D11Texture2D* tex = NULL;
         if (FAILED(output->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&tex)) || !tex) { SharpenFail(); return; }
@@ -109,9 +118,19 @@ struct Device11 : IDevice
         ctx->CopyResource(scratch, output);
         D3D11_MAPPED_SUBRESOURCE m = {};
         if (SUCCEEDED(ctx->Map(cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
-            FillSharpenConstants(m.pData, sharpener, sharpness, od.Width, od.Height);
+            FillSharpenConstants(m.pData, sharpener, sharpness, od.Width, od.Height, lutPreset, lutStrength);
             ctx->Unmap(cb, 0);
-        }
+        } else { SharpenFail(); return; }
+
+        // NGX and Unity share this immediate context. Preserve every CS slot we touch, then release the Get refs.
+        ID3D11ComputeShader* oldCs = NULL; ID3D11ClassInstance* oldClasses[256] = {}; UINT oldClassCount = 256;
+        ID3D11Buffer* oldCb = NULL; ID3D11SamplerState* oldSampler = NULL;
+        ID3D11ShaderResourceView* oldSrv = NULL; ID3D11UnorderedAccessView* oldUav = NULL;
+        ctx->CSGetShader(&oldCs, oldClasses, &oldClassCount);
+        ctx->CSGetConstantBuffers(0, 1, &oldCb);
+        ctx->CSGetSamplers(0, 1, &oldSampler);
+        ctx->CSGetShaderResources(0, 1, &oldSrv);
+        ctx->CSGetUnorderedAccessViews(0, 1, &oldUav);
         ctx->CSSetShader(cs, NULL, 0);
         ctx->CSSetConstantBuffers(0, 1, &cb);
         ctx->CSSetSamplers(0, 1, &sampler);
@@ -119,14 +138,18 @@ struct Device11 : IDevice
         ctx->CSSetUnorderedAccessViews(0, 1, &outUav, NULL);
         unsigned g = SharpenGroupSize(sharpener);
         ctx->Dispatch((od.Width + g - 1) / g, (od.Height + g - 1) / g, 1);
-        // Unbind: the output must not stay bound as a UAV when Unity samples it for the present blit.
+        // Unbind our read/write hazard first, then restore the exact caller state.
         ID3D11UnorderedAccessView* nullUav = NULL; ID3D11ShaderResourceView* nullSrv = NULL;
-        ID3D11Buffer* nullCb = NULL; ID3D11SamplerState* nullSs = NULL;
         ctx->CSSetUnorderedAccessViews(0, 1, &nullUav, NULL);
         ctx->CSSetShaderResources(0, 1, &nullSrv);
-        ctx->CSSetConstantBuffers(0, 1, &nullCb);
-        ctx->CSSetSamplers(0, 1, &nullSs);
-        ctx->CSSetShader(NULL, NULL, 0);
+        ctx->CSSetShader(oldCs, oldClasses, oldClassCount);
+        ctx->CSSetConstantBuffers(0, 1, &oldCb);
+        ctx->CSSetSamplers(0, 1, &oldSampler);
+        ctx->CSSetShaderResources(0, 1, &oldSrv);
+        ctx->CSSetUnorderedAccessViews(0, 1, &oldUav, NULL);
+        if (oldUav) oldUav->Release(); if (oldSrv) oldSrv->Release();
+        if (oldSampler) oldSampler->Release(); if (oldCb) oldCb->Release(); if (oldCs) oldCs->Release();
+        for (UINT i = 0; i < oldClassCount; ++i) if (oldClasses[i]) oldClasses[i]->Release();
     }
 
     int Init(void* nativeResource, const wchar_t* inDllDir, const wchar_t* logDir) override
@@ -226,7 +249,11 @@ struct Device11 : IDevice
         device->GetImmediateContext(&ctx);
         if (!ctx) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; return; }
         if (passthrough) {
-            if (SameSize(color, output)) { ctx->CopyResource(output, color); lastEval = NVSDK_NGX_Result_Success; }
+            if (SameSize(color, output)) {
+                ctx->CopyResource(output, color); lastEval = NVSDK_NGX_Result_Success;
+                if (fp.sharpness > 0.0f || ColorGradeEnabled(fp.lutPreset, fp.lutStrength))
+                    Sharpen(ctx, output, fp.sharpness, fp.lutPreset, fp.lutStrength);
+            }
             else { lastEval = NVSDK_NGX_Result_FAIL_InvalidParameter; lastError = DLSS_ERR_PASSTHROUGH_SIZE; }
         } else if (!feature || !params) {
             lastEval = NVSDK_NGX_Result_FAIL_FeatureNotFound; lastError = (int)lastEval;
@@ -248,7 +275,8 @@ struct Device11 : IDevice
             ep.InFrameTimeDeltaInMsec = fp.dtMs;
             lastEval = NGX_D3D11_EVALUATE_DLSS_EXT(ctx, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
-            else if (fp.sharpness > 0.0f) Sharpen(ctx, output, fp.sharpness);
+            else if (fp.sharpness > 0.0f || ColorGradeEnabled(fp.lutPreset, fp.lutStrength))
+                Sharpen(ctx, output, fp.sharpness, fp.lutPreset, fp.lutStrength);
         }
         ctx->Release();
     }

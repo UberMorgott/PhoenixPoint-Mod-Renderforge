@@ -192,17 +192,21 @@ struct Device12 : IDevice
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            OwnedSet12::Passthrough(cl, color, output);
+            bool wantPost = fp.sharpness > 0.0f || ColorGradeEnabled(fp.lutPreset, fp.lutStrength);
+            if (!wantPost || !sharpen.RunPassthrough(cl, color, output, owned, ring, srgbViews, nr.Active(),
+                                                      fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx))
+                OwnedSet12::Passthrough(cl, color, output);   // fail open: keep the reconstructed frame
             lastEval = NVSDK_NGX_Result_Success;
         } else if (!owned.Ensure(device, ring, color, output, srgbViews, nr.Active())) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
-            // With sharpening on, NGX writes sharpen.target and the sharpen pass produces owned.out (D3D12Sharpen.h).
-            bool doSharpen = fp.sharpness > 0.0f && sharpen.TargetEnsure(owned.out, ring);
+            bool grade = ColorGradeEnabled(fp.lutPreset, fp.lutStrength);
+            // With a post effect on, NGX writes sharpen.target and the shared pass produces owned.out.
+            bool doPost = (fp.sharpness > 0.0f || grade) && sharpen.TargetEnsure(owned.out, ring, grade);
 
             NVSDK_NGX_D3D12_DLSS_Eval_Params ep = {};
             ep.Feature.pInColor = owned.color;
-            ep.Feature.pInOutput = doSharpen ? sharpen.target : owned.out;
+            ep.Feature.pInOutput = doPost ? sharpen.target : owned.out;
             ep.Feature.InSharpness = 0;   // deprecated in SDK 310; our own pass uses fp.sharpness
             ep.pInDepth = owned.depth;
             ep.pInMotionVectors = owned.mv;
@@ -228,7 +232,7 @@ struct Device12 : IDevice
             // NGX "always transitions buffers back to these known states" (guide p.14 3.4), so Leave starts from them.
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
-            else if (doSharpen) sharpen.Run(cl, owned.out, fp.sharpness, ring.ringIdx);
+            else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx);
             ring.Stamp(2);
             owned.Leave(cl, output, nrSucceeded);
         }

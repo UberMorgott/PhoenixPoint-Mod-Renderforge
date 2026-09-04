@@ -21,6 +21,9 @@ namespace Renderforge
     public enum NeuralRenderingMode { Off, Auto }
     public enum NeuralRenderingStyle { Style0, Style1, Style2 }
 
+    /// <summary>Original analytic colour grades. Ordinals cross the managed/native ABI; append only.</summary>
+    public enum LutPreset { Off, RealisticDesaturated, Neutral, CinematicBleach, Vivid }
+
     /// <summary>Public fields = the in-game mod settings UI + ModConfig.json (ModConfig.GetConfigFields).
     /// [ConfigField] = the English label; GetConfigFields swaps in Russian when the game runs in Russian
     /// (same shape as PerkOracle's OracleConfig.GetConfigFields, minus the CSV: two languages, inline).</summary>
@@ -31,13 +34,17 @@ namespace Renderforge
         private static readonly HashSet<string> HiddenFromModSettings = new HashSet<string>
         {
             nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen), nameof(NeuralRendering),
-            nameof(LimitFrameRate), nameof(FrameRateLimit)
+            nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength)
         };
 
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance")]
         public RenderforgeMode Mode = RenderforgeMode.Auto;
         [ConfigField("Sharpness", "0 = off … 100. RCAS pass after DLSS; also a slider in Options → Graphics.")]
         public int Sharpness = 40;                      // 0..100 -> RCAS 0..1, applied every frame, live
+        [ConfigField("LUT filter", "Original tactical-mission colour grade applied after temporal reconstruction. Also in Options → Graphics.")]
+        public LutPreset Lut = LutPreset.Off;
+        [ConfigField("LUT strength", "0 = original image … 100 = full grade. Applied live.")]
+        public int LutStrength = 100;
         [ConfigField("Show DLSS in Graphics options")]
         public bool ShowInGraphicsOptions = true;
         // Pressed together with Ctrl+Alt (fixed chord, like ContentTool's fit bench Ctrl+Alt+B). No F-keys/Insert/End:
@@ -83,6 +90,8 @@ namespace Renderforge
         {
             { nameof(Mode), new[] { "Режим DLSS", "Выкл, Авто (по разрешению), DLAA, Quality, Balanced, Performance, Ultra Performance" } },
             { nameof(Sharpness), new[] { "Резкость", "0 = выкл … 100. Проход RCAS после DLSS; также ползунок в Настройки → Графика." } },
+            { nameof(Lut), new[] { "LUT-фильтр", "Оригинальная цветокоррекция тактических миссий после темпоральной реконструкции; также в Настройки → Графика." } },
+            { nameof(LutStrength), new[] { "Сила LUT", "0 = оригинал … 100 = полный эффект. Применяется сразу." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
             { nameof(OverlayHotkey), new[] { "Клавиша оверлея (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

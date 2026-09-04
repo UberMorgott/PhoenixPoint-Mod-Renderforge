@@ -84,7 +84,8 @@ static int RunD3D11(const wchar_t* dllDir, const wchar_t* cwd)
     const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
     for (int i = 0; i < 3; ++i) {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f);
+        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f,
+                      i == 1 ? DLSS_LUT_VIVID : DLSS_LUT_OFF, i == 1 ? 1.0f : 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         char name[32]; sprintf_s(name, "Evaluate[%d]", i);
@@ -99,11 +100,12 @@ static int RunD3D11(const wchar_t* dllDir, const wchar_t* cwd)
     Dlss_Passthrough(1);
     {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, color, NULL, NULL, out2, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, color, NULL, NULL, out2, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f,
+                      DLSS_LUT_CINEMATIC_BLEACH, 0.5f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         Report("Passthrough", e);
-        Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f, DLSS_LUT_OFF, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         printf("Passthrough size mismatch -> lastError=%d (expect %d)\n", Dlss_LastError(), DLSS_ERR_PASSTHROUGH_SIZE);
         if (Dlss_LastError() != DLSS_ERR_PASSTHROUGH_SIZE) g_failed = 1;
@@ -304,7 +306,8 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd, int neuralRenderi
     const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
     for (int i = 0; i < 3; ++i) {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f);
+        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f,
+                      i == 1 ? DLSS_LUT_VIVID : DLSS_LUT_OFF, i == 1 ? 1.0f : 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         char name[32]; sprintf_s(name, "Evaluate[%d]", i);
@@ -322,7 +325,7 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd, int neuralRenderi
     if (!outSrgb) return 1;
     {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, color, depth, mv, outSrgb, jit[0][0], jit[0][1], (float)RW, (float)RH, 0, 16.6f, RW, RH, 1.0f, 0.5f);
+        Dlss_SetFrame(slot, color, depth, mv, outSrgb, jit[0][0], jit[0][1], (float)RW, (float)RH, 0, 16.6f, RW, RH, 1.0f, 0.5f, DLSS_LUT_OFF, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         Report("Evaluate[sRGB]", e);
@@ -339,11 +342,12 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd, int neuralRenderi
     Dlss_Passthrough(1);
     {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, color, NULL, NULL, out2, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, color, NULL, NULL, out2, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f,
+                      DLSS_LUT_CINEMATIC_BLEACH, 0.5f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         Report("Passthrough", e);
-        Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, RW, RH, 1.0f, 0.0f, DLSS_LUT_OFF, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         printf("Passthrough size mismatch -> lastError=%d (expect %d)\n", Dlss_LastError(), DLSS_ERR_PASSTHROUGH_SIZE);
         if (Dlss_LastError() != DLSS_ERR_PASSTHROUGH_SIZE) g_failed = 1;
@@ -366,7 +370,7 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd, int neuralRenderi
     Report("Create[sRGB views]", c);
     {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, colorSrgb, depth, mv, outSrgb, jit[0][0], jit[0][1], (float)RW, (float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, colorSrgb, depth, mv, outSrgb, jit[0][0], jit[0][1], (float)RW, (float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f, DLSS_LUT_OFF, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         Report("Evaluate[sRGB views]", e);
@@ -452,7 +456,8 @@ static int RunFsr(const wchar_t* dllDir, const wchar_t* cwd)
     const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
     for (int i = 0; i < 3; ++i) {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], -(float)RW, -(float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f);
+        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], -(float)RW, -(float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f,
+                      i == 1 ? DLSS_LUT_VIVID : DLSS_LUT_OFF, i == 1 ? 1.0f : 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         char name[32]; sprintf_s(name, "Dispatch[%d]", i);
@@ -481,7 +486,7 @@ static int RunFsr(const wchar_t* dllDir, const wchar_t* cwd)
     Report("Create[sRGB views]", c);
     {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, colorSrgb, depth, mv, outSrgb, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, colorSrgb, depth, mv, outSrgb, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f, DLSS_LUT_OFF, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         Report("Dispatch[sRGB views]", e);
@@ -576,7 +581,8 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
     const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
     for (int i = 0; i < 3; ++i) {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], -(float)RW, -(float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f);
+        Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], -(float)RW, -(float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f,
+                      i == 1 ? DLSS_LUT_VIVID : DLSS_LUT_OFF, i == 1 ? 1.0f : 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         char name[32]; sprintf_s(name, "Execute[%d]", i);
@@ -611,7 +617,7 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
     Report("Create[sRGB views]", c);
     {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, colorSrgb, depth, mv, out, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f);
+        Dlss_SetFrame(slot, colorSrgb, depth, mv, out, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.0f, DLSS_LUT_OFF, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         Report("Execute[sRGB views]", e);
@@ -630,7 +636,7 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
     Report("Create[FP16 HDR]", c);
     {
         void* slot = Dlss_GetFrameSlot();
-        Dlss_SetFrame(slot, colorHalf, depth, mv, outHalf, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.5f);
+        Dlss_SetFrame(slot, colorHalf, depth, mv, outHalf, jit[0][0], jit[0][1], -(float)RW, -(float)RH, 1, 16.6f, RW, RH, 1.0f, 0.5f, DLSS_LUT_OFF, 0.0f);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         Report("Execute[FP16 HDR]", e);

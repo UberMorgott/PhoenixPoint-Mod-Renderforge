@@ -38,6 +38,33 @@ static const char kRcasHlsl[] =
 "  dst[id.xy] = float4(c, src.Load(int3(p,0)).a);\n"
 "}\n";
 
+// Analytic color grading is deliberately code-only: no third-party LUT data or textures. The preset coefficients
+// are original, conservative transforms in display-referred RGB. FP16 overbrights are preserved (only negatives
+// are clipped); UNORM UAVs clamp naturally on store. RCAS is folded into this shader so LUT+sharpen stays one pass.
+static const char kColorGradeHlsl[] =
+"Texture2D<float4> src : register(t0);\n"
+"RWTexture2D<float4> dst : register(u0);\n"
+"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; float2 pad; };\n"
+"float3 L(int2 p) { p=clamp(p,int2(0,0),int2(int(W)-1,int(H)-1)); return src.Load(int3(p,0)).rgb; }\n"
+"float3 Grade(float3 c) {\n"
+"  float y=dot(c,float3(0.2126,0.7152,0.0722)); float3 g=c;\n"
+"  if (preset==1) { g=lerp(y.xxx,c,0.72); g=(g-0.5)*0.96+0.5; g*=float3(0.98,1.0,1.02); }\n"
+"  else if (preset==2) { g=lerp(y.xxx,c,0.96); g=(g-0.5)*1.03+0.5; g*=float3(1.01,1.0,0.99); }\n"
+"  else if (preset==3) { g=lerp(y.xxx,c,0.42); g=(g-0.5)*1.18+0.5; g*=float3(0.98,1.0,1.04); g+=float3(0.015,0.005,-0.005); }\n"
+"  else if (preset==4) { g=lerp(y.xxx,c,1.28); g=(g-0.5)*1.08+0.5; g*=float3(1.03,1.0,0.98); }\n"
+"  return lerp(c,max(g,0.0),strength);\n"
+"}\n"
+"[numthreads(8,8,1)] void main(uint3 id:SV_DispatchThreadID) {\n"
+"  if(id.x>=W||id.y>=H)return; int2 p=int2(id.xy); float3 e=L(p), c=e;\n"
+"  if(sharpness>0.0){ float3 b=L(p+int2(0,-1)),d=L(p+int2(-1,0)),f=L(p+int2(1,0)),h=L(p+int2(0,1));\n"
+"    float bL=b.b*.5+(b.r*.5+b.g),dL=d.b*.5+(d.r*.5+d.g),eL=e.b*.5+(e.r*.5+e.g);\n"
+"    float fL=f.b*.5+(f.r*.5+f.g),hL=h.b*.5+(h.r*.5+h.g); float mx=max(max(max(bL,dL),max(eL,fL)),hL),mn=min(min(min(bL,dL),min(eL,fL)),hL);\n"
+"    float nz=1.0-0.5*saturate(abs(.25*(bL+dL+fL+hL)-eL)/max(mx-mn,1e-5));\n"
+"    float3 mn4=min(min(b,d),min(f,h)),mx4=max(max(b,d),max(f,h));\n"
+"    float3 hitMin=mn4/max(4.0*mx4,1e-5),hitMax=(1.0-mx4)/min(4.0*mn4-4.0,-1e-5);\n"
+"    float3 lr=max(-hitMin,hitMax); float l=max(-0.1875,min(max(max(lr.r,lr.g),lr.b),0.0))*con*nz; c=(l*(b+d+f+h)+e)/(4.0*l+1.0); }\n"
+"  dst[id.xy]=float4(Grade(c),src.Load(int3(p,0)).a); }\n";
+
 // NIS sharpen-only: the NIS_Main.hlsl example's bindings + NVSharpen entry. Block/group sizes = NISOptimizer(isUpscaling=false,
 // NVIDIA_Generic) in NIS_Config.h (32 x 32, 128 threads). NIS_HDR_MODE 0: the DLSS output is display-referred LDR;
 // NIS_HDR_MODE 1 (linear) when the output is linear FP16 (D3D12HalfColor) - CompileNis prepends the define.
@@ -80,8 +107,13 @@ static ID3DBlob* CompileNis(bool hdr)
     return blob;
 }
 
-ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr)
+ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr, bool colorGrade)
 {
+    if (colorGrade) {
+        ID3DBlob* grade = Compile(kColorGradeHlsl, sizeof(kColorGradeHlsl) - 1, "analytic_color_grade");
+        if (grade && outKind) *outKind = DLSS_SHARPEN_RCAS;
+        return grade;
+    }
     ID3DBlob* blob = CompileNis(hdr);
     if (blob) { if (outKind) *outKind = DLSS_SHARPEN_NIS; return blob; }
     blob = Compile(kRcasHlsl, sizeof(kRcasHlsl) - 1, "rcas");
@@ -89,10 +121,15 @@ ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr)
     return blob;
 }
 
-void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h, bool hdr)
+void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
+                          int lutPreset, float lutStrength, bool hdr)
 {
     memset(dst256, 0, 256);
-    if (kind == DLSS_SHARPEN_NIS) {
+    if (ColorGradeEnabled(lutPreset, lutStrength)) {
+        float* fp = (float*)dst256; unsigned* up = (unsigned*)dst256;
+        fp[0] = sharpness; fp[1] = lutStrength; up[2] = w; up[3] = h; up[4] = (unsigned)lutPreset;
+        fp[5] = exp2f(-2.0f * (1.0f - sharpness));
+    } else if (kind == DLSS_SHARPEN_NIS) {
         NISConfig cfg = {};
         NVSharpenUpdateConfig(cfg, sharpness, 0, 0, w, h, w, h, 0, 0, hdr ? NISHDRMode::Linear : NISHDRMode::None);
         memcpy(dst256, &cfg, sizeof(cfg));

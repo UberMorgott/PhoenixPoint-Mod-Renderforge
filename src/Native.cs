@@ -99,12 +99,12 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetFrameSlot();
 
-        /// <summary>sharpness 0..1 = the shim's RCAS pass on `output` after NGX (0 = skipped). ABI unchanged since 0.1.</summary>
+        /// <summary>Sharpness and original analytic LUT grading run on `output` after temporal reconstruction.</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_SetFrame(IntPtr slot, IntPtr color, IntPtr depth, IntPtr mv, IntPtr output,
             float jitterX, float jitterY, float mvScaleX, float mvScaleY,
             int reset, float dtMs, uint renderW, uint renderH,
-            float preExposure, float sharpness);
+            float preExposure, float sharpness, int lutPreset, float lutStrength);
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetRenderEventFunc();

@@ -27,6 +27,8 @@ struct FrameParams
     unsigned renderW, renderH;
     float preExposure;
     float sharpness;      // 0..1, our own post pass; NGX InSharpness stays 0 (deprecated in SDK 310)
+    int   lutPreset;      // DLSS_LUT_*; analytic color grade after reconstruction/sharpen
+    float lutStrength;    // 0..1; zero or DLSS_LUT_OFF skips color grading
     float nearZ, farZ, fovY;   // camera near/far/vertical FOV (radians) from Dlss_SetCamera; FSR needs them, NGX does not
 };
 

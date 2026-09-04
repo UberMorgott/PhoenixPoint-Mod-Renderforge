@@ -1,14 +1,13 @@
 // D3D12Sharpen.h - the shim's own sharpen compute pass on D3D12, shared by every D3D12 backend that has no
-// built-in sharpening (NGX DLSS, XeSS; FSR runs its own RCAS inside the dispatch and never uses this).
+// built-in sharpening (NGX DLSS, XeSS; FSR uses it for color grading after its own RCAS).
 //
 // The upscaler writes OUR `target` instead of Unity's RT whenever the pass runs, and the pass then reads it (SRV)
 // and writes Unity's RT (UAV). Descriptors are written straight into the shader-visible heap, 2 per ring slot
 // (SRV of target at +0, UAV of Unity's output at +1). Constants live in one persistently mapped upload buffer,
 // 256 B per ring slot (a root CBV needs 256-byte alignment).
 //
-// NO BARRIER IS EVER ISSUED ON A UNITY RESOURCE HERE. Unity owns the state of its own RenderTextures; a transition
-// of our own with a guessed StateBefore removed the device with DXGI_ERROR_DEVICE_REMOVED / INVALID_CALL
-// (2026-09-02, bisected in-game). `target` is ours, so transitioning it is safe.
+// Normal upscaler post-processing never barriers a Unity resource. The passthrough helper is the sole exception:
+// it uses the same declared Unity states as D3D12Owned.h and restores them before submission returns.
 #pragma once
 
 #include <d3d12.h>
@@ -16,6 +15,7 @@
 #include "Device.h"
 #include "RenderforgeNative.h"
 #include "D3D12Ring.h"
+#include "D3D12Owned.h"
 #include "D3D12Debug.h"
 #include "Sharpen.h"
 
@@ -33,6 +33,7 @@ struct SharpenPass12
     unsigned targetW, targetH;
     DXGI_FORMAT targetFmt;
     bool psoHdr;                    // the PSO was compiled with NIS_HDR_MODE linear (FP16 output, D3D12HalfColor)
+    bool psoGrade;                  // analytic RCAS + color-grade PSO instead of NIS/RCAS sharpen-only
     ID3D12Resource* logged;         // RENDERFORGE_D3D12_DEBUG: output whose pass was already logged
 
     SharpenPass12() { Zero(); }
@@ -41,7 +42,7 @@ struct SharpenPass12
     {
         device = NULL; owner = NULL;
         rootSig = NULL; pso = NULL; descHeap = NULL; descSize = 0; cb = NULL; cbCpu = NULL;
-        target = NULL; targetW = targetH = 0; targetFmt = DXGI_FORMAT_UNKNOWN; psoHdr = false;
+        target = NULL; targetW = targetH = 0; targetFmt = DXGI_FORMAT_UNKNOWN; psoHdr = false; psoGrade = false;
         logged = NULL;
     }
 
@@ -64,13 +65,13 @@ struct SharpenPass12
 
     // hdr = the output format is FP16 (SharpenIsHdr): the PSO variant follows it. A flip (D3D12HalfColor toggled
     // live) rebuilds only the PSO; the caller has waited on the ring. Everything else is created once.
-    bool Ensure(bool hdr)
+    bool Ensure(bool hdr, bool colorGrade)
     {
-        if (pso && psoHdr == hdr) return true;
+        if (pso && psoHdr == hdr && psoGrade == colorGrade) return true;
         if (owner->sharpenDead || !device) return false;
 
         int kind = 0;
-        ID3DBlob* blob = CompileSharpenBlob(&kind, hdr);
+        ID3DBlob* blob = CompileSharpenBlob(&kind, hdr, colorGrade);
         if (!blob) { Fail(); return false; }
         if (pso) { pso->Release(); pso = NULL; }
         if (rootSig) {
@@ -81,7 +82,7 @@ struct SharpenPass12
             HRESULT hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
             blob->Release();
             if (FAILED(hr)) { Fail(); return false; }
-            psoHdr = hdr; owner->sharpener = kind;
+            psoHdr = hdr; psoGrade = colorGrade; owner->sharpener = kind;
             return true;
         }
 
@@ -131,7 +132,7 @@ struct SharpenPass12
         hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
         blob->Release();
         if (FAILED(hr)) { Fail(); return false; }
-        psoHdr = hdr;
+        psoHdr = hdr; psoGrade = colorGrade;
 
         D3D12_DESCRIPTOR_HEAP_DESC hd = {};
         hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -169,7 +170,7 @@ struct SharpenPass12
 
     // Our own upscaler target, one per output size/format. Returns false (and disables the pass) when it cannot be
     // made, in which case the caller lets the upscaler write Unity's RT directly and simply skips sharpening.
-    bool TargetEnsure(ID3D12Resource* output, D3D12Ring& ring)
+    bool TargetEnsure(ID3D12Resource* output, D3D12Ring& ring, bool colorGrade = false)
     {
         if (owner->sharpenDead || !output || !device) return false;
 
@@ -178,10 +179,15 @@ struct SharpenPass12
         // and garbage at runtime, so this is the D3D12 twin of the D3D11 CreateUnorderedAccessView guard.
         if (!(od.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) { Fail(); return false; }
         unsigned w = (unsigned)od.Width, h = od.Height;
-        if (target && targetW == w && targetH == h && targetFmt == od.Format && pso) return true;
+        bool sameTarget = target && targetW == w && targetH == h && targetFmt == od.Format;
+        if (sameTarget && pso
+            && psoHdr == SharpenIsHdr(od.Format) && psoGrade == colorGrade) return true;
 
-        if (target) { ring.WaitIdle(); target->Release(); target = NULL; }
-        if (!Ensure(SharpenIsHdr(od.Format))) return false;
+        // PSOs/resources referenced by prior ring slots must stay alive until their fences retire.
+        if (target || pso) ring.WaitIdle();
+        if (!Ensure(SharpenIsHdr(od.Format), colorGrade)) return false;
+        if (sameTarget) return true;
+        if (target) { target->Release(); target = NULL; }
         D3D12_HEAP_PROPERTIES hp = {};
         hp.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC td = od;
@@ -196,16 +202,19 @@ struct SharpenPass12
     // Runs on the SAME command list as the upscale, immediately after it: reads `target` (which the upscaler has
     // just written) and writes Unity's RT. Upscalers clobber the command-list state, so everything is re-bound.
     // `slot` is the ring index being recorded into.
-    void Run(ID3D12GraphicsCommandList* cl, ID3D12Resource* output, float sharpness, int slot)
+    void Run(ID3D12GraphicsCommandList* cl, ID3D12Resource* output, float sharpness,
+             int lutPreset, float lutStrength, int slot)
     {
         unsigned w = targetW, h = targetH;
         DXGI_FORMAT viewFmt = SharpenViewFormat(targetFmt);
         if (logged != output) {
             logged = output;
-            RfDbg::Log("Sharpen: kind=%d sharpness=%.2f fmt=%d viewFmt=%d hdr=%d %ux%u slot=%d", owner->sharpener, sharpness, (int)targetFmt, (int)viewFmt, (int)psoHdr, w, h, slot);
+            RfDbg::Log("Post: kind=%d sharpness=%.2f lut=%d strength=%.2f fmt=%d viewFmt=%d hdr=%d %ux%u slot=%d",
+                       owner->sharpener, sharpness, lutPreset, lutStrength, (int)targetFmt, (int)viewFmt, (int)psoHdr, w, h, slot);
         }
 
-        FillSharpenConstants(cbCpu + 256 * (size_t)slot, owner->sharpener, sharpness, w, h, psoHdr);
+        FillSharpenConstants(cbCpu + 256 * (size_t)slot, owner->sharpener, sharpness, w, h,
+                             lutPreset, lutStrength, psoHdr);
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = descHeap->GetCPUDescriptorHandleForHeapStart();
         D3D12_GPU_DESCRIPTOR_HANDLE gpu = descHeap->GetGPUDescriptorHandleForHeapStart();
@@ -240,6 +249,32 @@ struct SharpenPass12
 
         // target goes back to the state it was created in, so every list starts from the same known state.
         Barrier(cl, target, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
+    // Full-resolution passthrough with a post effect: copy Unity color into our target, run the same post shader
+    // into owned.out, then copy to Unity output. Unity resources are restored to their declared states.
+    bool RunPassthrough(ID3D12GraphicsCommandList* cl, ID3D12Resource* color, ID3D12Resource* output,
+                        OwnedSet12& owned, D3D12Ring& ring, bool srgbViews, bool neuralRendering,
+                        float sharpness, int lutPreset, float lutStrength, int slot)
+    {
+        bool grade = ColorGradeEnabled(lutPreset, lutStrength);
+        if (!owned.Ensure(device, ring, color, output, srgbViews, neuralRendering)
+            || !TargetEnsure(owned.out, ring, grade)) return false;
+
+        Barrier(cl, color, OwnedSet12::kUnityColor, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        Barrier(cl, target, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+        cl->CopyResource(target, color);
+        Barrier(cl, target, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Barrier(cl, color, D3D12_RESOURCE_STATE_COPY_SOURCE, OwnedSet12::kUnityColor);
+
+        Barrier(cl, owned.out, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Run(cl, owned.out, sharpness, lutPreset, lutStrength, slot);
+        Barrier(cl, owned.out, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        Barrier(cl, output, OwnedSet12::kUnityOut, D3D12_RESOURCE_STATE_COPY_DEST);
+        cl->CopyResource(output, owned.out);
+        Barrier(cl, output, D3D12_RESOURCE_STATE_COPY_DEST, OwnedSet12::kUnityOut);
+        Barrier(cl, owned.out, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+        return true;
     }
 
     // GPU must be idle (the owner waits on its ring first).

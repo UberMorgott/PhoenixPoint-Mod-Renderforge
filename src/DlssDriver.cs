@@ -166,6 +166,9 @@ namespace Renderforge
 
         private void Step()
         {
+            var cfg = RenderforgeMod.Instance?.Cfg;
+            bool lutActive = RenderforgeMod.TacticalActive && cfg != null && cfg.Lut != LutPreset.Off && cfg.LutStrength > 0;
+            bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive;
             switch (gen)
             {
                 case Gen.Idle:
@@ -178,7 +181,7 @@ namespace Renderforge
                         UpscalerKind k = switchTo; switchTo = UpscalerKind.Off;
                         RenderforgeMod.ReinitNative(k);
                     }
-                    if (wantMode != RenderforgeMode.Off && cam != null && cam.isActiveAndEnabled && RenderforgeMod.Available) StartGeneration();
+                    if (needsPipeline && cam != null && cam.isActiveAndEnabled && RenderforgeMod.Available) StartGeneration();
                     break;
                 case Gen.Creating:
                     if (++genFrames < 2) break;
@@ -205,7 +208,7 @@ namespace Renderforge
                     if (cam == null) { Fail("scene camera destroyed while live"); break; }
                     // Bound camera deactivated (CameraManager swapped to another one): a present camera left on would
                     // blit a stale outRT over whatever renders now. Release; Idle re-creates on the rebound camera.
-                    if (!cam.isActiveAndEnabled || wantMode == RenderforgeMode.Off || wantMode != liveMode || !SameSizeClass(liveView, wantView)
+                    if (!cam.isActiveAndEnabled || !needsPipeline || wantMode != liveMode || !SameSizeClass(liveView, wantView)
                         || Screen.width != outW || Screen.height != outH || liveMvJittered != WantMvJittered || liveSrgbViews != WantSrgbViews || liveColorDesc != WantColorDesc || liveHalfColor != WantHalfColor)
                     {
                         BeginRelease();
@@ -244,7 +247,8 @@ namespace Renderforge
             var nrConfig = RenderforgeMod.Instance?.Cfg;
             liveNrKey = NeuralRenderingSupport.SettingsKey(nrConfig);
             NeuralRenderingSupport.ConfigureNative(nrConfig);
-            passthrough = liveView == DebugView.Passthrough;
+            // A LUT with the upscaler Off still uses this full-resolution copy path, then grades the copy.
+            passthrough = liveView == DebugView.Passthrough || liveMode == RenderforgeMode.Off;
             wantsFeature = !passthrough;
             quality = QualityFor(liveMode, outH);
             renderW = outW; renderH = outH;
@@ -444,6 +448,9 @@ namespace Renderforge
                 // current -> previous in pixels, hence InMVScale = (-renderW, -renderH).
                 // Sharpness = our RCAS pass in the shim (NGX InSharpness is deprecated in SDK 310), read live: slider/100.
                 float sharp = passthrough ? 0f : Mathf.Clamp01((RenderforgeMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
+                var cfg = RenderforgeMod.Instance?.Cfg;
+                int lutPreset = RenderforgeMod.TacticalActive && cfg != null ? Mathf.Clamp((int)cfg.Lut, 0, 4) : 0;
+                float lutStrength = lutPreset == 0 ? 0f : Mathf.Clamp01((cfg?.LutStrength ?? 0) / 100f);
                 // FSR needs the camera frustum (cameraNear/Far/FovAngleVertical); NGX ignores it. Cached in the
                 // shim and copied into the frame slot, so the ABI of Dlss_SetFrame stays untouched.
                 Native.SetCamera(cam.nearClipPlane, cam.farClipPlane, cam.fieldOfView * Mathf.Deg2Rad);
@@ -453,7 +460,7 @@ namespace Renderforge
                 reportJx = rjx; reportJy = rjy;
                 IntPtr slot = Native.Dlss_GetFrameSlot();
                 Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, rjx, rjy, -renderW, -renderH,
-                    reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp);
+                    reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp, lutPreset, lutStrength);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
                 if (FrameGen.Live && !FrameGen.HoldPrepare)

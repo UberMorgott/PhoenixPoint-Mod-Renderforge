@@ -5,14 +5,18 @@
 #include <d3dcommon.h>
 #include <dxgiformat.h>
 
-// Compiles the sharpen shader. Returns the DXBC blob (caller Release()s it) and writes
+// Compiles the post shader. When colorGrade is false this is the original NIS/RCAS sharpen path; when true it is
+// one analytic RCAS + color-grade pass. Returns the DXBC blob (caller Release()s it) and writes
 // DLSS_SHARPEN_NIS or DLSS_SHARPEN_RCAS to *outKind. Returns NULL on failure (*outKind untouched).
 // hdr: the output is linear FP16 (D3D12HalfColor) -> NIS_HDR_MODE_LINEAR instead of the display-referred LDR variant.
-ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr = false);
+ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr = false, bool colorGrade = false);
 
 // Fills a 256-byte constant block for the compiled shader `kind`. w/h = output texture size.
-// sharpness is 0..1 (0 means the caller should skip the pass entirely). hdr must match the compiled blob.
-void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h, bool hdr = false);
+// sharpness is 0..1; zero still runs when a color grade is active. hdr must match the compiled blob.
+void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
+                          int lutPreset = 0, float lutStrength = 0.0f, bool hdr = false);
+
+inline bool ColorGradeEnabled(int preset, float strength) { return preset >= 1 && preset <= 4 && strength > 0.0f; }
 
 // Typeless render-target formats have no valid SRV/UAV format; map them to the concrete one.
 DXGI_FORMAT SharpenViewFormat(DXGI_FORMAT fmt);

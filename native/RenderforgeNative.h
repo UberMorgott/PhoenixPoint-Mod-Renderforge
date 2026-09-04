@@ -45,6 +45,10 @@ enum { DLSS_ERR_PASSTHROUGH_SIZE = -1, DLSS_ERR_NO_CONTEXT = -2, DLSS_ERR_SHARPE
 // Dlss_Sharpener: which sharpen shader is active. 0 = not compiled yet (first non-zero sharpness compiles it).
 enum { DLSS_SHARPEN_NONE = 0, DLSS_SHARPEN_NIS = 1, DLSS_SHARPEN_RCAS = 2, DLSS_SHARPEN_FAILED = -1 };
 
+// Original analytic color grades evaluated in the native post-pass; no external LUT assets are used.
+enum { DLSS_LUT_OFF = 0, DLSS_LUT_REALISTIC_DESATURATED = 1, DLSS_LUT_NEUTRAL = 2,
+       DLSS_LUT_CINEMATIC_BLEACH = 3, DLSS_LUT_VIVID = 4 };
+
 // Main thread. anyNativeResource = ID3D11Resource* or ID3D12Resource* (Unity GetNativeTexturePtr); the API is
 // chosen by QueryInterface. Idempotent once it returned DLSS_OK.
 DLSS_API int __cdecl Dlss_Init(void* anyNativeResource, const wchar_t* dllDir, const wchar_t* logDir);
@@ -60,11 +64,11 @@ DLSS_API void* __cdecl Dlss_GetFrameSlot(void);
 // Main thread. Fills `slot` (from Dlss_GetFrameSlot). All resources = ID3D11Resource*.
 // sharpness 0..1 = our sharpen compute pass on `output` after NGX (NIS sharpen-only, RCAS if NIS fails to compile; 0 = skipped);
 // NGX's own InSharpness is deprecated and stays 0. A failed setup sets Dlss_LastError() = DLSS_ERR_SHARPEN and disables the
-// pass; the DLSS frame is unaffected.
+// pass; the DLSS frame is unaffected. lutPreset = DLSS_LUT_*, lutStrength = 0..1; invalid values disable/clamp.
 DLSS_API void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void* output,
                                     float jitterX, float jitterY, float mvScaleX, float mvScaleY,
                                     int reset, float dtMs, unsigned renderW, unsigned renderH,
-                                    float preExposure, float sharpness);
+                                    float preExposure, float sharpness, int lutPreset, float lutStrength);
 // Unity UnityRenderingEvent: void (__stdcall*)(int eventId). Event 2 here evaluates the LAST filled slot.
 DLSS_API void* __cdecl Dlss_GetRenderEventFunc(void);
 // Unity UnityRenderingEventAndData: void (__stdcall*)(int eventId, void* data). Event 2 reads the slot in `data`; 1/3 ignore it.
