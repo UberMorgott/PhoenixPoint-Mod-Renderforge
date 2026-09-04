@@ -1,0 +1,1058 @@
+{
+  "status": "Runtime inventory only; masks unimplemented",
+  "unity": "2019.4.31f1",
+  "graphicsApi": "Direct3D12",
+  "reversedZ": true,
+  "cameras": [
+    {
+      "name": "DlssPresent",
+      "instanceId": -39748,
+      "pixelWidth": 2560,
+      "pixelHeight": 1440,
+      "depthMode": "None",
+      "renderingPath": "DeferredShading",
+      "cullingMask": 0,
+      "fieldOfView": 60.0,
+      "near": 0.3,
+      "far": 1000.0,
+      "allowMsaa": false,
+      "target": null,
+      "targetWidth": null,
+      "targetHeight": null,
+      "targetDepthBits": null,
+      "targetMsaa": null
+    },
+    {
+      "name": "GeoscapeCamera",
+      "instanceId": 300730,
+      "pixelWidth": 2560,
+      "pixelHeight": 1440,
+      "depthMode": "Depth, DepthNormals, MotionVectors",
+      "renderingPath": "DeferredShading",
+      "cullingMask": -1,
+      "fieldOfView": 40.0,
+      "near": 0.1,
+      "far": 5000.0,
+      "allowMsaa": false,
+      "target": "DLSS color",
+      "targetWidth": 2560,
+      "targetHeight": 1440,
+      "targetDepthBits": 0,
+      "targetMsaa": 1
+    }
+  ],
+  "fixed": {
+    "faceTag": "276b5f5f-1d18-aa64-5aef-6298b23430d6",
+    "name": "София Браун",
+    "unique": true,
+    "head": [
+      {
+        "defName": "Human_Head_BodyPartDef",
+        "defGuid": "b474e53e-63fe-09d4-28d9-168343c7c2a1",
+        "lastSourcePrefab": "Head - Tutorial - Female_Ready",
+        "liveSourcePrefab": "Head - Tutorial - Female_Ready",
+        "visualRoot": "SquadBay[0]/Root[1]/EXT_CharacterPreview[1]/CHR_Human_Rig_Ready(Clone)[1]/Head - Tutorial - Female_Ready[9]",
+        "visible": true,
+        "renderers": [
+          {
+            "path": "Tutorial_Head_Female[0]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -224390,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Tutorial_Head_Female",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Tutorial_Head_Female",
+                "instanceId": 1557698,
+                "shader": "_PX_CHR/CHR_Character_shader_OLD",
+                "renderQueue": 2000,
+                "keywords": [],
+                "passes": [
+                  "DEFERRED",
+                  "ShadowCaster"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Tutorial_Head_Female_albedo",
+                    "instanceId": 1520978,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": "Tutorial_Head_Female_normal",
+                    "instanceId": 1557708,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": "Tutorial_Head_Female_metallic",
+                    "instanceId": 1557836,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_OcclusionMap",
+                    "name": "Tutorial_Head_Female_occlusion",
+                    "instanceId": 1542864,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_texcoord",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "Tutorial_Head_Female_Eyelashes[1]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -224396,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Tutorial_Head_Female_Eyelashes",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_EyeLashes",
+                "instanceId": 1489164,
+                "shader": "Standard",
+                "renderQueue": 3000,
+                "keywords": [
+                  "_ALPHAPREMULTIPLY_ON"
+                ],
+                "passes": [
+                  "FORWARD",
+                  "FORWARD_DELTA",
+                  "ShadowCaster",
+                  "DEFERRED"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Head_EyeLashes_albedo",
+                    "instanceId": 1489118,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailAlbedoMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailMask",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailNormalMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_OcclusionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_ParallaxMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "Tutorial_Head_Female_Eyes[2]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -224402,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Tutorial_Head_Female_Eyes",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_Eyes",
+                "instanceId": 1489192,
+                "shader": "_PX_CHR/CHR_Character_Eye_shader",
+                "renderQueue": 2000,
+                "keywords": [
+                  "_EMISSION",
+                  "_NORMALMAP"
+                ],
+                "passes": [
+                  "DEFERRED",
+                  "ShadowCaster"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Head_Eyes_albedo",
+                    "instanceId": 1489124,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": "Head_Eyes_normal",
+                    "instanceId": 1489142,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_texcoord",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "Tutorial_Head_Female_Eyeshadow[3]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -224408,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Tutorial_Head_Female_Eyeshadow",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_Eyeshadow",
+                "instanceId": 1550602,
+                "shader": "Standard",
+                "renderQueue": 2000,
+                "keywords": [],
+                "passes": [
+                  "FORWARD",
+                  "FORWARD_DELTA",
+                  "ShadowCaster",
+                  "DEFERRED"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailAlbedoMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailMask",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailNormalMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_OcclusionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_ParallaxMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "Tutorial_Head_Female_Teeth[4]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -224414,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Tutorial_Head_Female_Teeth",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_Teeth",
+                "instanceId": 1542862,
+                "shader": "Standard",
+                "renderQueue": 2000,
+                "keywords": [],
+                "passes": [
+                  "FORWARD",
+                  "FORWARD_DELTA",
+                  "ShadowCaster",
+                  "DEFERRED"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailAlbedoMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailMask",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailNormalMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_OcclusionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_ParallaxMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "customizable": {
+    "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+    "hair": [
+      {
+        "defName": "Human_Hair_BodyPartDef",
+        "defGuid": "1a99762d-0132-d0e4-5b7f-de2e06dc4471",
+        "sourcePrefab": "Hair_SYN1_F_V01_Ready",
+        "visualRoot": "Addons_Junkyard[0]/EXT_CharacterPreview-CHR_Human_Rig_Ready(Clone)[0]/Hair_SYN1_F_V01_Ready[0]",
+        "visible": false,
+        "renderers": [
+          {
+            "path": ".",
+            "type": "MeshRenderer",
+            "instanceId": -223416,
+            "enabled": true,
+            "active": false,
+            "layer": 12,
+            "mesh": "Hair_SYN1_F_V01",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Hair_SYN1_F_V01",
+                "instanceId": 1522258,
+                "shader": "_PX_CHR/CHR_Character_Hair_shader",
+                "renderQueue": 2000,
+                "keywords": [
+                  "_ALPHATEST_ON",
+                  "_NORMALMAP"
+                ],
+                "passes": [
+                  "FORWARD",
+                  "FORWARD",
+                  "DEFERRED",
+                  "ShadowCaster"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Hair_SYN1_F_V01_FacialHairPacked",
+                    "instanceId": 1522272,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_texcoord",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "name": "Яэль Гонсалес",
+    "unique": false,
+    "head": [
+      {
+        "defName": "Human_Head_BodyPartDef",
+        "defGuid": "b474e53e-63fe-09d4-28d9-168343c7c2a1",
+        "sourcePrefab": "Head_Hispanic1_F_V01_Ready",
+        "visualRoot": "SquadBay[0]/Root[1]/EXT_CharacterPreview[1]/CHR_Human_Rig_Ready(Clone)[1]/Head_Hispanic1_F_V01_Ready[4]",
+        "visible": true,
+        "renderers": [
+          {
+            "path": "Head_Hispanic1_F_V01[0]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -222112,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Head_Hispanic1_F_V01",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_Hispanic1_F_V01",
+                "instanceId": 1529700,
+                "shader": "_PX_CHR/CHR_Character_Corrupted_shader",
+                "renderQueue": 2000,
+                "keywords": [
+                  "_METALLICGLOSSMAP",
+                  "_NORMALMAP"
+                ],
+                "passes": [
+                  "FORWARD",
+                  "FORWARD",
+                  "DEFERRED",
+                  "ShadowCaster"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Head_Hispanic1_F_V01_albedo",
+                    "instanceId": 1529708,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": "Head_Hispanic1_F_V01_normal",
+                    "instanceId": 1529732,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": "Head_Hispanic1_F_V01_metallic",
+                    "instanceId": 1522244,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_OcclusionMap",
+                    "name": "Head_Hispanic1_F_V01_occlusion",
+                    "instanceId": 1529730,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_texcoord",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_BlendMask",
+                    "name": "CHR_Head_Corrupted_height",
+                    "instanceId": 1489122,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_MutationAlbedo",
+                    "name": "CHR_Head_Corrupted_albedo",
+                    "instanceId": 1489126,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_MutationHeightMask",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MutationMetallic",
+                    "name": "CHR_Head_Corrupted_metallic",
+                    "instanceId": 1489134,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_MutationNormal",
+                    "name": "CHR_Head_Corrupted_normal",
+                    "instanceId": 1489166,
+                    "width": 2048,
+                    "height": 2048
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "Head_Hispanic1_F_V01_EyeLashes[1]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -222118,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Head_Hispanic1_F_V01_EyeLashes",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_EyeLashes",
+                "instanceId": 1489164,
+                "shader": "Standard",
+                "renderQueue": 3000,
+                "keywords": [
+                  "_ALPHAPREMULTIPLY_ON"
+                ],
+                "passes": [
+                  "FORWARD",
+                  "FORWARD_DELTA",
+                  "ShadowCaster",
+                  "DEFERRED"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Head_EyeLashes_albedo",
+                    "instanceId": 1489118,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailAlbedoMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailMask",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailNormalMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_OcclusionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_ParallaxMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "Head_Hispanic1_F_V01_Eyes[2]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -222124,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Head_Hispanic1_F_V01_Eyes",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_Eyes",
+                "instanceId": 1489192,
+                "shader": "_PX_CHR/CHR_Character_Eye_shader",
+                "renderQueue": 2000,
+                "keywords": [
+                  "_EMISSION",
+                  "_NORMALMAP"
+                ],
+                "passes": [
+                  "DEFERRED",
+                  "ShadowCaster"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Head_Eyes_albedo",
+                    "instanceId": 1489124,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": "Head_Eyes_normal",
+                    "instanceId": 1489142,
+                    "width": 512,
+                    "height": 512
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_texcoord",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "Head_Hispanic1_F_V01_EyeShadow[3]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -222130,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Head_Hispanic1_F_V01_EyeShadow",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_EyeShadow",
+                "instanceId": 1489194,
+                "shader": "Standard",
+                "renderQueue": 3000,
+                "keywords": [
+                  "_ALPHABLEND_ON"
+                ],
+                "passes": [
+                  "FORWARD",
+                  "FORWARD_DELTA",
+                  "ShadowCaster",
+                  "DEFERRED"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Head_EyeShadow_albedo",
+                    "instanceId": 1489128,
+                    "width": 512,
+                    "height": 256
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailAlbedoMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailMask",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_DetailNormalMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_OcclusionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_ParallaxMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "path": "Head_Hispanic1_F_V01_Teeth[4]",
+            "type": "SkinnedMeshRenderer",
+            "instanceId": -222136,
+            "enabled": true,
+            "active": true,
+            "layer": 12,
+            "mesh": "Head_Hispanic1_F_V01_Teeth",
+            "submeshes": 1,
+            "sharedMaterialsUnchanged": true,
+            "materials": [
+              {
+                "slot": 0,
+                "name": "Head_Teeth",
+                "instanceId": 1489152,
+                "shader": "_PX_CHR/CHR_Character_shader",
+                "renderQueue": 2000,
+                "keywords": [
+                  "_METALLICGLOSSMAP",
+                  "_NORMALMAP"
+                ],
+                "passes": [
+                  "DEFERRED",
+                  "ShadowCaster"
+                ],
+                "textures": [
+                  {
+                    "property": "_MainTex",
+                    "name": "Head_Teeth_albedo",
+                    "instanceId": 1489114,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_BumpMap",
+                    "name": "Head_Teeth_normal",
+                    "instanceId": 1489156,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_EmissionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_MetallicGlossMap",
+                    "name": "Head_Teeth_roughness",
+                    "instanceId": 1489154,
+                    "width": 2048,
+                    "height": 2048
+                  },
+                  {
+                    "property": "_OcclusionMap",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_Pattern",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  },
+                  {
+                    "property": "_texcoord",
+                    "name": null,
+                    "instanceId": null,
+                    "width": null,
+                    "height": null
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "shaderCandidates": [
+    {
+      "name": "Hidden/Internal-Colored",
+      "supported": true,
+      "passes": 1,
+      "properties": [
+        {
+          "name": "_Color",
+          "type": "Color"
+        },
+        {
+          "name": "_SrcBlend",
+          "type": "Float"
+        },
+        {
+          "name": "_DstBlend",
+          "type": "Float"
+        },
+        {
+          "name": "_ZWrite",
+          "type": "Float"
+        },
+        {
+          "name": "_ZTest",
+          "type": "Float"
+        },
+        {
+          "name": "_Cull",
+          "type": "Float"
+        },
+        {
+          "name": "_ZBias",
+          "type": "Float"
+        }
+      ]
+    },
+    {
+      "name": "Unlit/Color",
+      "supported": true,
+      "passes": 1,
+      "properties": [
+        {
+          "name": "_Color",
+          "type": "Color"
+        }
+      ]
+    },
+    {
+      "name": "Unlit/Colored Cutout",
+      "supported": true,
+      "passes": 1,
+      "properties": [
+        {
+          "name": "_MainTex",
+          "type": "Texture"
+        },
+        {
+          "name": "_Cutoff",
+          "type": "Range"
+        },
+        {
+          "name": "_Color",
+          "type": "Color"
+        }
+      ]
+    }
+  ],
+  "customization": {
+    "proof": "NextOption then PreviousOption; original identity tag restored; old hair VisualRoot became null while source prefab stayed assigned; mask lifecycle not implemented",
+    "restoredHairTag": "88ca4f5b-548b-1944-ba04-293ecf1874ed"
+  }
+}
