@@ -66,6 +66,8 @@ namespace Renderforge
                 Logger.LogInfo("Renderforge: " + SystemInfo.graphicsDeviceType + " - native DLSS init skipped ("
                                + Availability.Reason(Feature.Dlss) + ")");
             }
+            NeuralRenderingSupport.Probe(ModDir);
+            Logger.LogInfo("DLSS 5 character enhancement: " + NeuralRenderingSupport.Status);
             try
             {
                 if (Available) DlssDriver.Create();
