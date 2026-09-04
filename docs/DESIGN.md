@@ -462,16 +462,30 @@ databases and ship the newest NVIDIA-signed build, never the SDK copy blindly.
   says DirectX 12 but the process still runs D3D11.
 - Apply → `RendererSwitch.Confirm`: the GAME'S dialog (`GameUtl.GetMessageBox().ShowSimplePrompt`,
   `MessageBox.cs:77`, `MessageBoxButtons.YesNo`). Yes → `RendererSwitch.Restart`; No → the row keeps the
-  value and shows "(restart pending)". Shot: `docs\shots\renderer-restart-dialog.png`.
+  value and shows "(restart pending)". `ModSettingsFilter` scopes filtering to
+  `UIModuleModManager.SelectModSettingsSection`; `DlssConfig.GetConfigFields` removes Renderer and the other
+  regular Graphics/Screen controls only in that UI call. Mods → Renderforge exposes just overlay and hotkey
+  preferences. Developer diagnostics are not config fields at all: `Diagnostics.Reset` selects the verified
+  production path on every enable, and PPCLI can alter it only for the current diagnostic session. The loader's
+  save/load calls still receive every player setting. Each player-facing setting has one UI and one apply path.
+  The FPS setting is an output/presented ceiling: `RenderforgeMod.ApplyFrameRate` divides it by
+  `FrameGen.OutputMultiplier` only while a provider is actually live, and reapplies the full ceiling immediately
+  if FG stops or fails. Integer division rounds down so the requested output cap is never intentionally exceeded.
+  Shot: `docs\shots\renderer-restart-dialog.png`.
 - Relaunch = `powershell.exe -WindowStyle Hidden -Command "Wait-Process -Id <this pid>; Start-Process
   <exe> -ArgumentList '<current argv minus -force-d3d1*, plus -force-d3d12 when DX12>'"` then
   `Application.Quit()`. WHY the detour: the game is single-instance ("Another instance is already running"
   fatal), so a child started while this process is still tearing down dies at once; the hidden shell waits
   for the pid to vanish and only then starts the new one (~1 s after quit, no console flash with
   `CreateNoWindow`). Args are re-quoted by MSVC rules (`RendererSwitch.Quote`); DirectX 11 = no flag.
-- A plain Steam launch cannot carry the flag, so when the config says DirectX 12 and the process runs
-  D3D11, `RendererSwitch.ArmStartupPrompt` offers the same dialog ONCE per session, as soon as the
-  MessageBox exists. The permanent alternative is Steam → Properties → Launch Options `-force-d3d12 -mods`.
+- PPModEnabler on GOG/Epic uses UnityDoorstop and sets `DOORSTOP_INITIALIZED=TRUE`. A child process
+  inherits that marker; Doorstop then skips its entry point and the relaunched game has no mod loader.
+  `RendererSwitch.PrepareChildEnvironment` removes `DOORSTOP_INITIALIZED` and `DOORSTOP_DISABLE` from
+  the waiting PowerShell environment before it creates the new game, preserving all enabled mods.
+- A normal store launch cannot carry the saved graphics flag. When config says D3D12 but the process runs
+  D3D11, `RendererSwitch.ArmStartupRestart` reconciles it automatically once the MessageBox exists; no
+  question appears merely because the game was launched. `RENDERFORGE_RENDERER_RESTART=1` is inherited by
+  the child and suppresses a second automatic attempt if Unity did not honor the flag, preventing loops.
 - Availability: `src\Availability.cs` is the ONLY place that decides whether DLSS/FSR/XeSS/FG can run and
   why not. `Reason(f) == null` means available; anything else is shown as the greyed value's tooltip
   (`UITooltipText`, the game's own component — never a custom overlay) and, for DLSS, in the overlay.

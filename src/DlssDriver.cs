@@ -31,10 +31,10 @@ namespace Renderforge
         private bool passthrough;
         private int renderW, renderH, outW, outH, quality;
         private bool wantsFeature;          // false in Passthrough: no NGX feature is created at all
-        private bool liveMvJittered;        // DLSS_F_MV_JITTERED the feature was created with (Cfg.MvJittered, diagnostic)
-        private bool liveSrgbViews;         // DLSS_F_SRGB_VIEWS the generation was created with (Cfg.D3D12SrgbViews, D3D12 only)
-        private bool liveColorDesc;         // colorRT created from an explicit R8G8B8A8_SRGB descriptor (Cfg.D3D12ColorDesc, D3D12 only)
-        private bool liveHalfColor;         // colorRT + outRT linear ARGBHalf, DLSS_F_HDR (Cfg.D3D12HalfColor, D3D12 only)
+        private bool liveMvJittered;        // DLSS_F_MV_JITTERED the feature was created with (runtime diagnostic)
+        private bool liveSrgbViews;         // DLSS_F_SRGB_VIEWS the generation was created with (D3D12 runtime diagnostic)
+        private bool liveColorDesc;         // colorRT created from an explicit R8G8B8A8_SRGB descriptor (D3D12 runtime diagnostic)
+        private bool liveHalfColor;         // colorRT + outRT linear ARGBHalf, DLSS_F_HDR (fixed-on production path)
 
         private int jitterIndex, phaseCount;
         private float jx, jy;
@@ -404,9 +404,8 @@ namespace Renderforge
                 Halton(jitterIndex, out jx, out jy);
                 jitterIndex = (jitterIndex + 1) % phaseCount;
                 if (passthrough) { jx = 0f; jy = 0f; }
-                var cfg = RenderforgeMod.Instance?.Cfg;
-                if (cfg != null && cfg.JitterConstEnabled && !passthrough) { jx = cfg.JitterConstX; jy = cfg.JitterConstY; }   // JitterConst: rendered AND reported
-                float jscale = cfg?.JitterScale ?? 1f;
+                if (Diagnostics.JitterConstEnabled && !passthrough) { jx = Diagnostics.JitterConstX; jy = Diagnostics.JitterConstY; }   // JitterConst: rendered AND reported
+                float jscale = Diagnostics.JitterScale;
                 jx *= jscale; jy *= jscale;          // JitterScale: rendered AND reported jitter (0 = none)
                 var p = cam.projectionMatrix;
                 cam.nonJitteredProjectionMatrix = p;
@@ -418,7 +417,7 @@ namespace Renderforge
                 // clean matrix keep hard aliased edges (seen live on the tactical path lines).
                 cam.useJitteredProjectionMatrixForTransparentRendering = true;
 
-                int reset = resetNext || (cfg != null && cfg.ForceReset) ? 1 : 0;   // ForceReset: NGX InReset / FSR reset / XeSS resetHistory every frame
+                int reset = resetNext || Diagnostics.ForceReset ? 1 : 0;   // ForceReset: NGX InReset / FSR reset / XeSS resetHistory every frame
                 Vector3 pos = cam.transform.position;
                 if ((pos - lastPos).sqrMagnitude > 50f * 50f || !Mathf.Approximately(cam.fieldOfView, lastFov)) reset = 1;
                 lastPos = pos; lastFov = cam.fieldOfView; resetNext = false;
@@ -435,8 +434,8 @@ namespace Renderforge
                 // shim and copied into the frame slot, so the ABI of Dlss_SetFrame stays untouched.
                 Native.SetCamera(cam.nearClipPlane, cam.farClipPlane, cam.fieldOfView * Mathf.Deg2Rad);
                 // Diagnostic (D3D12 detail-loss hunt): sign/swap knobs touch ONLY the offset reported to the SDK, not the projection.
-                float rjx = -jx * (cfg?.JitterReportSignX ?? 1), rjy = -jy * (cfg?.JitterReportSignY ?? 1);
-                if (cfg != null && cfg.JitterReportSwapXY) { float t = rjx; rjx = rjy; rjy = t; }
+                float rjx = -jx * Diagnostics.JitterReportSignX, rjy = -jy * Diagnostics.JitterReportSignY;
+                if (Diagnostics.JitterReportSwapXY) { float t = rjx; rjx = rjy; rjy = t; }
                 reportJx = rjx; reportJy = rjy;
                 IntPtr slot = Native.Dlss_GetFrameSlot();
                 Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, rjx, rjy, -renderW, -renderH,
@@ -480,11 +479,11 @@ namespace Renderforge
 
         // ---------------------------------------------------------------- helpers
 
-        private static bool WantMvJittered => RenderforgeMod.Instance?.Cfg?.MvJittered ?? false;
+        private static bool WantMvJittered => Diagnostics.MvJittered;
         // D3D12 only: on D3D11 the SDK views Unity's sRGB resource directly (Device11.cpp) and the knob is a no-op.
-        private static bool WantSrgbViews => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && (RenderforgeMod.Instance?.Cfg?.D3D12SrgbViews ?? false);
-        private static bool WantColorDesc => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && (RenderforgeMod.Instance?.Cfg?.D3D12ColorDesc ?? false);
-        private static bool WantHalfColor => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && (RenderforgeMod.Instance?.Cfg?.D3D12HalfColor ?? false);
+        private static bool WantSrgbViews => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && Diagnostics.D3D12SrgbViews;
+        private static bool WantColorDesc => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && Diagnostics.D3D12ColorDesc;
+        private static bool WantHalfColor => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && Diagnostics.D3D12HalfColor;
 
         /// <summary>Diagnostic: one texel of mvRT (the BuiltinRenderTextureType.MotionVectors copy the SDK is fed), render-res
         /// coordinates, y from the bottom (ReadPixels). RGHalf is not ReadPixels-readable, so Blit into an ARGBFloat temp first.

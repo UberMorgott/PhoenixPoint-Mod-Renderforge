@@ -15,6 +15,9 @@ namespace Renderforge
     {
         internal const string Flag12 = "-force-d3d12";
         internal const string Flag11 = "-force-d3d11";
+        private const string DoorstopInitialized = "DOORSTOP_INITIALIZED";
+        private const string DoorstopDisable = "DOORSTOP_DISABLE";
+        private const string RestartMarker = "RENDERFORGE_RENDERER_RESTART";
 
         internal static RendererMode Running
         {
@@ -77,6 +80,15 @@ namespace Renderforge
             Check(a11 == "-mods -logFile \"C:\\a b\\log.txt\"", a11);
             Check(a12 == "-mods -logFile \"C:\\a b\\log.txt\" -force-d3d12", a12);
             Check(BuildArgs(new[] { "exe", "-force-d3d12" }, true).Length == 1, "dup flag");
+
+            ProcessStartInfo psi = new ProcessStartInfo();
+            psi.UseShellExecute = false;
+            psi.EnvironmentVariables[DoorstopInitialized] = "TRUE";
+            psi.EnvironmentVariables[DoorstopDisable] = "TRUE";
+            PrepareChildEnvironment(psi);
+            Check(psi.EnvironmentVariables[DoorstopInitialized] == null, "Doorstop initialized leaked");
+            Check(psi.EnvironmentVariables[DoorstopDisable] == null, "Doorstop disable leaked");
+            Check(psi.EnvironmentVariables[RestartMarker] == "1", "restart marker missing");
         }
 
         private static void Check(bool ok, string what)
@@ -120,9 +132,23 @@ namespace Renderforge
             psi.WorkingDirectory = dir;
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
+            PrepareChildEnvironment(psi);
             Process.Start(psi);
             Application.Quit();
             return exe + " " + args;
+        }
+
+        /// <summary>PPModEnabler for GOG/Epic is bootstrapped by UnityDoorstop. Doorstop marks the current
+        /// process with DOORSTOP_INITIALIZED, and a child inherits it by default. If that marker reaches the
+        /// relaunched game, Doorstop deliberately skips PPModEnabler and Phoenix Point starts with no mods.
+        /// Clear both Doorstop suppression switches on the waiting PowerShell process so its game child gets
+        /// a fresh injection. Our own marker is inherited instead and prevents an automatic restart loop if
+        /// Unity fails to honor the requested graphics flag.</summary>
+        private static void PrepareChildEnvironment(ProcessStartInfo psi)
+        {
+            psi.EnvironmentVariables.Remove(DoorstopInitialized);
+            psi.EnvironmentVariables.Remove(DoorstopDisable);
+            psi.EnvironmentVariables[RestartMarker] = "1";
         }
 
         /// <summary>Yes -> relaunch. No -> onNo() (the caller repaints the "(restart pending)" label).
@@ -140,19 +166,20 @@ namespace Renderforge
             });
         }
 
-        /// <summary>Config says DirectX 12 but the process runs D3D11 (a plain Steam launch): offer the restart
-        /// ONCE, as soon as the MessageBox exists.</summary>
-        internal static void ArmStartupPrompt()
+        /// <summary>A normal store launch cannot remember Unity's graphics-API command-line flag. If D3D12 is
+        /// saved but this process came up in D3D11, reconcile it automatically once the startup UI is ready.
+        /// The user is only prompted after an actual picker change, never merely for launching the game.</summary>
+        internal static void ArmStartupRestart()
         {
-            if (StartupPrompt.Armed) return;
-            StartupPrompt.Armed = true;
-            GameObject go = new GameObject("RenderforgeStartupPrompt");
+            if (StartupRestart.Armed) return;
+            StartupRestart.Armed = true;
+            GameObject go = new GameObject("RenderforgeStartupRestart");
             go.hideFlags = HideFlags.HideAndDontSave;
             UnityEngine.Object.DontDestroyOnLoad(go);
-            go.AddComponent<StartupPrompt>();
+            go.AddComponent<StartupRestart>();
         }
 
-        private class StartupPrompt : MonoBehaviour
+        private class StartupRestart : MonoBehaviour
         {
             internal static bool Armed;
 
@@ -161,8 +188,16 @@ namespace Renderforge
                 DlssConfig cfg = RenderforgeMod.Instance != null ? RenderforgeMod.Instance.Cfg : null;
                 if (cfg == null || !Wants12(cfg) || Availability.IsD3D12) { Destroy(gameObject); return; }
                 if (GameUtl.GetMessageBox() == null) return;   // UI not up yet, keep waiting
-                Destroy(gameObject);                           // once per session
-                Confirm(true, null);
+                Destroy(gameObject);
+                if (string.Equals(Environment.GetEnvironmentVariable(RestartMarker), "1", StringComparison.Ordinal))
+                {
+                    if (RenderforgeMod.Instance != null)
+                        RenderforgeMod.Instance.Logger.LogWarning("Renderforge automatic renderer restart already attempted; staying on D3D11 to avoid a restart loop");
+                    return;
+                }
+                if (RenderforgeMod.Instance != null)
+                    RenderforgeMod.Instance.Logger.LogInfo("Renderforge: saved renderer is D3D12; restarting automatically without a startup prompt");
+                Restart(true);
             }
         }
     }

@@ -28,6 +28,7 @@ namespace Renderforge
             Instance = this;
             ModDir = base.Instance?.Entry?.Directory ?? ".";
             Available = false;
+            Diagnostics.Reset();
             RendererSwitch.SelfTest();   // [Conditional("DEBUG")]: compiled out of Release
             ApplyFrameRate();
             // Every API: harmless under D3D11, and the switch to D3D12 always goes through a restart, so the copy is there by then.
@@ -70,7 +71,7 @@ namespace Renderforge
                 if (Available) DlssDriver.Create();
                 ((Harmony)HarmonyInstance).PatchAll(typeof(RenderforgeMod).Assembly);
                 patched = true;
-                if (RendererSwitch.Wants12(Cfg) && !Availability.IsD3D12) RendererSwitch.ArmStartupPrompt();
+                if (RendererSwitch.Wants12(Cfg) && !Availability.IsD3D12) RendererSwitch.ArmStartupRestart();
                 AttachAndApply();
             }
             catch (Exception ex) { Logger.LogError("Renderforge enable THREW " + ex); }
@@ -144,11 +145,11 @@ namespace Renderforge
         public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); }   // Reapply covers a level that starts with the generation still live
 
         /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
-        public override void OnLevelEnd(Level level) => DlssDriver.Instance?.Apply(RenderforgeMode.Off, Cfg.DebugView);
+        public override void OnLevelEnd(Level level) => DlssDriver.Instance?.Apply(RenderforgeMode.Off, Diagnostics.View);
 
         public override void OnConfigChanged()
         {
-            Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Cfg.DebugView + " upscaler = " + Cfg.Upscaler);
+            Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Diagnostics.View + " upscaler = " + Cfg.Upscaler);
             ApplyFrameRate();
             ApplyUpscaler();
             AttachAndApply();
@@ -186,12 +187,23 @@ namespace Renderforge
             return (refused != null ? "refused: " + refused : "upscaler=" + want) + " | " + GetStatus();
         }
 
-        /// <summary>Also the InitVideoOptions postfix (Patches.cs), which runs on the game's own SetFrameRateLimit(60).</summary>
+        /// <summary>The setting is the final presented-FPS ceiling. With a live 2x/3x/4x frame-generation
+        /// chain, cap Unity's rendered frames to floor(ceiling / multiplier), so generated frames stay inside
+        /// the requested total. If FG is unavailable or tears down, FrameGen immediately reapplies the full cap.
+        /// Also the InitVideoOptions postfix (Patches.cs), after the game's own SetFrameRateLimit(60).</summary>
         public static void ApplyFrameRate()
         {
             var cfg = Instance?.Cfg;
             if (cfg == null) return;
-            Application.targetFrameRate = cfg.LimitFrameRate ? Mathf.Clamp(cfg.FrameRateLimit, 30, 300) : -1;
+            int presented = Mathf.Clamp(cfg.FrameRateLimit, 30, 300);
+            Application.targetFrameRate = cfg.LimitFrameRate
+                ? NativeFrameRateFor(presented, FrameGen.OutputMultiplier)
+                : -1;
+        }
+
+        internal static int NativeFrameRateFor(int presentedLimit, int multiplier)
+        {
+            return Math.Max(1, presentedLimit / Math.Max(1, multiplier));
         }
 
         /// <summary>ModManager.SaveModConfig (ModManager.cs:120): the same path the mod-manager screen uses (UIStateModManagment.cs:137).</summary>
@@ -246,7 +258,7 @@ namespace Renderforge
             var cam = GameUtl.GameComponent<CameraManager>()?.Camera;
             if (cam == null) return;          // main menu without CameraManager: wait for the next level
             d.Attach(cam);
-            d.Apply(Cfg.Mode, Cfg.DebugView);
+            d.Apply(Cfg.Mode, Diagnostics.View);
         }
 
         // ---- PPCLI `connect call` surface: {"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"SetMode","args":["DLAA","None"]}
@@ -255,7 +267,7 @@ namespace Renderforge
             var m = Instance;
             if (m == null) return "mod not enabled";
             m.Cfg.Mode = (RenderforgeMode)Enum.Parse(typeof(RenderforgeMode), mode, true);
-            m.Cfg.DebugView = (DebugView)Enum.Parse(typeof(DebugView), view, true);
+            Diagnostics.View = (DebugView)Enum.Parse(typeof(DebugView), view, true);
             m.AttachAndApply();
             return GetStatus();
         }
@@ -307,46 +319,42 @@ namespace Renderforge
         public static string SetHoldPrepare(bool on) { FrameGen.HoldPrepare = on; return "holdPrepare=" + on + " " + FrameGen.Status(); }
 
         /// <summary>PPCLI diagnostic: {"member":"SetMvJittered","args":[true]} - DLSS_F_MV_JITTERED in the create flags
-        /// (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). The driver re-creates the feature next frame. Saved.</summary>
+        /// (NGX MVJittered / FSR jitter cancellation / XeSS JITTERED_MV). The driver re-creates the feature next frame. Runtime-only.</summary>
         public static string SetMvJittered(bool on)
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.MvJittered = on;
-            SaveConfig();
+            Diagnostics.MvJittered = on;
             return GetStatus();
         }
 
         /// <summary>PPCLI diagnostic: {"member":"SetD3D12SrgbViews","args":[true]} - DLSS_F_SRGB_VIEWS in the create flags
-        /// (D3D12: sRGB colour-in view for the SDK + sRGB-tagged outRT, see DlssDriver.StartGeneration). Re-creates next frame. Saved.</summary>
+        /// (D3D12: sRGB colour-in view for the SDK + sRGB-tagged outRT, see DlssDriver.StartGeneration). Re-creates next frame. Runtime-only.</summary>
         public static string SetD3D12SrgbViews(bool on)
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.D3D12SrgbViews = on;
-            SaveConfig();
+            Diagnostics.D3D12SrgbViews = on;
             return GetStatus();
         }
 
         /// <summary>PPCLI diagnostic: {"member":"SetD3D12ColorDesc","args":[true]} - colorRT from an explicit R8G8B8A8_SRGB
-        /// RenderTextureDescriptor (D3D12: sRGB RTV for PPv2's final encode). Re-creates next frame. Saved.</summary>
+        /// RenderTextureDescriptor (D3D12: sRGB RTV for PPv2's final encode). Re-creates next frame. Runtime-only.</summary>
         public static string SetD3D12ColorDesc(bool on)
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.D3D12ColorDesc = on;
-            SaveConfig();
+            Diagnostics.D3D12ColorDesc = on;
             return GetStatus();
         }
 
         /// <summary>PPCLI diagnostic: {"member":"SetD3D12HalfColor","args":[true]} - colorRT + outRT as linear ARGBHalf and
-        /// DLSS_F_HDR in the create flags (D3D12: no 8-bit sRGB storage anywhere, see DlssDriver.StartGeneration). Re-creates next frame. Saved.</summary>
+        /// DLSS_F_HDR in the create flags (D3D12: no 8-bit sRGB storage anywhere, see DlssDriver.StartGeneration). Re-creates next frame. Runtime-only.</summary>
         public static string SetD3D12HalfColor(bool on)
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.D3D12HalfColor = on;
-            SaveConfig();
+            Diagnostics.D3D12HalfColor = on;
             return GetStatus();
         }
 
@@ -363,15 +371,14 @@ namespace Renderforge
         /// <summary>PPCLI diagnostic: {"member":"ProbeMv","args":[640,360]} - see DlssDriver.ProbeMv.</summary>
         public static string ProbeMv(int x, int y) => DlssDriver.Instance?.ProbeMv(x, y) ?? "no driver";
 
-        // ---- jitter diagnostics (D3D12 detail-loss hunt). Applied next frame, no feature re-create. Saved.
+        // ---- jitter diagnostics (D3D12 detail-loss hunt). Applied next frame, no feature re-create, runtime-only.
         /// <summary>{"member":"SetJitterReportSign","args":[1,-1]} - ±1 each; multiplies ONLY the offset reported to the SDK.</summary>
         public static string SetJitterReportSign(int x, int y)
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.JitterReportSignX = x < 0 ? -1 : 1;
-            m.Cfg.JitterReportSignY = y < 0 ? -1 : 1;
-            SaveConfig();
+            Diagnostics.JitterReportSignX = x < 0 ? -1 : 1;
+            Diagnostics.JitterReportSignY = y < 0 ? -1 : 1;
             return GetStatus();
         }
 
@@ -380,8 +387,7 @@ namespace Renderforge
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.JitterScale = s;
-            SaveConfig();
+            Diagnostics.JitterScale = s;
             return GetStatus();
         }
 
@@ -390,8 +396,7 @@ namespace Renderforge
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.JitterReportSwapXY = on;
-            SaveConfig();
+            Diagnostics.JitterReportSwapXY = on;
             return GetStatus();
         }
 
@@ -400,8 +405,7 @@ namespace Renderforge
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.JitterConstEnabled = on; m.Cfg.JitterConstX = x; m.Cfg.JitterConstY = y;
-            SaveConfig();
+            Diagnostics.JitterConstEnabled = on; Diagnostics.JitterConstX = x; Diagnostics.JitterConstY = y;
             return GetStatus();
         }
 
@@ -410,8 +414,7 @@ namespace Renderforge
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.ForceReset = on;
-            SaveConfig();
+            Diagnostics.ForceReset = on;
             return GetStatus();
         }
 
@@ -421,11 +424,11 @@ namespace Renderforge
         /// <summary>{"member":"DumpColorIn","args":["C:\\Temp\\in.png"]} - colorRT (SDK colour input) to PNG.</summary>
         public static string DumpColorIn(string absPath) => DlssDriver.Instance?.DumpColorIn(absPath) ?? "no driver";
 
-        private static string JitterKnobs(DlssConfig c) => c == null ? "" :
-            " jitterSign=" + c.JitterReportSignX + "," + c.JitterReportSignY + " jitterScale=" + c.JitterScale.ToString("R") + " jitterSwapXY=" + c.JitterReportSwapXY
-            + " jitterConst=" + c.JitterConstEnabled + "," + c.JitterConstX.ToString("R") + "," + c.JitterConstY.ToString("R") + " forceReset=" + c.ForceReset;
+        private static string JitterKnobs() =>
+            " jitterSign=" + Diagnostics.JitterReportSignX + "," + Diagnostics.JitterReportSignY + " jitterScale=" + Diagnostics.JitterScale.ToString("R") + " jitterSwapXY=" + Diagnostics.JitterReportSwapXY
+            + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset;
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + (Instance?.Cfg?.MvJittered ?? false) + " d3d12SrgbViews=" + (Instance?.Cfg?.D3D12SrgbViews ?? false) + " d3d12ColorDesc=" + (Instance?.Cfg?.D3D12ColorDesc ?? false) + " d3d12HalfColor=" + (Instance?.Cfg?.D3D12HalfColor ?? false) + JitterKnobs(Instance?.Cfg) + " "
+        public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " | fg=" + FrameGen.Status();
 

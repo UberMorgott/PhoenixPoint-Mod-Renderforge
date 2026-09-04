@@ -7,7 +7,7 @@ using UnityEngine.UI;
 
 namespace Renderforge
 {
-    /// <summary>"Frame rate limit" toggle + "Max FPS" slider in the game's Screen (video) options panel. Both rows are
+    /// <summary>"Frame rate limit" toggle + "Max presented FPS" slider in the game's Screen (video) options panel. Both rows are
     /// clones of the VSync row (prefab OptionsVSync_TextAndToggle: a row with a Toggle AND an inactive Slider child,
     /// so the slider row is the same prefab with the other child switched on). Rebuilt/re-synced by
     /// UIModuleVideoOptionsPanel.Init() (:76, called on every options open), found by name on reopen.
@@ -59,7 +59,7 @@ namespace Renderforge
                 GraphicsPanel.SetRaw(rowA.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
                     DlssConfig.Loc("Frame rate limit", "Ограничение частоты кадров").ToUpperInvariant());
                 GraphicsPanel.SetRaw(rowB.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
-                    DlssConfig.Loc("Max FPS", "Макс. FPS").ToUpperInvariant());
+                    DlssConfig.Loc("Max presented FPS", "Макс. итоговых FPS").ToUpperInvariant());
                 fps.wholeNumbers = true;
                 fps.minValue = 30;
                 fps.maxValue = 300;

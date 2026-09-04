@@ -23,7 +23,7 @@ The tactical and geoscape scenes are reconstructed; the interface remains at the
 
 - Windows and Phoenix Point.
 - A current graphics driver is strongly recommended.
-- The Steam version is tested; other store versions may work but are not currently verified.
+- The Steam version and the PPModEnabler/Doorstop path used by non-Steam Windows releases are supported.
 
 | Feature | GPU | Renderer |
 |---|---|---|
@@ -35,15 +35,9 @@ The tactical and geoscape scenes are reconstructed; the interface remains at the
 | XeSS-FG frame generation 2x | Any modern GPU | D3D12 |
 | NIS sharpening, mip bias, FPS controls, overlay | Any supported GPU | D3D11 or D3D12 |
 
-Phoenix Point starts in D3D11 by default. To use D3D12, choose **DirectX 12 (experimental)** under **Options → Graphics → Renderer**, press **Apply**, and accept the restart prompt. Renderforge preserves the existing command line and relaunches the game with `-force-d3d12`.
+Phoenix Point starts in D3D11 by default. To use D3D12, choose **DirectX 12 (experimental)** under **Options → Graphics → Renderer**, press **Apply**, and accept the restart. Renderforge preserves the existing command line and relaunches the game with `-force-d3d12`. With PPModEnabler on GOG or Epic, the relaunch also resets Doorstop's inherited process marker so the mod loader and enabled mods start normally.
 
-For a permanent Steam setting, open **Library → Phoenix Point → Properties → Launch Options** and use:
-
-```text
--force-d3d12 -mods
-```
-
-Remove `-force-d3d12` or select DirectX 11 in the game to return to the default renderer.
+No launcher options or file edits are required. On a later normal launch, Renderforge automatically performs one quick restart if the saved renderer is D3D12; it does not show a restart question unless you actually change the renderer. Select DirectX 11 in the game to return to the default renderer.
 
 ## Install
 
@@ -71,7 +65,7 @@ Start Phoenix Point with mod support enabled, open **Main menu → Mods**, enabl
 
 ## Settings
 
-The friendly controls are in the normal game menus: graphics options are under **Options → Graphics**, and the FPS limiter is under **Options → Screen**. The complete configuration is also available under **Mods → Renderforge** and is saved by the mod loader in `ModConfig.json`.
+The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, and sharpness are under **Options → Graphics**; the FPS limiter is under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
 
 | Setting | Default | Notes |
 |---|---:|---|
@@ -80,8 +74,8 @@ The friendly controls are in the normal game menus: graphics options are under *
 | Quality | Auto | DLAA through 1200p, Quality through 1600p, and Performance above 1600p. |
 | Frame generation | Off | 2x on a supported D3D12 setup with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU and are greyed out otherwise. |
 | Sharpness | 40 | Live 0–100 control; 0 disables sharpening. |
-| Frame-rate limit | Off | Off means uncapped; enabling it disables VSync. |
-| Max FPS | 60 | Used only when the Renderforge limit is enabled; range 30–300. |
+| Frame-rate limit | Off | Caps final presented FPS, including generated frames; enabling it disables VSync. |
+| Max presented FPS | 60 | Used only when the Renderforge limit is enabled; range 30–300. A live 2x/3x/4x FG chain automatically renders at 1/2, 1/3 or 1/4 of this ceiling. |
 | Benchmark overlay | Off | Toggle with `Ctrl+Alt+O`; default position is top centre. |
 
 `Ctrl+Alt+U` toggles the current upscaler off and back on. The letter keys for both shortcuts, the overlay position and scale, and the option to show Renderforge rows in Graphics settings can be changed under **Mods → Renderforge**.

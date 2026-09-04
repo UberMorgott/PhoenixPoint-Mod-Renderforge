@@ -20,6 +20,9 @@ namespace Renderforge
         private static bool Usable => Availability.IsD3D12 && Native.Handle != IntPtr.Zero;
 
         internal static bool Live => live;
+        /// <summary>Total frames presented per rendered frame. A configured mode is not enough: until the
+        /// provider is actually live (or after it fails), the game must retain the full output-FPS limit.</summary>
+        internal static int OutputMultiplier => live ? builtMultiplier : 1;
         /// <summary>Test knob (PPCLI `set`): true = the driver stops feeding frames (Fg_SetFrame / FG_PREPARE) while the chain
         /// stays live - the "menu screen without a rendering camera" state the shim must idle through.</summary>
         public static bool HoldPrepare = false;
@@ -107,6 +110,7 @@ namespace Renderforge
             live = false;
             lastRc = -1;
             Overlay.FgFps = 0;
+            RenderforgeMod.ApplyFrameRate();
             RenderforgeMod.Instance?.Logger.LogInfo("FG chain torn down by the shim: " + Native.Fg_Status());
         }
 
@@ -140,6 +144,7 @@ namespace Renderforge
             live = true;
             builtMultiplier = wantMultiplier;
             Native.Fg_SetEnabled(1);
+            RenderforgeMod.ApplyFrameRate();
             RenderforgeMod.Instance?.Logger.LogInfo("FG live: " + Native.Fg_Status());
         }
 
@@ -162,6 +167,7 @@ namespace Renderforge
             live = false;
             lastRc = -1;
             Overlay.FgFps = 0;
+            RenderforgeMod.ApplyFrameRate();
         }
 
         internal static string Status() => (live ? "live " : "off ") + Native.Fg_Status();

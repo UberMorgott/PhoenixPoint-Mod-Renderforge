@@ -101,7 +101,7 @@ namespace Renderforge
                     Grey(target.CurrentItem.gameObject, true);
                     return;
                 }
-                RenderforgeMod.SetMode(((RenderforgeMode)i).ToString(), mod.Cfg.DebugView.ToString());
+                RenderforgeMod.SetMode(((RenderforgeMode)i).ToString(), Diagnostics.View.ToString());
                 RenderforgeMod.SaveConfig();
                 SyncQuality();
             }
