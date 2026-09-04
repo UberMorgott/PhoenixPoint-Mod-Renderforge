@@ -12,7 +12,7 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **Live upscaler switching** lets you move between DLSS, FSR, and XeSS while playing, without restarting the game.
 - **Frame Generation** supports DLSS-G, FSR Frame Generation, and XeSS-FG under Direct3D 12: 2x everywhere it runs, and up to 4x with DLSS-G on RTX 50.
 - **NVIDIA Image Scaling sharpening** adds a separate 0–100 sharpness control, with 0 disabling the pass.
-- **Tactical LUT filters** add original live colour grades after temporal reconstruction: Realistic Desaturated, Neutral, Cinematic Bleach, and Vivid, with a 0–100 strength control and no bundled third-party assets. Geoscape and non-tactical screens remain ungraded.
+- **Tactical LUT filters** add nine original live colour grades after temporal reconstruction: Realistic Desaturated, Neutral, Cinematic Bleach, Vivid, B&W Cinema, Noir, Amber Film, Arctic, and Vintage Sepia, with a 0–100 strength control and no bundled third-party assets. Geoscape and non-tactical screens remain ungraded.
 - **Automatic mip bias** keeps textures appropriately detailed when the game renders below the output resolution.
 - **Frame-rate control** removes the vanilla 60 FPS pin and can optionally apply a 30–300 FPS limit.
 - **Benchmark overlay** toggles with `Ctrl+Alt+O` and shows the renderer, upscaler, mode, resolution, frame time, real FPS, and presented FPS when frame generation is active.
@@ -78,7 +78,7 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | Frame generation | Off | 2x on a supported D3D12 setup with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU and are greyed out otherwise. |
 | Neural Rendering | Off | Auto exposes the experimental stage only on D3D12 + RTX 50 with the trusted packaged runtime. Style and strength controls are under Mods → Renderforge. |
 | Sharpness | 40 | Live 0–100 control; 0 disables sharpening. |
-| LUT filter | Off | Live Off / Realistic Desaturated / Neutral / Cinematic Bleach / Vivid selector for tactical missions only. Runs after reconstruction so it never enters temporal history; Geoscape is unchanged. |
+| LUT filter | Off | Nine colour grades, including B&W Cinema, Noir, Amber Film, Arctic and Vintage Sepia, for tactical missions only. Runs after reconstruction so it never enters temporal history; Geoscape is unchanged. |
 | LUT strength | 100 | Live 0–100 blend from the original image to the selected grade. |
 | Frame-rate limit | Off | Caps final presented FPS, including generated frames; enabling it disables VSync. |
 | Max presented FPS | 60 | Used only when the Renderforge limit is enabled; range 30–300. A live 2x/3x/4x FG chain automatically renders at 1/2, 1/3 or 1/4 of this ceiling. |

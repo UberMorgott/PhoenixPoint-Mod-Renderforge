@@ -39,7 +39,7 @@ static const char kRcasHlsl[] =
 "}\n";
 
 // Analytic color grading is deliberately code-only: no third-party LUT data or textures. The preset coefficients
-// are original, conservative transforms in display-referred RGB. FP16 overbrights are preserved (only negatives
+// are original transforms in display-referred RGB. FP16 overbrights are preserved (only negatives
 // are clipped); UNORM UAVs clamp naturally on store. RCAS is folded into this shader so LUT+sharpen stays one pass.
 static const char kColorGradeHlsl[] =
 "Texture2D<float4> src : register(t0);\n"
@@ -52,6 +52,13 @@ static const char kColorGradeHlsl[] =
 "  else if (preset==2) { g=lerp(y.xxx,c,0.96); g=(g-0.5)*1.03+0.5; g*=float3(1.01,1.0,0.99); }\n"
 "  else if (preset==3) { g=lerp(y.xxx,c,0.42); g=(g-0.5)*1.18+0.5; g*=float3(0.98,1.0,1.04); g+=float3(0.015,0.005,-0.005); }\n"
 "  else if (preset==4) { g=lerp(y.xxx,c,1.28); g=(g-0.5)*1.08+0.5; g*=float3(1.03,1.0,0.98); }\n"
+// B&W curves keep black/white endpoints and a monotonic toe/shoulder; the saturated coordinate only
+// shapes contrast within 0..1, leaving FP16 overbrights intact. Noir uses a red-filter luma mix.
+"  else if (preset==5) { float z=saturate(y); float film=y+0.28*z*(1.0-z)*(2.0*z-1.0); g=film.xxx; }\n"
+"  else if (preset==6) { float n=dot(c,float3(0.32,0.60,0.08)); float z=saturate(n); float film=n+0.88*z*(1.0-z)*(2.0*z-1.0); g=film.xxx; }\n"
+"  else if (preset==7) { float z=saturate(y); g=lerp(y.xxx,c,0.82); g+=z*(1.0-z)*float3(0.22,0.025,-0.18); }\n"
+"  else if (preset==8) { float z=saturate(y); g=lerp(y.xxx,c,0.68); g+=z*(1.0-z)*float3(-0.20,0.035,0.24); }\n"
+"  else if (preset==9) { float z=saturate(y); float film=0.035+0.93*y; g=film.xxx+z*(1.0-z)*float3(0.24,0.025,-0.26); }\n"
 "  return lerp(c,max(g,0.0),strength);\n"
 "}\n"
 "[numthreads(8,8,1)] void main(uint3 id:SV_DispatchThreadID) {\n"

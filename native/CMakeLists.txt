@@ -105,3 +105,9 @@ target_include_directories(dlss_probe PRIVATE "${FFX_API_INC}" "${FFX_API_INC}/d
 target_link_libraries(dlss_probe PRIVATE RenderforgeNative "${XESS_LIB}" d3d11 d3d12 dxgi delayimp)
 target_link_options(dlss_probe PRIVATE "/DELAYLOAD:libxess.dll")
 target_compile_definitions(dlss_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WINDOWS)
+
+# Optional, dependency-free shader readback test; does not start Unity or load an upscaler runtime.
+add_executable(lut_probe EXCLUDE_FROM_ALL probe/lut_probe.cpp Sharpen.cpp)
+target_include_directories(lut_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(lut_probe PRIVATE d3d11 d3dcompiler)
+target_compile_definitions(lut_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

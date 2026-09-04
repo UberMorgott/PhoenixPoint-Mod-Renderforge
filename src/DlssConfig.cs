@@ -22,7 +22,7 @@ namespace Renderforge
     public enum NeuralRenderingStyle { Style0, Style1, Style2 }
 
     /// <summary>Original analytic colour grades. Ordinals cross the managed/native ABI; append only.</summary>
-    public enum LutPreset { Off, RealisticDesaturated, Neutral, CinematicBleach, Vivid }
+    public enum LutPreset { Off, RealisticDesaturated, Neutral, CinematicBleach, Vivid, BlackAndWhiteCinema, Noir, AmberFilm, Arctic, VintageSepia }
 
     /// <summary>Public fields = the in-game mod settings UI + ModConfig.json (ModConfig.GetConfigFields).
     /// [ConfigField] = the English label; GetConfigFields swaps in Russian when the game runs in Russian

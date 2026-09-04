@@ -35,6 +35,11 @@ namespace Renderforge
                 case LutPreset.Neutral: return DlssConfig.Loc("Neutral", "Нейтральный");
                 case LutPreset.CinematicBleach: return DlssConfig.Loc("Cinematic Bleach", "Кино: bleach bypass");
                 case LutPreset.Vivid: return DlssConfig.Loc("Vivid", "Насыщенный");
+                case LutPreset.BlackAndWhiteCinema: return DlssConfig.Loc("B&W Cinema", "Чёрно-белое кино");
+                case LutPreset.Noir: return DlssConfig.Loc("Noir", "Нуар");
+                case LutPreset.AmberFilm: return DlssConfig.Loc("Amber Film", "Янтарное кино");
+                case LutPreset.Arctic: return DlssConfig.Loc("Arctic", "Арктика");
+                case LutPreset.VintageSepia: return DlssConfig.Loc("Vintage Sepia", "Старая сепия");
                 default: return preset.ToString();
             }
         }

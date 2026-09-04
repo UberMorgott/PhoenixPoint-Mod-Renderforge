@@ -47,7 +47,8 @@ enum { DLSS_SHARPEN_NONE = 0, DLSS_SHARPEN_NIS = 1, DLSS_SHARPEN_RCAS = 2, DLSS_
 
 // Original analytic color grades evaluated in the native post-pass; no external LUT assets are used.
 enum { DLSS_LUT_OFF = 0, DLSS_LUT_REALISTIC_DESATURATED = 1, DLSS_LUT_NEUTRAL = 2,
-       DLSS_LUT_CINEMATIC_BLEACH = 3, DLSS_LUT_VIVID = 4 };
+       DLSS_LUT_CINEMATIC_BLEACH = 3, DLSS_LUT_VIVID = 4, DLSS_LUT_BW_CINEMA = 5,
+       DLSS_LUT_NOIR = 6, DLSS_LUT_AMBER_FILM = 7, DLSS_LUT_ARCTIC = 8, DLSS_LUT_VINTAGE_SEPIA = 9 };
 
 // Main thread. anyNativeResource = ID3D11Resource* or ID3D12Resource* (Unity GetNativeTexturePtr); the API is
 // chosen by QueryInterface. Idempotent once it returned DLSS_OK.

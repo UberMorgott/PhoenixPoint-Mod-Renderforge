@@ -1,0 +1,44 @@
+{
+  "input": "E:\\DEV\\PhoenixPoint\\Renderforge\\build\\lut-proof\\verified-syn-day-off.png",
+  "input_sha256": "e288971deba7f539a36301de72b72ad1a3e7aad65a47a148ad9f3a9ea6164f68",
+  "crop": [
+    0,
+    100,
+    1280,
+    540
+  ],
+  "preview_size": [
+    480,
+    165
+  ],
+  "presets": [
+    [
+      null,
+      "Source / LUT Off"
+    ],
+    [
+      5,
+      "B&W Cinema"
+    ],
+    [
+      6,
+      "Noir"
+    ],
+    [
+      7,
+      "Amber Film"
+    ],
+    [
+      8,
+      "Arctic"
+    ],
+    [
+      9,
+      "Vintage Sepia"
+    ]
+  ],
+  "strength": 1,
+  "sharpness": 0,
+  "domain": "Normalized screenshot display RGB, no sRGB decode; FP32 WARP shader output clamped to 8-bit PNG.",
+  "limits": "Offline display approximation; any in-scene HUD is also graded. Live pre-UI grading and FP16-linear output are not visually validated."
+}

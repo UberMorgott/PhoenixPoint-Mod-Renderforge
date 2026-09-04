@@ -17,5 +17,20 @@ Nexus does not grant a blanket default reuse licence. Its [File Submission Guide
 - **Neutral:** nearly source-level saturation with a small contrast lift and subtle warm-neutral channel balance.
 - **Cinematic Bleach:** stronger luma contrast and substantially lower general saturation with a slight cool bias.
 - **Vivid:** controlled chroma expansion, a modest contrast lift, and a slight warm bias.
+- **B&W Cinema:** true monochrome at full strength, with a gentle S-curve and preserved black/white endpoints.
+- **Noir:** stronger monochrome contrast and a red-filter channel balance that darkens blue/cyan relative to warm colours.
+- **Amber Film:** restrained saturation and warm amber midtones, leaving black and neutral white untinted.
+- **Arctic:** muted colour and cyan-blue midtones, with neutral endpoints.
+- **Vintage Sepia:** warm monochrome midtones with raised blacks and soft whites, like faded photographic paper.
 
 All presets blend against the ungraded reconstructed pixel by the user-selected strength. `Off` bypasses the shader path; shader/resource failures also fall back to the reconstructed frame.
+
+The five cinema presets append ABI values 5–9; existing saved values are unchanged. They add no texture, model, or downloaded asset. The existing Cinematic Bleach already supplies the bleach-bypass look.
+
+## Domain and verification
+
+The shader uses display-referred RGB coefficients directly on the reconstruction output. The normal UNORM path views sRGB resources as raw UNORM bytes. FP16 paths receive their existing linear values without a new transfer-function conversion; overbrights remain finite and are not capped to 1. The same numeric profile can therefore look different on FP16-linear output. These are artistic grades, not calibrated film-stock emulations.
+
+`native/probe/lut_probe.cpp` compiles the production HLSL and executes it on D3D11 WARP. It checks all nine presets over a 4,913-colour cube, alpha preservation, finite nonnegative output, zero/half/full blends, monochrome equality within floating-point tolerance, 1,025-step monotonic neutral ramps, and floating-point overbright retention. There is no LUT texture layout to validate.
+
+See [cinema pack evidence](../2026-09-05-lut-cinema-pack.md) for the shared-source contact sheet, commands and visual-validation limits.

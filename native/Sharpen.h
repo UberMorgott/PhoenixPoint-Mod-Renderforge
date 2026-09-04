@@ -16,7 +16,7 @@ ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr = false, bool colorGrade = f
 void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
                           int lutPreset = 0, float lutStrength = 0.0f, bool hdr = false);
 
-inline bool ColorGradeEnabled(int preset, float strength) { return preset >= 1 && preset <= 4 && strength > 0.0f; }
+inline bool ColorGradeEnabled(int preset, float strength) { return preset >= 1 && preset <= 9 && strength > 0.0f; }
 
 // Typeless render-target formats have no valid SRV/UAV format; map them to the concrete one.
 DXGI_FORMAT SharpenViewFormat(DXGI_FORMAT fmt);
