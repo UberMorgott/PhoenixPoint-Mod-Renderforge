@@ -308,6 +308,9 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd, int neuralRenderi
         void* slot = Dlss_GetFrameSlot();
         Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f,
                       i == 1 ? DLSS_LUT_VIVID : DLSS_LUT_OFF, i == 1 ? 1.0f : 0.0f);
+        // Update all four strengths on the existing feature, with no create/release event.
+        if (neuralRendering)
+            DlssNr_Configure(1, 1, 0.25f + i * 0.5f, 1.75f - i * 0.5f, 0.5f + i * 0.5f, -0.5f + i * 0.5f, 1);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         char name[32]; sprintf_s(name, "Evaluate[%d]", i);

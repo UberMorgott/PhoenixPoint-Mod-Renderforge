@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -108,11 +107,8 @@ namespace Renderforge
         internal static string SettingsKey(DlssConfig cfg)
         {
             if (cfg == null) return "";
-            return cfg.NeuralRendering + "|" + cfg.NeuralStyle + "|"
-                + cfg.NeuralIntensity.ToString("R", CultureInfo.InvariantCulture) + "|"
-                + cfg.NeuralLocalTone.ToString("R", CultureInfo.InvariantCulture) + "|"
-                + cfg.NeuralLocalStructure.ToString("R", CultureInfo.InvariantCulture) + "|"
-                + cfg.NeuralSkinStructure.ToString("R", CultureInfo.InvariantCulture) + "|" + cfg.NeuralAutoMask;
+            // Only structural NR settings rebuild the generation. Strengths are evaluation parameters.
+            return cfg.NeuralRendering + "|" + cfg.NeuralStyle + "|" + cfg.NeuralAutoMask;
         }
 
         internal static bool IsTrustedNvidiaBinary(string path, out string reason)

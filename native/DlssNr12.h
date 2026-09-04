@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <d3d12.h>
+#include <mutex>
 #include "nvsdk_ngx.h"
 
 struct CreateParams;
@@ -30,7 +31,7 @@ public:
                   ID3D12Resource* motionVectors, ID3D12Resource* output);
     void ReleaseFeature();
     void Shutdown(ID3D12Device* device);
-    bool Wanted() const { return config_.enabled != 0; }
+    bool Wanted() const { return ConfigSnapshot().enabled != 0; }
     bool Active() const { return active_ && feature_ != nullptr; }
     bool FeatureAlive() const { return feature_ != nullptr; }
     void Status(int* initResult, int* createResult, int* evalResult, int* alive) const;
@@ -38,8 +39,11 @@ public:
 private:
     bool EnsureInitialized(ID3D12Device* device, NVSDK_NGX_Parameter* params, const wchar_t* dllDir);
     void Unload();
+    DlssNrConfig ConfigSnapshot() const;
 
+    mutable std::mutex configMutex_;
     DlssNrConfig config_;
+    DlssNrConfig evaluatedConfig_ = {};
     HMODULE runtime_;
     HMODULE bridge_;
     NVSDK_NGX_Handle* feature_;
@@ -63,4 +67,3 @@ private:
     void* bridgeRelease_;
     void* bridgeShutdown_;
 };
-

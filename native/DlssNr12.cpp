@@ -58,15 +58,22 @@ DlssNr12::DlssNr12()
 
 void DlssNr12::Configure(const DlssNrConfig& value)
 {
-    config_ = value;
-    config_.enabled = value.enabled ? 1 : 0;
-    config_.style = (std::max)(0, (std::min)(2, value.style));
-    config_.intensity = Clamp(value.intensity, 0.0f, 2.0f);
-    config_.localTone = Clamp(value.localTone, 0.0f, 2.0f);
-    config_.localStructure = Clamp(value.localStructure, 0.0f, 2.0f);
-    config_.skinStructure = Clamp(value.skinStructure, -1.0f, 1.0f);
-    config_.autoMask = value.autoMask ? 1 : 0;
-    if (!config_.enabled) active_ = false;
+    DlssNrConfig config = value;
+    config.enabled = value.enabled ? 1 : 0;
+    config.style = (std::max)(0, (std::min)(2, value.style));
+    config.intensity = Clamp(value.intensity, 0.0f, 2.0f);
+    config.localTone = Clamp(value.localTone, 0.0f, 2.0f);
+    config.localStructure = Clamp(value.localStructure, 0.0f, 2.0f);
+    config.skinStructure = Clamp(value.skinStructure, -1.0f, 1.0f);
+    config.autoMask = value.autoMask ? 1 : 0;
+    std::lock_guard<std::mutex> lock(configMutex_);
+    config_ = config;
+}
+
+DlssNrConfig DlssNr12::ConfigSnapshot() const
+{
+    std::lock_guard<std::mutex> lock(configMutex_);
+    return config_;
 }
 
 bool DlssNr12::EnsureInitialized(ID3D12Device* device, NVSDK_NGX_Parameter*, const wchar_t* dllDir)
@@ -115,6 +122,7 @@ bool DlssNr12::Create(ID3D12Device* device, ID3D12GraphicsCommandList* commandLi
                       NVSDK_NGX_Parameter* params, const wchar_t* dllDir, const CreateParams& create)
 {
     active_ = false;
+    const DlssNrConfig config = ConfigSnapshot();
     if (!EnsureInitialized(device, params, dllDir)) return false;
     params->Reset();
     NVSDK_NGX_Result populated = reinterpret_cast<BridgePopulate>(bridgePopulate_)(
@@ -137,16 +145,16 @@ bool DlssNr12::Create(ID3D12Device* device, ID3D12GraphicsCommandList* commandLi
     params->Set("DLSSNR.OutputWidth", create.w); params->Set("DLSSNR.OutputHeight", create.h);
     params->Set("Output.Width", create.w); params->Set("Output.Height", create.h);
     params->Set("DLSSNR.Upscaling", 1u); params->Set("DLSSNR.ScalingRatio", ratio); params->Set("DLSSNR.Scale", ratio);
-    params->Set("DLSSNR.Hint.Render.Preset", 1); params->Set("DLSSNR.Style", (unsigned)config_.style);
-    params->Set("DLSSNR.Intensity", config_.intensity); params->Set("DLSSNR.LocalToneStrength", config_.localTone);
-    params->Set("DLSSNR.LocalStructureStrength", config_.localStructure);
-    params->Set("DLSSNR.SkinStructureStrength", config_.skinStructure);
-    params->Set("DLSSNR.UseAutoMask", (unsigned)config_.autoMask); params->Set("DLSSNR.UICorrection", 0u);
+    params->Set("DLSSNR.Hint.Render.Preset", 1); params->Set("DLSSNR.Style", (unsigned)config.style);
+    params->Set("DLSSNR.Intensity", config.intensity); params->Set("DLSSNR.LocalToneStrength", config.localTone);
+    params->Set("DLSSNR.LocalStructureStrength", config.localStructure);
+    params->Set("DLSSNR.SkinStructureStrength", config.skinStructure);
+    params->Set("DLSSNR.UseAutoMask", (unsigned)config.autoMask); params->Set("DLSSNR.UICorrection", 0u);
     depthInverted_ = (create.rawFlags & DLSS_F_DEPTH_INVERTED) ? 1 : 0;
     lastCreate_ = reinterpret_cast<BridgeCreate>(bridgeCreate_)(reinterpret_cast<NgxCreate>(snippetCreate_),
         commandList, kNrFeature, params, &feature_);
     active_ = NVSDK_NGX_SUCCEED(lastCreate_) && feature_ != nullptr;
-    RfDbg::Log("DLSS-NR CreateFeature(18): result=0x%X feature=%p style=%d", (unsigned)lastCreate_, feature_, config_.style);
+    RfDbg::Log("DLSS-NR CreateFeature(18): result=0x%X feature=%p style=%d", (unsigned)lastCreate_, feature_, config.style);
     if (!active_) feature_ = nullptr;
     return active_;
 }
@@ -156,6 +164,14 @@ bool DlssNr12::Evaluate(ID3D12GraphicsCommandList* commandList, NVSDK_NGX_Parame
                         ID3D12Resource* motionVectors, ID3D12Resource* output)
 {
     if (!Active()) return false;
+    const DlssNrConfig config = ConfigSnapshot();
+    if (!config.enabled) { active_ = false; return false; }
+    if (config.intensity != evaluatedConfig_.intensity || config.localTone != evaluatedConfig_.localTone ||
+        config.localStructure != evaluatedConfig_.localStructure || config.skinStructure != evaluatedConfig_.skinStructure) {
+        RfDbg::Log("DLSS-NR Evaluate strengths: feature=%p intensity=%.4f localTone=%.4f localStructure=%.4f skinStructure=%.4f",
+            feature_, config.intensity, config.localTone, config.localStructure, config.skinStructure);
+        evaluatedConfig_ = config;
+    }
     params->Reset();
     params->Set("DLSSNR.Color", color); params->Set("DLSSNR.Output", output);
     params->Set("DLSSNR.Depth", depth); params->Set("DLSSNR.MVec", motionVectors);
@@ -163,11 +179,11 @@ bool DlssNr12::Evaluate(ID3D12GraphicsCommandList* commandList, NVSDK_NGX_Parame
     params->Set("DLSSNR.JitterOffsetY", frame.jitterY); params->Set("DLSSNR.MVecScaleX", frame.mvScaleX);
     params->Set("DLSSNR.MVecScaleY", frame.mvScaleY); params->Set("DLSSNR.DepthInverted", depthInverted_);
     params->Set("DLSSNR.Enabled", 1); params->Set("DLSSNR.UICorrection", 0);
-    params->Set("DLSSNR.Style", (unsigned)config_.style); params->Set("DLSSNR.Intensity", config_.intensity);
-    params->Set("DLSSNR.LocalToneStrength", config_.localTone);
-    params->Set("DLSSNR.LocalStructureStrength", config_.localStructure);
-    params->Set("DLSSNR.SkinStructureStrength", config_.skinStructure);
-    params->Set("DLSSNR.UseAutoMask", (unsigned)config_.autoMask);
+    params->Set("DLSSNR.Style", (unsigned)config.style); params->Set("DLSSNR.Intensity", config.intensity);
+    params->Set("DLSSNR.LocalToneStrength", config.localTone);
+    params->Set("DLSSNR.LocalStructureStrength", config.localStructure);
+    params->Set("DLSSNR.SkinStructureStrength", config.skinStructure);
+    params->Set("DLSSNR.UseAutoMask", (unsigned)config.autoMask);
     SetSubrect(params, "Color", frame.renderW, frame.renderH);
     SetSubrect(params, "Depth", frame.renderW, frame.renderH);
     SetSubrect(params, "MVec", frame.renderW, frame.renderH);

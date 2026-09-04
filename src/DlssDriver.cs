@@ -119,6 +119,8 @@ namespace Renderforge
                 BeginRelease();
                 return;
             }
+            if (gen == Gen.Live || gen == Gen.Creating)
+                NeuralRenderingSupport.ConfigureNative(RenderforgeMod.Instance?.Cfg);
             if (gen == Gen.Live && liveMode == wantMode && liveView != wantView && SameSizeClass(liveView, wantView))
             {
                 liveView = wantView;      // only the present source changes
