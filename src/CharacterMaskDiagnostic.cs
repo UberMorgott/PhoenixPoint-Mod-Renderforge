@@ -12,7 +12,7 @@ using UnityEngine.Rendering;
 namespace Renderforge
 {
     /// <summary>Opt-in one-frame depth-contract experiment, not an enhancement input.</summary>
-    public sealed class CharacterMaskDiagnostic : MonoBehaviour
+    public sealed partial class CharacterMaskDiagnostic : MonoBehaviour
     {
         private Camera camera;
         private RenderTexture initialTarget;
@@ -92,6 +92,7 @@ namespace Renderforge
                 var manager = (component as IAddonsManagerProvider)?.AddonsManager;
                 if (manager?.RootAddon != null) candidates.Add(manager);
             }
+            if (candidates.Count != 1) throw new InvalidOperationException("Diagnostic requires the verified single-character roster scene.");
             var matches = candidates.Where(m => m.RootAddon.Any(a =>
                 a.VisualRoot != null && a.VisualsSourcePrefab != null && a.VisualsSourcePrefab.name == expectedPrefab)).ToArray();
             if (matches.Length != 1) throw new InvalidOperationException("Expected exactly one CURRENT head variant: " + expectedPrefab);
@@ -161,7 +162,7 @@ namespace Renderforge
 
         private void BeforeCamera(Camera current)
         {
-            if (current != camera || finished || commands != null || Time.frameCount - startedFrame < (closeUp ? 32 : 2)) return;
+            if (current != camera || finished || commands != null || Time.frameCount - startedFrame < Math.Max(prototypeWarmupFrames, closeUp ? 32 : 2)) return;
             try
             {
                 if (fingerprint != CurrentFingerprint()) throw new InvalidOperationException("Visual generation changed; capture cancelled.");
@@ -184,7 +185,7 @@ namespace Renderforge
                 evidence["renderPosition"] = camera.transform.position.ToString("R");
                 evidence["renderRotation"] = camera.transform.rotation.ToString("R");
                 evidence["renderFov"] = camera.fieldOfView;
-                evidence["warmupFrames"] = closeUp ? 32 : 2;
+                evidence["warmupFrames"] = Math.Max(prototypeWarmupFrames, closeUp ? 32 : 2);
                 evidence["renderFrame"] = Time.frameCount;
                 evidence["renderers"] = new JArray(selected.Select(r => new JObject {
                     ["id"] = r.GetInstanceID(), ["name"] = r.name, ["materials"] = new JArray(r.sharedMaterials.Select(m => m.GetInstanceID())) }));
@@ -230,7 +231,8 @@ namespace Renderforge
                 evidence["nonBlackPixels"] = counts;
                 if ((int)counts["face-unoccluded"] == 0 || (int)counts["source"] == 0 || (int)counts["output"] == 0)
                     throw new InvalidOperationException("Empty control or source image; mask contract was not established.");
-                evidence["sharedMaterialsUnchanged"] = true;
+                evidence["sharedMaterialsUnchanged"] = authoredFaceMaterials == null;
+                evidence["captureMaterialsStable"] = true;
                 evidence["status"] = "captured";
                 Finish();
             }
@@ -270,6 +272,7 @@ namespace Renderforge
             savedRotation = camera.transform.rotation;
             savedFov = camera.fieldOfView;
             cameraMoved = true;
+            camera.transform.rotation = Quaternion.AngleAxis(prototypeYaw, Vector3.up) * savedRotation;
             camera.transform.position = face.bounds.center - camera.transform.forward * 1.15f;
             camera.fieldOfView = 26f;
         }
@@ -350,6 +353,7 @@ namespace Renderforge
         private void OnDestroy() { Cleanup(); }
         private void Cleanup()
         {
+            RestorePrototype();
             RestoreCamera();
             Camera.onPreCull -= PrepareCamera;
             Camera.onPreRender -= BeforeCamera;

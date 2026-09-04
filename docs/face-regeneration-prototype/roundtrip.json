@@ -1,0 +1,20 @@
+[
+  {
+    "person": "sofia",
+    "roundtripMeanAbsRGB": [
+      1.054887688558066,
+      0.9061326658322904,
+      1.0169125881035506
+    ],
+    "sameCamera": true
+  },
+  {
+    "person": "yael",
+    "roundtripMeanAbsRGB": [
+      0.8305833685892916,
+      0.49574578103699524,
+      0.41432802143562264
+    ],
+    "sameCamera": true
+  }
+]
