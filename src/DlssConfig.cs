@@ -18,6 +18,9 @@ namespace Renderforge
     /// 3x/4x exist only on DLSS-G with an RTX 50 GPU; the picker greys what Fg_Caps does not report.</summary>
     public enum FrameGenMode { Off, X2, X3, X4 }
 
+    public enum NeuralRenderingMode { Off, Auto }
+    public enum NeuralRenderingStyle { Style0, Style1, Style2 }
+
     /// <summary>Public fields = the in-game mod settings UI + ModConfig.json (ModConfig.GetConfigFields).
     /// [ConfigField] = the English label; GetConfigFields swaps in Russian when the game runs in Russian
     /// (same shape as PerkOracle's OracleConfig.GetConfigFields, minus the CSV: two languages, inline).</summary>
@@ -27,7 +30,7 @@ namespace Renderforge
         // call that is building Mods -> Renderforge, where duplicate normal Graphics/Screen rows are hidden.
         private static readonly HashSet<string> HiddenFromModSettings = new HashSet<string>
         {
-            nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen),
+            nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen), nameof(NeuralRendering),
             nameof(LimitFrameRate), nameof(FrameRateLimit)
         };
 
@@ -60,6 +63,20 @@ namespace Renderforge
         public UpscalerKind Upscaler = UpscalerKind.Auto;
         [ConfigField("Frame generation", "Off / 2x / 3x / 4x. DirectX 12 only. 3x and 4x need DLSS-G on an RTX 50 GPU.")]
         public FrameGenMode FrameGen = FrameGenMode.Off;
+        [ConfigField("Neural Rendering", "Off / Auto. Experimental and unofficial; DirectX 12 + RTX 50 + trusted NVIDIA runtime only.")]
+        public NeuralRenderingMode NeuralRendering = NeuralRenderingMode.Off;
+        [ConfigField("Neural Rendering style", "0 / 1 / 2")]
+        public NeuralRenderingStyle NeuralStyle = NeuralRenderingStyle.Style0;
+        [ConfigField("Neural Rendering intensity", "0.0 … 2.0")]
+        public float NeuralIntensity = 1.0f;
+        [ConfigField("Neural Rendering local tone", "0.0 … 2.0")]
+        public float NeuralLocalTone = 1.0f;
+        [ConfigField("Neural Rendering local structure", "0.0 … 2.0")]
+        public float NeuralLocalStructure = 1.0f;
+        [ConfigField("Neural Rendering skin structure", "-1.0 … 1.0")]
+        public float NeuralSkinStructure = -1.0f;
+        [ConfigField("Neural Rendering auto mask")]
+        public bool NeuralAutoMask = true;
 
         // field ID -> (RU label, RU description); English comes from the attribute above.
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
@@ -77,6 +94,13 @@ namespace Renderforge
             { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный, требуется перезапуск." } },
             { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, Intel → XeSS, иначе FSR (XeSS, если нет DLL AMD). FSR/XeSS требуют DirectX 12. Смена требует перезапуска." } },
             { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12. 3x и 4x — DLSS-G на видеокарте RTX 50." } },
+            { nameof(NeuralRendering), new[] { "Нейронный рендеринг", "Выкл / Авто. Экспериментальная неофициальная интеграция; только DirectX 12 + RTX 50 + доверенный runtime NVIDIA." } },
+            { nameof(NeuralStyle), new[] { "Стиль нейронного рендеринга", "0 / 1 / 2" } },
+            { nameof(NeuralIntensity), new[] { "Интенсивность нейронного рендеринга", "0,0 … 2,0" } },
+            { nameof(NeuralLocalTone), new[] { "Локальный тон нейронного рендеринга", "0,0 … 2,0" } },
+            { nameof(NeuralLocalStructure), new[] { "Локальная структура нейронного рендеринга", "0,0 … 2,0" } },
+            { nameof(NeuralSkinStructure), new[] { "Структура кожи нейронного рендеринга", "-1,0 … 1,0" } },
+            { nameof(NeuralAutoMask), new[] { "Автомаска нейронного рендеринга", null } },
         };
 
         /// <summary>True while the game runs in Russian (I2 LocalizationManager.CurrentLanguage, "English"/"Russian"/…).</summary>

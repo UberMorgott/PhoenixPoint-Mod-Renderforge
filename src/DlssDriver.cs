@@ -35,6 +35,7 @@ namespace Renderforge
         private bool liveSrgbViews;         // DLSS_F_SRGB_VIEWS the generation was created with (D3D12 runtime diagnostic)
         private bool liveColorDesc;         // colorRT created from an explicit R8G8B8A8_SRGB descriptor (D3D12 runtime diagnostic)
         private bool liveHalfColor;         // colorRT + outRT linear ARGBHalf, DLSS_F_HDR (fixed-on production path)
+        private string liveNrKey = "";      // any NR option change recreates both ordered features
 
         private int jitterIndex, phaseCount;
         private float jx, jy;
@@ -112,6 +113,12 @@ namespace Renderforge
         {
             wantMode = mode;
             wantView = view;
+            string nrKey = NeuralRenderingSupport.SettingsKey(RenderforgeMod.Instance?.Cfg);
+            if ((gen == Gen.Live || gen == Gen.Creating) && liveNrKey != nrKey)
+            {
+                BeginRelease();
+                return;
+            }
             if (gen == Gen.Live && liveMode == wantMode && liveView != wantView && SameSizeClass(liveView, wantView))
             {
                 liveView = wantView;      // only the present source changes
@@ -137,7 +144,7 @@ namespace Renderforge
                      + " colorSpace=" + QualitySettings.activeColorSpace + " reversedZ=" + SystemInfo.usesReversedZBuffer
                      + " path=" + (cam ? cam.actualRenderingPath.ToString() : "-")
                      + " present=" + (present ? (present.enabled ? "on" : "off") : "none") + " broken=" + broken + " fail=" + lastFail
-                     + " " + Native.Timings();
+                     + " " + Native.NrStatus() + " " + Native.Timings();
             }
         }
 
@@ -234,6 +241,9 @@ namespace Renderforge
         {
             outW = Screen.width; outH = Screen.height;
             liveMode = wantMode; liveView = wantView;
+            var nrConfig = RenderforgeMod.Instance?.Cfg;
+            liveNrKey = NeuralRenderingSupport.SettingsKey(nrConfig);
+            NeuralRenderingSupport.ConfigureNative(nrConfig);
             passthrough = liveView == DebugView.Passthrough;
             wantsFeature = !passthrough;
             quality = QualityFor(liveMode, outH);

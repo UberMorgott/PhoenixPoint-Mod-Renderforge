@@ -18,12 +18,13 @@ namespace Renderforge
         internal const string RendererName = "RenderforgeRenderer";
         internal const string UpscalerName = "RenderforgeUpscaler";
         internal const string FrameGenName = "RenderforgeFrameGen";
+        internal const string NeuralRenderingName = "RenderforgeNeuralRendering";
 
         private static bool loggedError;
-        private static ArrowPickerController renderer, upscaler, frameGen;
+        private static ArrowPickerController renderer, upscaler, frameGen, neuralRendering;
         private static RendererMode pendingRenderer;
         private static bool rendererTouched;   // the user moved the RENDERER row since the panel opened
-        private static int pendingUpscaler, pendingFrameGen;
+        private static int pendingUpscaler, pendingFrameGen, pendingNeuralRendering;
         private static Action onChanged;
 
         private static string[] RendererLabels
@@ -40,6 +41,11 @@ namespace Renderforge
         private static string[] FrameGenLabels
         {
             get { return new[] { DlssConfig.Loc("Off", "Выкл"), "2x", "3x", "4x" }; }
+        }
+
+        private static string[] NeuralRenderingLabels
+        {
+            get { return new[] { DlssConfig.Loc("Off", "Выкл"), DlssConfig.Loc("Auto", "Авто") }; }
         }
 
         private static UpscalerKind UpscalerAt(int index)
@@ -69,7 +75,19 @@ namespace Renderforge
             frameGen.Init(FrameGenLabels.Length, pendingFrameGen, OnFrameGen);
             ShowFrameGen();
 
-            return frameGen.transform;
+            var oldNr = src.transform.parent.Find(NeuralRenderingName);
+            if (!NeuralRenderingSupport.Available)
+            {
+                if (oldNr != null) oldNr.gameObject.SetActive(false);
+                neuralRendering = null;
+                return frameGen.transform;
+            }
+            pendingNeuralRendering = (int)cfg.NeuralRendering;
+            neuralRendering = Row(src, NeuralRenderingName,
+                DlssConfig.Loc("Neural Rendering", "Нейронный рендеринг"), frameGen.transform.GetSiblingIndex() + 1);
+            neuralRendering.Init(NeuralRenderingLabels.Length, pendingNeuralRendering, OnNeuralRendering);
+            ShowNeuralRendering();
+            return neuralRendering.transform;
         }
 
         /// <summary>Forget an uncommitted RENDERER choice: called on panel Init AND Deinit (UIModuleGraphicsOptionsPanel.cs:86,:107)
@@ -84,13 +102,13 @@ namespace Renderforge
         /// <summary>Drop the scene references on mod disable; the next panel Init rebuilds them.</summary>
         internal static void Clear()
         {
-            renderer = upscaler = frameGen = null;
+            renderer = upscaler = frameGen = neuralRendering = null;
             onChanged = null;
         }
 
         internal static void Hide(Transform content)
         {
-            foreach (string n in new[] { RendererName, UpscalerName, FrameGenName })
+            foreach (string n in new[] { RendererName, UpscalerName, FrameGenName, NeuralRenderingName })
             {
                 var t = content.Find(n);
                 if (t != null) t.gameObject.SetActive(false);
@@ -162,6 +180,17 @@ namespace Renderforge
             GraphicsPanel.Tip(frameGen.CentralButton.gameObject, reason);
         }
 
+        private static void ShowNeuralRendering()
+        {
+            if (neuralRendering == null) return;
+            GraphicsPanel.SetRaw(neuralRendering.CurrentItem, neuralRendering.CurrentItemText,
+                NeuralRenderingLabels[pendingNeuralRendering]);
+            GraphicsPanel.Grey(neuralRendering.CurrentItem.gameObject, false);
+            GraphicsPanel.Tip(neuralRendering.CentralButton.gameObject,
+                DlssConfig.Loc("Experimental/unofficial. Runs before DLSS SR or DLAA; any failure disables only this stage.",
+                    "Экспериментальная неофициальная интеграция. Работает перед DLSS SR/DLAA; ошибка отключает только этот этап."));
+        }
+
         private static void OnRenderer(int index)
         {
             try
@@ -197,6 +226,17 @@ namespace Renderforge
                 RenderforgeMod.SetFrameGen(((FrameGenMode)index).ToString());
             }
             catch (Exception ex) { Log("frame-generation picker change failed", ex); }
+        }
+
+        private static void OnNeuralRendering(int index)
+        {
+            try
+            {
+                pendingNeuralRendering = index;
+                ShowNeuralRendering();
+                RenderforgeMod.SetNeuralRendering(((NeuralRenderingMode)index).ToString());
+            }
+            catch (Exception ex) { Log("neural-rendering picker change failed", ex); }
         }
 
         /// <summary>Picker differs from the config (must be written), OR the user moved it and it differs from the

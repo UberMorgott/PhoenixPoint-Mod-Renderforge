@@ -1,9 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using UnityEngine;
 
@@ -17,25 +17,27 @@ namespace Renderforge
         DriverTooOld,
         RuntimeMissing,
         RuntimeUntrusted,
-        IntegrationContractUnavailable,
+        Available,
         ProbeFailed
     }
 
     /// <summary>
-    /// Fail-closed capability probe for DLSS 5 3D-Guided Neural Rendering. It never loads a candidate DLL:
-    /// the existing DLSS path remains untouched until NVIDIA exposes an authorized integration contract.
+    /// Capability and trust gate for the experimental/unofficial RTX 50-only DLSS 5 Neural Rendering path.
+    /// Only the private RenderforgeNR runtime is accepted; native failures stay isolated from DLSS SR/DLAA.
     /// </summary>
     internal static class NeuralRenderingSupport
     {
         private const string RuntimeName = "nvngx_dlssnr.dll";
         private const int MinimumDriverBuild = 16;
         private const int MinimumDriverPrivate = 1664; // NVIDIA 616.64
+        private const string TrustedRuntimeSha256 = "E16BCF15E16E13F527491CDF7845B2FE6521A738D8F7C9C721866A8496E1FC8E";
         private static readonly Regex Rtx50 = new Regex(@"\bRTX\s*50\d{2}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Guid GenericVerifyV2 = new Guid("00AAC56B-CD44-11D0-8CC2-00C04FC295EE");
 
         internal static NeuralRenderingState State { get; private set; } = NeuralRenderingState.NotProbed;
         internal static string RuntimePath { get; private set; }
         internal static string Status { get; private set; } = "not probed";
+        internal static bool Available { get { return State == NeuralRenderingState.Available; } }
 
         internal static void Probe(string modDir)
         {
@@ -69,26 +71,48 @@ namespace Renderforge
                 return;
             }
 
-            bool rejected = false;
-            foreach (string path in CandidatePaths(modDir))
+            string privateDir = Path.Combine(modDir, "RenderforgeNR");
+            string bridge = Path.Combine(privateDir, "nvngx.dll");
+            string path = Path.Combine(privateDir, RuntimeName);
+            if (!File.Exists(bridge) || !File.Exists(path))
             {
-                if (!File.Exists(path)) continue;
-                string reason;
-                if (!IsTrustedNvidiaBinary(path, out reason))
-                {
-                    rejected = true;
-                    continue;
-                }
-
-                RuntimePath = path;
-                Set(NeuralRenderingState.IntegrationContractUnavailable,
-                    "disabled: signed NVIDIA runtime found, but no authorized integration contract is available");
+                Set(NeuralRenderingState.RuntimeMissing, "disabled: private RenderforgeNR runtime or bridge missing");
                 return;
             }
+            string reason;
+            if (!IsTrustedNvidiaBinary(path, out reason))
+            {
+                Set(NeuralRenderingState.RuntimeUntrusted, "disabled: NVIDIA Neural Rendering runtime failed signature validation (" + reason + ")");
+                return;
+            }
+            RuntimePath = path;
+            Set(NeuralRenderingState.Available, "available: experimental/unofficial RTX 50 Neural Rendering");
+        }
 
-            Set(rejected ? NeuralRenderingState.RuntimeUntrusted : NeuralRenderingState.RuntimeMissing,
-                rejected ? "disabled: NVIDIA Neural Rendering runtime failed signature validation"
-                         : "disabled: signed NVIDIA Neural Rendering runtime not found");
+        internal static bool ShouldEnable(DlssConfig cfg)
+        {
+            return cfg != null && Available && cfg.NeuralRendering == NeuralRenderingMode.Auto
+                && Upscalers.Running == UpscalerKind.DLSS;
+        }
+
+        internal static void ConfigureNative(DlssConfig cfg)
+        {
+            if (cfg == null) { Native.ConfigureNr(0, 0, 1f, 1f, 1f, -1f, 1); return; }
+            bool enabled = ShouldEnable(cfg);
+            Native.ConfigureNr(enabled ? 1 : 0, (int)cfg.NeuralStyle,
+                Mathf.Clamp(cfg.NeuralIntensity, 0f, 2f), Mathf.Clamp(cfg.NeuralLocalTone, 0f, 2f),
+                Mathf.Clamp(cfg.NeuralLocalStructure, 0f, 2f), Mathf.Clamp(cfg.NeuralSkinStructure, -1f, 1f),
+                cfg.NeuralAutoMask ? 1 : 0);
+        }
+
+        internal static string SettingsKey(DlssConfig cfg)
+        {
+            if (cfg == null) return "";
+            return cfg.NeuralRendering + "|" + cfg.NeuralStyle + "|"
+                + cfg.NeuralIntensity.ToString("R", CultureInfo.InvariantCulture) + "|"
+                + cfg.NeuralLocalTone.ToString("R", CultureInfo.InvariantCulture) + "|"
+                + cfg.NeuralLocalStructure.ToString("R", CultureInfo.InvariantCulture) + "|"
+                + cfg.NeuralSkinStructure.ToString("R", CultureInfo.InvariantCulture) + "|" + cfg.NeuralAutoMask;
         }
 
         internal static bool IsTrustedNvidiaBinary(string path, out string reason)
@@ -113,30 +137,22 @@ namespace Renderforge
                 return false;
             }
 
-            string company = FileVersionInfo.GetVersionInfo(path).CompanyName ?? string.Empty;
-            if (company.IndexOf("NVIDIA", StringComparison.OrdinalIgnoreCase) < 0)
-            {
-                reason = "publisher metadata is not NVIDIA";
-                return false;
-            }
-
             try
             {
-                using (var signer = new X509Certificate2(X509Certificate.CreateFromSignedFile(path)))
+                using (var stream = File.OpenRead(path))
+                using (var sha = SHA256.Create())
                 {
-                    string subject = signer.Subject ?? string.Empty;
-                    bool nvidia = subject.IndexOf("NVIDIA Corporation", StringComparison.OrdinalIgnoreCase) >= 0;
-                    bool whcp = subject.IndexOf("Microsoft Windows Hardware Compatibility Publisher", StringComparison.OrdinalIgnoreCase) >= 0;
-                    if (!nvidia && !whcp)
+                    string hash = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);
+                    if (!string.Equals(hash, TrustedRuntimeSha256, StringComparison.OrdinalIgnoreCase))
                     {
-                        reason = "unexpected signer: " + subject;
+                        reason = "runtime hash is not the trusted 310.8.0 build";
                         return false;
                     }
                 }
             }
             catch
             {
-                reason = "signer certificate unavailable";
+                reason = "runtime hash unavailable";
                 return false;
             }
 
@@ -164,51 +180,6 @@ namespace Renderforge
                 version = "unknown";
                 return false;
             }
-        }
-
-        private static IEnumerable<string> CandidatePaths(string modDir)
-        {
-            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            Add(paths, modDir);
-            Add(paths, Application.dataPath == null ? null : Path.Combine(Application.dataPath, "Plugins", "x86_64"));
-            Add(paths, Application.dataPath == null ? null : Directory.GetParent(Application.dataPath)?.FullName);
-
-            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            string ngx = Path.Combine(programData, "NVIDIA", "NGX");
-            AddTree(paths, ngx);
-
-            string system = Environment.GetFolderPath(Environment.SpecialFolder.System);
-            DirectoryInfo windows = Directory.GetParent(system);
-            string store = windows == null ? null : Path.Combine(windows.FullName, "System32", "DriverStore", "FileRepository");
-            if (!string.IsNullOrEmpty(store) && Directory.Exists(store))
-            {
-                try
-                {
-                    foreach (string package in Directory.GetDirectories(store, "nv_disp*.inf_amd64_*", SearchOption.TopDirectoryOnly))
-                        Add(paths, package);
-                }
-                catch { }
-            }
-
-            return paths;
-        }
-
-        private static void Add(ISet<string> paths, string directory)
-        {
-            if (string.IsNullOrEmpty(directory)) return;
-            try { paths.Add(Path.GetFullPath(Path.Combine(directory, RuntimeName))); }
-            catch { }
-        }
-
-        private static void AddTree(ISet<string> paths, string root)
-        {
-            if (!Directory.Exists(root)) return;
-            Add(paths, root);
-            try
-            {
-                foreach (string directory in Directory.GetDirectories(root, "*", SearchOption.AllDirectories)) Add(paths, directory);
-            }
-            catch { }
         }
 
         private static int VerifyFileSignature(string path)

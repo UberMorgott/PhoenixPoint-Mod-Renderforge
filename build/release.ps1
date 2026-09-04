@@ -2,7 +2,7 @@
 #
 # Produces, in build\release\:
 #   Renderforge-Core-<v>.zip     managed DLL + native shim + meta.json + README + MIT + NIS licence
-#   Renderforge-NVIDIA-<v>.zip   nvngx_dlss.dll (+ Streamline / nvngx_dlssg.dll with -WithFrameGen)
+#   Renderforge-NVIDIA-<v>.zip   DLSS SR + private DLSS-NR runtime/bridge (+ DLSS-G with -WithFrameGen)
 #   Renderforge-AMD-<v>.zip      amd_fidelityfx_*_dx12.dll
 #   Renderforge-Intel-<v>.zip    libxess.dll (+ libxess_fg.dll, libxell.dll with -WithFrameGen)
 #   Renderforge-Full-<v>.zip     the union of all four
@@ -38,8 +38,9 @@ $stage  = Join-Path $relDir 'stage'
 # --- Newest NVIDIA NGX runtimes we know of. Update together with refs\ after checking the
 # --- TechPowerUp DLL databases; a mismatch is a WARNING, never a hard failure.
 $NewestKnownNgx = @{
-    'nvngx_dlss.dll'  = '310.7.129.0'
-    'nvngx_dlssg.dll' = '310.7.129.0'
+    'nvngx_dlss.dll'   = '310.9.0.0'
+    'nvngx_dlssnr.dll' = '310.8.0.0'
+    'nvngx_dlssg.dll'  = '310.9.0.0'
 }
 
 function Get-NormalVersion([string] $path) {
@@ -76,6 +77,8 @@ $packs = [ordered]@{
     )
     'NVIDIA' = @(
         @{ Src = Join-Path $refs 'DLSS-sdk\lib\Windows_x86_64\rel\nvngx_dlss.dll'; Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt' }
+        @{ Src = Join-Path $outDir 'RenderforgeNR\nvngx.dll';                     Dest = 'RenderforgeNR\nvngx.dll' }
+        @{ Src = Join-Path $refs 'DLSS-NR\nvngx_dlssnr.dll';                      Dest = 'RenderforgeNR\nvngx_dlssnr.dll'; Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt' }
         @{ Src = Join-Path $refs 'Streamline\latest-dll\nvngx_dlssg.dll';          Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt'; Fg = $true }
         @{ Src = Join-Path $refs 'Streamline\bin\x64\sl.interposer.dll';           Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt'; Fg = $true }
         @{ Src = Join-Path $refs 'Streamline\bin\x64\sl.common.dll';               Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt'; Fg = $true }
@@ -115,11 +118,12 @@ foreach ($pack in $packs.Keys) {
     foreach ($f in $packs[$pack]) {
         if ($f.Fg -and -not $WithFrameGen) { continue }
         if (-not (Test-Path $f.Src)) { throw "$pack pack: missing source $($f.Src)" }
-        $name = Split-Path $f.Src -Leaf
+        $name = if ($f.Dest) { $f.Dest } else { Split-Path $f.Src -Leaf }
         $ver  = Get-NormalVersion $f.Src
         if ($f.Signer) { Assert-VendorSignature $f.Src $f.Signer }
-        if ($NewestKnownNgx.ContainsKey($name) -and $ver -ne $NewestKnownNgx[$name]) {
-            Write-Warning ('{0} is {1}; newest known is {2}. Check the TechPowerUp DLL database and refresh refs\ before releasing, or update $NewestKnownNgx in this script.' -f $name, $ver, $NewestKnownNgx[$name])
+        $leaf = Split-Path $f.Src -Leaf
+        if ($NewestKnownNgx.ContainsKey($leaf) -and $ver -ne $NewestKnownNgx[$leaf]) {
+            Write-Warning ('{0} is {1}; newest known is {2}. Check the TechPowerUp DLL database and refresh refs\ before releasing, or update $NewestKnownNgx in this script.' -f $leaf, $ver, $NewestKnownNgx[$leaf])
         }
         $files += [pscustomobject]@{
             Name    = $name
@@ -148,12 +152,20 @@ $full = @()
 foreach ($pack in $selected.Keys) {
     $dir = Join-Path $stage "$pack\Renderforge"
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    foreach ($f in $selected[$pack]) { Copy-Item $f.Src (Join-Path $dir $f.Name) -Force }
+    foreach ($f in $selected[$pack]) {
+        $target = Join-Path $dir $f.Name
+        New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+        Copy-Item $f.Src $target -Force
+    }
     $full += $selected[$pack]
 }
 $fullDir = Join-Path $stage 'Full\Renderforge'
 New-Item -ItemType Directory -Force -Path $fullDir | Out-Null
-foreach ($f in $full) { Copy-Item $f.Src (Join-Path $fullDir $f.Name) -Force }
+foreach ($f in $full) {
+    $target = Join-Path $fullDir $f.Name
+    New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+    Copy-Item $f.Src $target -Force
+}
 $selected['Full'] = $full
 
 # --- Manifest + zip per pack -----------------------------------------------------------------
@@ -198,4 +210,3 @@ $zips | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA2
     Set-Content -Path $sums -Encoding utf8NoBOM
 Write-Host "wrote $sums"
 Write-Host "release: OK - $relDir"
-

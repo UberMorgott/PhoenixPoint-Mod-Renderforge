@@ -34,6 +34,9 @@ if (-not $SkipNative) {
 }
 $nativeDll = Join-Path $root 'build\out\RenderforgeNative.dll'
 $ngxDll    = Join-Path $root 'build\out\nvngx_dlss.dll'
+$nrDir     = Join-Path $root 'build\out\RenderforgeNR'
+$nrBridge  = Join-Path $nrDir 'nvngx.dll'
+$nrRuntime = Join-Path $nrDir 'nvngx_dlssnr.dll'
 # AMD FidelityFX (FSR): the loader plus the upscaler DLL that contains 4.1.1 ML and the 3.1.5 fallback.
 $amdLoader   = Join-Path $root 'build\out\amd_fidelityfx_loader_dx12.dll'
 $amdUpscaler = Join-Path $root 'build\out\amd_fidelityfx_upscaler_dx12.dll'
@@ -45,7 +48,7 @@ $xessFgDll   = Join-Path $root 'build\out\libxess_fg.dll'
 $xellDll     = Join-Path $root 'build\out\libxell.dll'
 # NVIDIA Streamline 2.12 (DLSS-G / MFG + Reflex + PCL, FgStreamline.cpp): interposer + plugins + the DLSS-G NGX model.
 $slDlls      = @('sl.interposer.dll', 'sl.common.dll', 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll', 'nvngx_dlssg.dll') | ForEach-Object { Join-Path $root "build\out\$_" }
-foreach ($f in @($nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) + $slDlls) { if (-not (Test-Path $f)) { throw "missing $f - run build-native.ps1" } }
+foreach ($f in @($nativeDll, $ngxDll, $nrBridge, $nrRuntime, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) + $slDlls) { if (-not (Test-Path $f)) { throw "missing $f - run build-native.ps1" } }
 
 dotnet build (Join-Path $root 'Renderforge.csproj') -c $Configuration /p:PPRoot="$PPRoot"
 if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
@@ -58,6 +61,9 @@ foreach ($file in @((Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.j
                   (Join-Path $root 'LICENSE'), (Join-Path $root 'README.md'))) {
     Copy-Item $file $dest -Force
 }
+$nrDest = Join-Path $dest 'RenderforgeNR'
+New-Item -ItemType Directory -Force -Path $nrDest | Out-Null
+Copy-Item $nrBridge, $nrRuntime $nrDest -Force
 
 # Unity only calls UnityPluginLoad for plugins it resolves out of its own Plugins folder; the D3D12 backend
 # needs IUnityInterfaces, so the shim is staged there too and Native.Load prefers that copy.

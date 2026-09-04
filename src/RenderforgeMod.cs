@@ -67,7 +67,7 @@ namespace Renderforge
                                + Availability.Reason(Feature.Dlss) + ")");
             }
             NeuralRenderingSupport.Probe(ModDir);
-            Logger.LogInfo("DLSS 5 character enhancement: " + NeuralRenderingSupport.Status);
+            Logger.LogInfo("DLSS 5 Neural Rendering: " + NeuralRenderingSupport.Status);
             try
             {
                 if (Available) DlssDriver.Create();
@@ -295,6 +295,18 @@ namespace Renderforge
             FrameGen.Apply(m.Cfg);
             SaveConfig();
             return "frameGen=" + m.Cfg.FrameGen + " " + FrameGen.Status();
+        }
+
+        public static string SetNeuralRendering(string mode)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            NeuralRenderingMode nr;
+            if (!Enum.TryParse(mode, true, out nr)) return "bad mode '" + mode + "' (Off / Auto)";
+            m.Cfg.NeuralRendering = nr;
+            m.AttachAndApply();
+            SaveConfig();
+            return "neuralRendering=" + nr + " " + Native.NrStatus();
         }
 
         /// <summary>PPCLI: {"member":"SetFgProvider","args":["Fsr"]} - Auto / None / Fsr / Xess / Dlss. Test lever:

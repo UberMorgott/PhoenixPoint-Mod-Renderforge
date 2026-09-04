@@ -20,6 +20,7 @@
 #include "D3D12Sharpen.h"
 #include "D3D12Owned.h"
 #include "D3D12Debug.h"
+#include "DlssNr12.h"
 #include "nvsdk_ngx_helpers.h"
 
 namespace {
@@ -37,6 +38,7 @@ struct Device12 : IDevice
     D3D12Ring ring;               // command allocators/lists + Unity fence waits (D3D12Ring.h)
     OwnedSet12 owned;             // the resources NGX actually touches; Unity's RTs are only copied (D3D12Owned.h)
     SharpenPass12 sharpen;        // our own NIS/RCAS pass; NGX writes sharpen.target when it runs (D3D12Sharpen.h)
+    DlssNr12 nr;                  // optional RTX 50-only feature 18 stage; independent fail-open status
 
     ID3D12Resource* logged;        // RENDERFORGE_D3D12_DEBUG: output whose descs were already logged
     bool srgbViews;                // DLSS_F_SRGB_VIEWS of the live feature -> owned.Ensure (D3D12Owned.h Typed)
@@ -145,6 +147,10 @@ struct Device12 : IDevice
 
         ID3D12GraphicsCommandList* cl = Begin();
         if (!cl) { lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; return; }   // Begin() set lastError
+        // Feature 18 uses this same ordered list, but owns its handle and status. Failure only disables NR.
+        nr.Create(device, cl, params, dllDir, cp);
+        params->Reset();
+        SetPresetHints(params);
         // Node masks are "Multi GPU only (default 1)" (DLSS guide p.56 7.1).
         RfDbg::Log("Create: %ux%u -> %ux%u q=%d flags=0x%X", cp.w, cp.h, cp.outW, cp.outH, cp.quality, cp.ngxFlags);
         lastCreate = NGX_D3D12_CREATE_DLSS_EXT(cl, 1, 1, &feature, params, &dcp);
@@ -188,7 +194,7 @@ struct Device12 : IDevice
         if (passthrough) {
             OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
-        } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
+        } else if (!owned.Ensure(device, ring, color, output, srgbViews, nr.Active())) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
             // With sharpening on, NGX writes sharpen.target and the sharpen pass produces owned.out (D3D12Sharpen.h).
@@ -212,12 +218,20 @@ struct Device12 : IDevice
 
             owned.Enter(cl, color, depth, mv);
             ring.Stamp(1);
+            bool nrSucceeded = false;
+            if (nr.Active()) {
+                nrSucceeded = nr.Evaluate(cl, params, fp, owned.color, owned.depth, owned.mv, owned.nrOut);
+                if (nrSucceeded) { owned.NrToInput(cl); ep.Feature.pInColor = owned.nrOut; }
+                else owned.NrFailed(cl);
+                // The SR helper owns the same parameter block and must not inherit feature-18's private keys.
+                params->Reset();
+            }
             // NGX "always transitions buffers back to these known states" (guide p.14 3.4), so Leave starts from them.
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
             else if (doSharpen) sharpen.Run(cl, owned.out, fp.sharpness, ring.ringIdx);
             ring.Stamp(2);
-            owned.Leave(cl, output);
+            owned.Leave(cl, output, nrSucceeded);
         }
         if (RfDbg::On() && logged != output) {
             logged = output;
@@ -236,9 +250,10 @@ struct Device12 : IDevice
 
     void ReleaseFeature() override
     {
-        if (!feature || !BeginDestroy()) return;
+        if ((!feature && !nr.FeatureAlive()) || !BeginDestroy()) return;
         WaitIdle();                       // guide p.54 5.5: no command list using the feature may still be in flight
-        NVSDK_NGX_D3D12_ReleaseFeature(feature);
+        nr.ReleaseFeature();
+        if (feature) NVSDK_NGX_D3D12_ReleaseFeature(feature);
         feature = NULL;
         owned.Release();                  // idle above; a new generation re-creates the set at its own size
         EndDestroy();
@@ -251,6 +266,7 @@ struct Device12 : IDevice
         owned.Release();
         sharpen.Release();
         if (params) { NVSDK_NGX_D3D12_DestroyParameters(params); params = NULL; }
+        nr.Shutdown(device);
         if (ngxInitialized) { NVSDK_NGX_D3D12_Shutdown1(device); ngxInitialized = 0; }
         if (device) { device->Release(); device = NULL; }
         Zero();
@@ -260,6 +276,12 @@ struct Device12 : IDevice
 Device12 g_device12;
 
 } // namespace
+
+void ConfigureDevice12Nr(const DlssNrConfig& config) { g_device12.nr.Configure(config); }
+void Device12NrStatus(int* initResult, int* createResult, int* evalResult, int* alive)
+{
+    g_device12.nr.Status(initResult, createResult, evalResult, alive);
+}
 
 IDevice* MakeDevice12(void* nativeResource)
 {

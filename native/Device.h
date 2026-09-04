@@ -6,6 +6,7 @@
 #include <windows.h>
 #include "nvsdk_ngx.h"
 #include "RenderforgeNative.h"
+#include "DlssNr12.h"
 
 // NGX project identity, defined in RenderforgeNative.cpp, used by both backends.
 extern const char kProjectId[];
@@ -84,6 +85,8 @@ struct IDevice
 // Return the singleton backend if `nativeResource` belongs to that API, else NULL. No allocation.
 IDevice* MakeDevice11(void* nativeResource);
 IDevice* MakeDevice12(void* nativeResource);
+void ConfigureDevice12Nr(const DlssNrConfig& config);
+void Device12NrStatus(int* initResult, int* createResult, int* evalResult, int* alive);
 // FSR (FidelityFX ffx-api, D3D12 only). NULL when the resource is not a D3D12 one.
 IDevice* MakeFsr12(void* nativeResource);
 // XeSS (Intel libxess.dll, D3D12 only, cross-vendor DP4a / Intel XMX). NULL when the resource is not a D3D12 one.

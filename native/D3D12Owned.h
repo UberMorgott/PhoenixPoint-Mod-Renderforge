@@ -57,11 +57,14 @@ struct OwnedSet12
     ID3D12Resource* depth;
     ID3D12Resource* mv;
     ID3D12Resource* out;
+    ID3D12Resource* nrOut;       // optional render-size UAV: DLSS-NR -> DLSS SR/DLAA input
     unsigned w, h, outW, outH;
     DXGI_FORMAT fmt, outFmt;
 
+    bool hasNr;
+
     OwnedSet12() { Zero(); }
-    void Zero() { color = depth = mv = out = NULL; w = h = outW = outH = 0; fmt = outFmt = DXGI_FORMAT_UNKNOWN; }
+    void Zero() { color = depth = mv = out = nrOut = NULL; w = h = outW = outH = 0; fmt = outFmt = DXGI_FORMAT_UNKNOWN; hasNr = false; }
 
     static void Barrier(ID3D12GraphicsCommandList* cl, ID3D12Resource* res, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to)
     {
@@ -113,12 +116,13 @@ struct OwnedSet12
     // Sized/formatted after the Unity RTs of this frame; idempotent while they do not change. A change waits for
     // every list still referencing the old set before it is released (render thread). A flipped srgbIn changes cf,
     // so the twins are re-created through the same path.
-    bool Ensure(ID3D12Device* dev, D3D12Ring& ring, ID3D12Resource* unityColor, ID3D12Resource* unityOut, bool srgbIn = false)
+    bool Ensure(ID3D12Device* dev, D3D12Ring& ring, ID3D12Resource* unityColor, ID3D12Resource* unityOut,
+                bool srgbIn = false, bool neuralRendering = false)
     {
         D3D12_RESOURCE_DESC cd = unityColor->GetDesc(), od = unityOut->GetDesc();
         DXGI_FORMAT cf = Typed(cd.Format, srgbIn), of = Typed(od.Format);
         unsigned cw = (unsigned)cd.Width, ch = cd.Height, ow = (unsigned)od.Width, oh = od.Height;
-        if (color && fmt == cf && outFmt == of && w == cw && h == ch && outW == ow && outH == oh) return true;
+        if (color && fmt == cf && outFmt == of && w == cw && h == ch && outW == ow && outH == oh && hasNr == neuralRendering) return true;
         if (color) ring.WaitIdle();
         Release();
         fmt = cf; outFmt = of; w = cw; h = ch; outW = ow; outH = oh;
@@ -126,7 +130,9 @@ struct OwnedSet12
         depth = Make(dev, cw, ch, DXGI_FORMAT_R32_FLOAT, false, L"Renderforge depthIn");
         mv    = Make(dev, cw, ch, DXGI_FORMAT_R16G16_FLOAT, false, L"Renderforge mvIn");
         out   = Make(dev, ow, oh, of, true, L"Renderforge out");
-        if (!color || !depth || !mv || !out) { Release(); return false; }
+        hasNr = neuralRendering;
+        nrOut = neuralRendering ? Make(dev, cw, ch, Typed(cd.Format), true, L"Renderforge NR out") : NULL;
+        if (!color || !depth || !mv || !out || (neuralRendering && !nrOut)) { Release(); return false; }
         return true;
     }
 
@@ -136,6 +142,7 @@ struct OwnedSet12
         if (depth) depth->Release();
         if (mv)    mv->Release();
         if (out)   out->Release();
+        if (nrOut) nrOut->Release();
         Zero();
     }
 
@@ -168,15 +175,21 @@ struct OwnedSet12
         CopyFromUnity(cl, depth, kInSdk, uDepth, kUnityDepth);
         CopyFromUnity(cl, mv,    kInSdk, uMv,    kUnityMv);
         Barrier(cl, out, D3D12_RESOURCE_STATE_COMMON, kOutSdk);
+        if (nrOut) Barrier(cl, nrOut, D3D12_RESOURCE_STATE_COMMON, kOutSdk);
     }
+
+    // Successful NR output becomes the input of DLSS SR/DLAA. On NR failure it returns directly to COMMON.
+    void NrToInput(ID3D12GraphicsCommandList* cl) { Barrier(cl, nrOut, kOutSdk, kInSdk); }
+    void NrFailed(ID3D12GraphicsCommandList* cl) { Barrier(cl, nrOut, kOutSdk, D3D12_RESOURCE_STATE_COMMON); }
 
     // Inputs back to COMMON; owned output -> Unity's outRT (put back into its pre-state), out back to COMMON.
     // Starts from the SDK states (NGX and ffx restore them, XeSS never changes them).
-    void Leave(ID3D12GraphicsCommandList* cl, ID3D12Resource* uOut)
+    void Leave(ID3D12GraphicsCommandList* cl, ID3D12Resource* uOut, bool nrInput = false)
     {
         Barrier(cl, color, kInSdk, D3D12_RESOURCE_STATE_COMMON);
         Barrier(cl, depth, kInSdk, D3D12_RESOURCE_STATE_COMMON);
         Barrier(cl, mv,    kInSdk, D3D12_RESOURCE_STATE_COMMON);
+        if (nrInput && nrOut) Barrier(cl, nrOut, kInSdk, D3D12_RESOURCE_STATE_COMMON);
         Barrier(cl, out, kOutSdk, D3D12_RESOURCE_STATE_COPY_SOURCE);
         Barrier(cl, uOut, kUnityOut, D3D12_RESOURCE_STATE_COPY_DEST);
         cl->CopyResource(uOut, out);
