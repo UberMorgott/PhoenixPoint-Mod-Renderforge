@@ -415,7 +415,11 @@ namespace Renderforge
                 jitterIndex = (jitterIndex + 1) % phaseCount;
                 if (passthrough) { jx = 0f; jy = 0f; }
                 if (Diagnostics.JitterConstEnabled && !passthrough) { jx = Diagnostics.JitterConstX; jy = Diagnostics.JitterConstY; }   // JitterConst: rendered AND reported
-                float jscale = Diagnostics.JitterScale;
+                // Feature 18 is recurrent but its private 310.8 ABI exposes no usable jitter contract.
+                // Feeding a jittered image with non-jittered Unity MVs visibly warps static geometry;
+                // keep standard DLSS jitter everywhere except the explicitly enabled NR path.
+                float jscale = NeuralRenderingSupport.ShouldEnable(RenderforgeMod.Instance?.Cfg)
+                    ? 0f : Diagnostics.JitterScale;
                 jx *= jscale; jy *= jscale;          // JitterScale: rendered AND reported jitter (0 = none)
                 var p = cam.projectionMatrix;
                 cam.nonJitteredProjectionMatrix = p;

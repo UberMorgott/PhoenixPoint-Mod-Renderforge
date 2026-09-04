@@ -160,12 +160,7 @@ bool DlssNr12::Evaluate(ID3D12GraphicsCommandList* commandList, NVSDK_NGX_Parame
     params->Set("DLSSNR.Color", color); params->Set("DLSSNR.Output", output);
     params->Set("DLSSNR.Depth", depth); params->Set("DLSSNR.MVec", motionVectors);
     params->Set("DLSSNR.Reset", frame.reset); params->Set("DLSSNR.JitterOffsetX", frame.jitterX);
-    params->Set("DLSSNR.JitterOffsetY", frame.jitterY);
-    // Feature 18 consumes the public NGX jitter keys, but its reconstruction-space convention is
-    // the rendered projection offset (opposite the current-to-previous convention used by DLSS SR).
-    params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, -frame.jitterX);
-    params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, -frame.jitterY);
-    params->Set("DLSSNR.MVecScaleX", frame.mvScaleX);
+    params->Set("DLSSNR.JitterOffsetY", frame.jitterY); params->Set("DLSSNR.MVecScaleX", frame.mvScaleX);
     params->Set("DLSSNR.MVecScaleY", frame.mvScaleY); params->Set("DLSSNR.DepthInverted", depthInverted_);
     params->Set("DLSSNR.Enabled", 1); params->Set("DLSSNR.UICorrection", 0);
     params->Set("DLSSNR.Style", (unsigned)config_.style); params->Set("DLSSNR.Intensity", config_.intensity);

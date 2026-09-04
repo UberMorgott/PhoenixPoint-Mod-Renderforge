@@ -462,7 +462,8 @@ namespace Renderforge
 
         private static string JitterKnobs() =>
             " jitterSign=" + Diagnostics.JitterReportSignX + "," + Diagnostics.JitterReportSignY + " jitterScale=" + Diagnostics.JitterScale.ToString("R") + " jitterSwapXY=" + Diagnostics.JitterReportSwapXY
-            + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset;
+            + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset
+            + " nrJitterSuppressed=" + NeuralRenderingSupport.ShouldEnable(Instance?.Cfg);
 
         public static string GetStatus() => "provider=" + Upscalers.Running + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
