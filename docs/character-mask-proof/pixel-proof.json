@@ -1,0 +1,26 @@
+{
+  "maskValues": [
+    [
+      0,
+      255
+    ],
+    [
+      0,
+      255
+    ],
+    [
+      0,
+      255
+    ]
+  ],
+  "facePixels": [
+    49032,
+    7833,
+    21058
+  ],
+  "solidOutsideClear": 0,
+  "cutoutOutsideClear": 0,
+  "solidMissingFromCutout": 0,
+  "skinVisibleThroughCutout": 13225,
+  "unoccludedControlsIdentical": true
+}
