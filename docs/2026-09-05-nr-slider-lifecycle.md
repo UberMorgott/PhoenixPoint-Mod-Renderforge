@@ -28,7 +28,7 @@
 
 ## Remaining acceptance limits
 
-- Sustained generated frames are **not confirmed**: both the unmodified baseline and patched normal launches reported DLSS-G `mode=1`, `status=0x0`, `presented=1`, `generated=0`, including the complete controlled slider sequences. The older initial diagnosis did show positive generation. Zero-generation in this controlled run is not introduced by this patch, but remains an unresolved FG/environment issue.
+- The controlled slider sequences ran without generated frames (`mode=1`, `status=0x0`, `presented=1`, `generated=0`) in both baseline and patched launches. The later foreground control below confirms working generation in the patched build; a combined slider sequence with positive generated-frame counters has not been recorded.
 - No composited desktop video was captured. Stable lifecycle/status counters and the native framebuffer screenshot do not prove absence of every visible flicker. Physical dragging and desktop-visible behavior still need observation with working frame generation.
 - No claim is made about improved NR image/face quality. Structural setting changes still rebuild the generation by design.
 
@@ -44,4 +44,13 @@
 
 ## User visual confirmation
 
-After deployment of c0e8ce2346f08249c4cc49b3f39c1ec104828988, the user confirmed that moving the neural-strength sliders no longer causes visible flicker. This closes the user-observed slider-flicker check. The separate generated-frame counter limitation documented above remains open.
+After deployment of c0e8ce2346f08249c4cc49b3f39c1ec104828988, the user confirmed that moving the neural-strength sliders no longer causes visible flicker. This closes the user-observed slider-flicker check.
+
+## Foreground generation control
+
+- Same patched Steam process, PID `3368`; fresh unsaved campaign, Geoscape, DLAA, FG 2x, NR strengths unchanged. No rendering setting changed during this control.
+- `focus=game` reports thread input focus; native `fg=1` reports that the game's top-level window is the foreground window (`FgHost.cpp`). Streamline can return success without generating frames while in the background.
+- After window activation, 14 PPCLI `RenderforgeMod.GetStatus` samples over 13 seconds all reported `fg=1`, `gen=Live`, `nrAlive=1`, `lastError=0`; render frames `5854 -> 6583` (+729). Foreground was sampled approximately once per second, not instrumented on every frame.
+- The native log confirms sustained DLSS-G `presented=2`, `status=0x0`, `mode=1`: frame `7200` generated `2348`; frame `7500` generated `2648`; frame `9300` generated `4448`; frame `12300` generated `7448`.
+- This closes the question whether the patched build can generate frames. It does not retroactively make the earlier background slider sequences a combined FG-generation/slider proof.
+- Local evidence: `build/fg-foreground-start.json`, `build/fg-foreground-soak.json`, `build/fg-foreground-native-tail.log`. The process remained running.
