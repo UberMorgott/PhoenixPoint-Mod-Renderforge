@@ -49,3 +49,9 @@
 - No push or shutdown was performed by this experiment. Remove the optional prototype by reverting its logical commit and rebuilding/redeploying; generated assets never became production dependencies.
 
 API grounding: actual installed Unity 2019.4 managed DLLs via ILSpy, existing decompiled game/runtime roster APIs, plus official [ReadPixels](https://docs.unity3d.com/2019.4/Documentation/ScriptReference/Texture2D.ReadPixels.html), [Graphics.Blit](https://docs.unity3d.com/2019.4/Documentation/ScriptReference/Graphics.Blit.html), [LoadImage](https://docs.unity3d.com/2019.4/Documentation/ScriptReference/ImageConversion.LoadImage.html). Context7 was queried first but returned current URP snippets unsuitable for this Unity 2019 built-in renderer.
+
+## Exception cleanup review
+
+- Register the posed export mesh with the diagnostic owner before `BakeMesh`, so a bake exception reaches the existing `ExportHead` finally -> `Finish` -> `Cleanup` destruction path.
+- Construct the readback `Texture2D` inside the `SaveTexture` protected region. If construction fails, the finally still restores `GL.sRGBWrite` and `RenderTexture.active`, skips the null texture, and releases the temporary render target.
+- Verification: `dotnet build .\Renderforge.csproj -c Release --no-restore "/p:PPRoot=D:\Steam\steamapps\common\Phoenix Point" -v minimal` passed with 0 warnings and 0 errors; `git diff --check` passed. Exception coverage was checked structurally against the existing cleanup chain; no Unity allocation failure was injected. The live game (PID 3368) was not changed or redeployed.

@@ -23,8 +23,8 @@ namespace Renderforge
             try
             {
                 var mesh = new Mesh { name = probe.face.sharedMesh.name + " posed export" };
-                probe.face.BakeMesh(mesh);
                 probe.occluderMesh = mesh;
+                probe.face.BakeMesh(mesh);
                 if (mesh.vertexCount == 0 || mesh.uv.Length != mesh.vertexCount)
                     throw new InvalidOperationException("Readable posed head mesh and UVs are required.");
                 var material = probe.face.sharedMaterials.Single();
@@ -84,9 +84,10 @@ namespace Renderforge
             bool previousSrgb = GL.sRGBWrite;
             var target = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.ARGB32,
                 srgb ? RenderTextureReadWrite.sRGB : RenderTextureReadWrite.Linear);
-            var texture = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false, !srgb);
+            Texture2D texture = null;
             try
             {
+                texture = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false, !srgb);
                 GL.sRGBWrite = srgb;
                 Graphics.Blit(source, target);
                 RenderTexture.active = target;
@@ -98,7 +99,7 @@ namespace Renderforge
             {
                 GL.sRGBWrite = previousSrgb;
                 RenderTexture.active = previous;
-                Destroy(texture);
+                if (texture != null) Destroy(texture);
                 RenderTexture.ReleaseTemporary(target);
             }
         }
