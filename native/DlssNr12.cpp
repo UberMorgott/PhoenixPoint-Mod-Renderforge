@@ -141,7 +141,7 @@ bool DlssNr12::Create(ID3D12Device* device, ID3D12GraphicsCommandList* commandLi
     params->Set("DLSSNR.Intensity", config_.intensity); params->Set("DLSSNR.LocalToneStrength", config_.localTone);
     params->Set("DLSSNR.LocalStructureStrength", config_.localStructure);
     params->Set("DLSSNR.SkinStructureStrength", config_.skinStructure);
-    params->Set("DLSSNR.UseAutoMask", (unsigned)config_.autoMask); params->Set("DLSSNR.UICorrection", 0u);
+    params->Set("DLSSNR.UseAutoMask", (unsigned)config_.autoMask); params->Set("DLSSNR.UICorrection", 1u);
     depthInverted_ = (create.rawFlags & DLSS_F_DEPTH_INVERTED) ? 1 : 0;
     lastCreate_ = reinterpret_cast<BridgeCreate>(bridgeCreate_)(reinterpret_cast<NgxCreate>(snippetCreate_),
         commandList, kNrFeature, params, &feature_);
@@ -158,17 +158,21 @@ bool DlssNr12::Evaluate(ID3D12GraphicsCommandList* commandList, NVSDK_NGX_Parame
     if (!Active()) return false;
     params->Reset();
     params->Set("DLSSNR.Color", color); params->Set("DLSSNR.Output", output);
+    // The camera color includes screen-space UI. Let the NR runtime preserve it from the original frame instead of
+    // sending it through the reconstruction network; 310.8 requires Backbuffer and its active rect for this mode.
+    params->Set("DLSSNR.Backbuffer", color);
     params->Set("DLSSNR.Depth", depth); params->Set("DLSSNR.MVec", motionVectors);
     params->Set("DLSSNR.Reset", frame.reset); params->Set("DLSSNR.JitterOffsetX", frame.jitterX);
     params->Set("DLSSNR.JitterOffsetY", frame.jitterY); params->Set("DLSSNR.MVecScaleX", frame.mvScaleX);
     params->Set("DLSSNR.MVecScaleY", frame.mvScaleY); params->Set("DLSSNR.DepthInverted", depthInverted_);
-    params->Set("DLSSNR.Enabled", 1); params->Set("DLSSNR.UICorrection", 0);
+    params->Set("DLSSNR.Enabled", 1); params->Set("DLSSNR.UICorrection", 1);
     params->Set("DLSSNR.Style", (unsigned)config_.style); params->Set("DLSSNR.Intensity", config_.intensity);
     params->Set("DLSSNR.LocalToneStrength", config_.localTone);
     params->Set("DLSSNR.LocalStructureStrength", config_.localStructure);
     params->Set("DLSSNR.SkinStructureStrength", config_.skinStructure);
     params->Set("DLSSNR.UseAutoMask", (unsigned)config_.autoMask);
     SetSubrect(params, "Color", frame.renderW, frame.renderH);
+    SetSubrect(params, "Backbuffer", frame.renderW, frame.renderH);
     SetSubrect(params, "Depth", frame.renderW, frame.renderH);
     SetSubrect(params, "MVec", frame.renderW, frame.renderH);
     SetSubrect(params, "Output", frame.renderW, frame.renderH);
@@ -212,4 +216,3 @@ void DlssNr12::Status(int* initResult, int* createResult, int* evalResult, int* 
     if (evalResult) *evalResult = (int)lastEval_;
     if (alive) *alive = Active() ? 1 : 0;
 }
-

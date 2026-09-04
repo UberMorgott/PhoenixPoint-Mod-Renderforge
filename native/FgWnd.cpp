@@ -73,7 +73,10 @@ LRESULT CALLBACK ParentProc(HWND h, UINT m, WPARAM w, LPARAM l)
         g_shown = 1;
         SetWindowLongPtrW(h, GWL_STYLE, GetWindowLongPtrW(h, GWL_STYLE) | WS_CLIPCHILDREN);
         RECT r; GetClientRect(h, &r);
-        HWND c = CreateWindowExW(WS_EX_NOPARENTNOTIFY, kClass, kClass, WS_CHILD | WS_VISIBLE,
+        // Presentation surface only: disabling input is stronger than relying on WM_SETFOCUS/WM_MOUSEACTIVATE after
+        // creation, and NOACTIVATE prevents ShowWindow/third-party swapchain code from activating it meanwhile.
+        HWND c = CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_NOACTIVATE, kClass, kClass,
+                                 WS_CHILD | WS_VISIBLE | WS_DISABLED,
                                  0, 0, r.right - r.left, r.bottom - r.top, h, NULL, wc.hInstance, NULL);
         g_probe.createErr = c ? 0 : GetLastError();
         { Locked lk; g_child = c; }

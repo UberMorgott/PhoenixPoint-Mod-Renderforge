@@ -309,6 +309,28 @@ namespace Renderforge
             return "neuralRendering=" + nr + " " + Native.NrStatus();
         }
 
+        /// <summary>PPCLI/live UI surface for the four numeric parameters supported by the private DLSSNR ABI.</summary>
+        public static string SetNeuralParameters(float intensity, float localTone, float localStructure, float skinStructure)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.NeuralIntensity = Mathf.Clamp(intensity, 0f, 2f);
+            m.Cfg.NeuralLocalTone = Mathf.Clamp(localTone, 0f, 2f);
+            m.Cfg.NeuralLocalStructure = Mathf.Clamp(localStructure, 0f, 2f);
+            m.Cfg.NeuralSkinStructure = Mathf.Clamp(skinStructure, -1f, 1f);
+            ApplyNeuralRenderingSettings();
+            return "nrParams=" + m.Cfg.NeuralIntensity.ToString("R") + "," + m.Cfg.NeuralLocalTone.ToString("R") + ","
+                + m.Cfg.NeuralLocalStructure.ToString("R") + "," + m.Cfg.NeuralSkinStructure.ToString("R") + " " + Native.NrStatus();
+        }
+
+        internal static void ApplyNeuralRenderingSettings()
+        {
+            var m = Instance;
+            if (m == null) return;
+            m.AttachAndApply();
+            SaveConfig();
+        }
+
         /// <summary>PPCLI: {"member":"SetFgProvider","args":["Fsr"]} - Auto / None / Fsr / Xess / Dlss. Test lever:
         /// the RTX in this machine can run all three, and only a forced pick proves the cross-vendor paths.</summary>
         public static string SetFgProvider(string name)

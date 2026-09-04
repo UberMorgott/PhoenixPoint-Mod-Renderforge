@@ -104,6 +104,7 @@ namespace Renderforge
         {
             renderer = upscaler = frameGen = neuralRendering = null;
             onChanged = null;
+            NeuralRenderingPanel.Clear();
         }
 
         internal static void Hide(Transform content)
@@ -235,6 +236,7 @@ namespace Renderforge
                 pendingNeuralRendering = index;
                 ShowNeuralRendering();
                 RenderforgeMod.SetNeuralRendering(((NeuralRenderingMode)index).ToString());
+                NeuralRenderingPanel.Sync();
             }
             catch (Exception ex) { Log("neural-rendering picker change failed", ex); }
         }

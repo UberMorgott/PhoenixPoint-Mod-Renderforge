@@ -39,10 +39,12 @@ namespace Renderforge
                     if (existing != null) existing.gameObject.SetActive(false);
                     var hidden = src.transform.parent.Find(SliderName);
                     if (hidden != null) hidden.gameObject.SetActive(false);
+                    NeuralRenderingPanel.Hide(src.transform.parent);
                     return;
                 }
                 // RENDERER / UPSCALER / FRAME GENERATION first; our quality row goes after the last of them.
                 Transform after = Pickers.Build(__instance);
+                after = NeuralRenderingPanel.Build(__instance, after, mod.Cfg);
                 if (existing != null) picker = existing.GetComponent<ArrowPickerController>();
                 else
                 {
