@@ -48,7 +48,7 @@ foreach ($dll in $xessFgDll, $xellDll) {
 }
 
 # NVIDIA Streamline 2.12.0 (FgStreamline.cpp: DLSS-G / MFG, Reflex, PCL), all NVIDIA-signed, loaded at runtime only.
-# nvngx_dlssg.dll: the SDK's bin\x64 copy is 310.7.0 (stale); ship latest-dll\ 310.7.129 - the nvngx_dlss.dll rule.
+# nvngx_dlssg.dll: the SDK's bin\x64 copy is stale; ship the NVIDIA-signed 310.9.0 build from latest-dll\.
 $slSdk = Join-Path $root '..\refs\Streamline'
 $slDlls = @('sl.interposer.dll', 'sl.common.dll', 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll') | ForEach-Object { Join-Path $slSdk "bin\x64\$_" }
 $slDlls += Join-Path $slSdk 'latest-dll\nvngx_dlssg.dll'
@@ -59,7 +59,7 @@ foreach ($dll in $slDlls) {
     Write-Host ("{0} {1} from {2}" -f (Split-Path $dll -Leaf), (Get-Item $dll).VersionInfo.FileVersion, $dll)
 }
 $dlssgVer = (Get-Item $slDlls[-1]).VersionInfo.FileVersion -replace '[ ,]+', '.'
-if ($dlssgVer -notlike '310.7.*') { Write-Warning "nvngx_dlssg.dll is $dlssgVer, expected a 310.7.* build (refs\Streamline\latest-dll, 310.7.129 verified) - shipping it anyway" }
+if ($dlssgVer -notlike '310.9.*') { Write-Warning "nvngx_dlssg.dll is $dlssgVer, expected a 310.9.* build (refs\Streamline\latest-dll, 310.9.0 verified) - shipping it anyway" }
 
 New-Item -ItemType Directory -Force $buildDir, $outDir | Out-Null
 
