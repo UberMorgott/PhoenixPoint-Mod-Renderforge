@@ -41,3 +41,7 @@
 - Restored strengths: intensity `0.27`, local tone `0.55`, local structure `0.36`, skin structure `0.34`; FG `2x`, DLAA, target FPS `120`.
 - Ignored local evidence directory: `build\fg-settings-diagnosis-20260905\`. Key files: `fix-controlled-summary.json`, `baseline-deploy-hashes.json`, `fix-final-deploy-hashes.json`, `fix-final-status.json`, `fix-final-config.json`, `fix-native-build.log`, `fix-managed-build.log`, `fix-nr-probe.log`, `fix-debug-full.log`, `fix-on-nr-delta.log`, `fix-off-nr-delta.log`.
 - Reproduction scripts/results: `fix-open-menu.ps1`, `fix-slider-soak.ps1`, `baseline-control\` and `patched-control\` (plans, results and FG deltas). These local diagnostic artifacts are not shipped or committed. `docs/shots/` was not changed or staged.
+
+## User visual confirmation
+
+After deployment of c0e8ce2346f08249c4cc49b3f39c1ec104828988, the user confirmed that moving the neural-strength sliders no longer causes visible flicker. This closes the user-observed slider-flicker check. The separate generated-frame counter limitation documented above remains open.
