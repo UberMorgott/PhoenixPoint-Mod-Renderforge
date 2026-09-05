@@ -170,8 +170,15 @@ struct Device11 : IDevice
         common.PathListInfo.Length = inDllDir ? 1 : 0;
         common.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_ON;
 
-        NVSDK_NGX_Result r = NVSDK_NGX_D3D11_Init_with_ProjectID(kProjectId, NVSDK_NGX_ENGINE_TYPE_UNITY, kEngineVersion,
-                                                                 logDir ? logDir : L".", device, &common, NVSDK_NGX_Version_API);
+        // DEV ONLY (RfFakeInitCode, Device.h): =2 does not CALL NVSDK_NGX_D3D11_Init_with_ProjectID at all, it
+        // supplies the failing result in its place, so the REAL branch below runs (device retention included) and
+        // no NGX context is created that ngxInitialized == 0 would then leave un-shut-down (Shutdown() must not
+        // call NVSDK_NGX_D3D11_Shutdown1 on a device that never initialised NGX).
+        const int fake = RfFakeInitCode();
+        NVSDK_NGX_Result r = fake == 2
+            ? NVSDK_NGX_Result_FAIL_PlatformError
+            : NVSDK_NGX_D3D11_Init_with_ProjectID(kProjectId, NVSDK_NGX_ENGINE_TYPE_UNITY, kEngineVersion,
+                                                  logDir ? logDir : L".", device, &common, NVSDK_NGX_Version_API);
         // The device is the post pass's only dependency (Sharpen.cpp needs no NGX): keep it so Dlss_Init can
         // answer DLSS_OK_POST_ONLY. ngxInitialized stays 0, so Shutdown() skips NVSDK_NGX_D3D11_Shutdown1
         // and still releases this reference at Device11.cpp Shutdown().
@@ -182,8 +189,11 @@ struct Device11 : IDevice
         if (NVSDK_NGX_FAILED(r) || !params) { lastCreate = r; return initCode = DLSS_ERR_INIT_FAILED; }
 
         int available = 0;
-        NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
-        NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_NeedsUpdatedDriver, &needsDriver);
+        // fake=3 leaves available at its 0 initialiser; fake=4 injects needsDriver. The skipped query is never
+        // issued, so nothing can overwrite the injected value and the branches below are pure production code.
+        if (fake != 3) NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
+        if (fake == 4) needsDriver = 1;
+        else NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_NeedsUpdatedDriver, &needsDriver);
         NVSDK_NGX_Parameter_GetUI(params, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMajor, &minDriverMajor);
         NVSDK_NGX_Parameter_GetUI(params, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMinor, &minDriverMinor);
 

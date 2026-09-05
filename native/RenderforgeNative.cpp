@@ -116,6 +116,17 @@ NVSDK_NGX_PerfQuality_Value ToNgxQuality(int q)
     }
 }
 
+int RfFakeInitCode()
+{
+    static int cached = -1;
+    if (cached < 0) {
+        char v[8] = {};
+        DWORD n = GetEnvironmentVariableA("RENDERFORGE_FAKE_INIT", v, sizeof(v));
+        cached = (n == 1 && v[0] >= '2' && v[0] <= '4') ? v[0] - '0' : 0;
+    }
+    return cached;
+}
+
 // Render preset hints: K (transformer) for DLAA/Q/B, M for Perf, L for UltraPerf (header defaults per mode).
 void SetPresetHints(NVSDK_NGX_Parameter* params)
 {

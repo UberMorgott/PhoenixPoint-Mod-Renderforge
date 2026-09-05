@@ -100,3 +100,14 @@ IDevice* MakeXess12(void* nativeResource);
 // Shared translation helpers (defined in RenderforgeNative.cpp).
 NVSDK_NGX_PerfQuality_Value ToNgxQuality(int quality);
 void SetPresetHints(NVSDK_NGX_Parameter* params);
+
+// DEV ONLY. RENDERFORGE_FAKE_INIT injects an NGX failure with the device already acquired - the post-only path
+// without a non-NVIDIA GPU. It never short-circuits the handler it is testing, and it never CALLS the NGX entry
+// point whose answer it is faking (no context to leak, no query whose result is bent after the fact):
+//   2 = *_Init_with_ProjectID is not called at all; r = NVSDK_NGX_Result_FAIL_PlatformError instead, so the
+//       PRODUCTION failure branch (the one that must keep the device) runs unchanged. Lands on every GPU.
+//   3 = skip the SuperSampling_Available query, leaving available = 0; 4 = skip the NeedsUpdatedDriver query and
+//       set needsDriver = 1 - i.e. the real capability branches. Both need NGX to have come up, so they are
+//       NVIDIA-only; elsewhere the real handler answers 2 first.
+// 0 = off. Read once, cached.
+int RfFakeInitCode();
