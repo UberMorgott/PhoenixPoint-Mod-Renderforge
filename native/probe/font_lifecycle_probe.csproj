@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework><LangVersion>latest</LangVersion>
+    <AssemblyName>RenderforgeFontsLifecycleProof</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Managed>$(PPRoot)\PhoenixPointWin64_Data\Managed</Managed>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="font_lifecycle_probe.cs" />
+    <Compile Include="..\..\src\CrispFonts.cs" Link="CrispFonts.cs" />
+    <Compile Include="..\..\src\FontRasterCorrection.cs" Link="FontRasterCorrection.cs" />
+    <Compile Include="..\..\src\FontGlyphMapping.cs" Link="FontGlyphMapping.cs" />
+    <Reference Include="0Harmony"><HintPath>$(PPRoot)\ModSDK\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(Managed)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(Managed)\UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(Managed)\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(Managed)\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(Managed)\Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

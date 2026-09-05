@@ -64,6 +64,20 @@ public static class FontMappingProbe
             Require(FontGlyphMapping.Check(normal, 6, doubled, 1, 1, 2, 1, 1, new[] { 0 }, new[] { 0 }, 20, 40) != null, "character count mismatch accepted");
             Require(FontGlyphMapping.Check(normal, 6, doubled, 1, 1, 1, 1, 1, new[] { 0 }, new[] { 1 }, 20, 40) != null, "line remapping accepted");
             Require(FontGlyphMapping.Check(normal, 6, doubled, 1, 1, 1, 1, 1, new[] { 0 }, new[] { 0 }, 20, 39) == "best-fit/hinted size changed", "best fit mismatch accepted");
+            var settings = new TextGenerationSettings { fontSize = 20, scaleFactor = 1, generationExtents = new Vector2(100, 40) };
+            Require(FontRasterCorrection.SameSettings(settings, settings), "stable settings key changed");
+            var changed = settings; changed.scaleFactor = 2;
+            Require(!FontRasterCorrection.SameSettings(settings, changed), "density missing from retry key");
+            changed = settings; changed.fontSize++;
+            Require(!FontRasterCorrection.SameSettings(settings, changed), "font size missing from retry key");
+            changed = settings; changed.generationExtents.x++;
+            Require(!FontRasterCorrection.SameSettings(settings, changed), "rect missing from retry key");
+            changed = settings; changed.richText = !changed.richText;
+            Require(!FontRasterCorrection.SameSettings(settings, changed), "rich text missing from retry key");
+            changed = settings; changed.resizeTextForBestFit = !changed.resizeTextForBestFit;
+            Require(!FontRasterCorrection.SameSettings(settings, changed), "best fit missing from retry key");
+            changed = settings; changed.generateOutOfBounds = !changed.generateOutOfBounds;
+            Require(!FontRasterCorrection.SameSettings(settings, changed), "out of bounds missing from retry key");
             Console.WriteLine("PASS " + checks + " production mapping/attribute checks; no Unity rendering or atlas lifecycle simulated.");
             return 0;
         }

@@ -17,6 +17,8 @@ namespace Renderforge
             internal Font Font;
             internal TextGenerator High = new TextGenerator();
             internal string Content, Outcome;
+            internal TextGenerationSettings Settings;
+            internal bool HasSettings;
             internal bool Pending, Retried;
         }
         private static readonly Dictionary<int, Entry> Entries = new Dictionary<int, Entry>();
@@ -25,6 +27,10 @@ namespace Renderforge
         private static bool processing, refreshQueued;
         private static int atlasSerial;
         internal static int CachedCount => Entries.Count;
+        internal static bool Processing => processing;
+        internal static Text[] AffectedTexts() => Entries.Values.Select(e => e.Text).Where(t => t).ToArray();
+        internal static bool SameSettings(TextGenerationSettings a, TextGenerationSettings b) =>
+            a.Equals(b) && a.generateOutOfBounds == b.generateOutOfBounds;
         internal static string Result(int id) => Entries.TryGetValue(id, out Entry entry) ? entry.Outcome : "original";
 
         internal static void AtlasChanged(Font font)
@@ -41,7 +47,7 @@ namespace Renderforge
         // Called by the host only to drain event-driven work; no per-frame layout invalidation.
         internal static void RefreshPending()
         {
-            if (processing || !refreshQueued) return;
+            if (processing || !refreshQueued || CanvasUpdateRegistry.IsRebuildingGraphics() || CanvasUpdateRegistry.IsRebuildingLayout()) return;
             refreshQueued = false;
             foreach (var pair in Entries.ToArray())
             {
@@ -104,8 +110,12 @@ namespace Renderforge
             if (Entries.TryGetValue(id, out Entry entry) && (entry.Text != text || entry.Font != text.font))
             { Remove(id); entry = null; }
             if (entry == null) Entries[id] = entry = new Entry { Text = text, Font = text.font };
-            if (entry.Content != text.text)
-            { entry.Content = text.text; entry.Retried = false; entry.Pending = false; }
+            var settings = text.GetGenerationSettings(text.rectTransform.rect.size);
+            if (entry.Content != text.text || !entry.HasSettings || !SameSettings(entry.Settings, settings))
+            {
+                entry.Content = text.text; entry.Settings = settings; entry.HasSettings = true;
+                entry.Retried = false; entry.Pending = false;
+            }
             processing = true;
             int serial = atlasSerial;
             try
@@ -118,7 +128,6 @@ namespace Renderforge
                 int normalCharacters = normal.characters.Count, normalVisible = normal.characterCountVisible;
                 int[] normalLines = normal.lines.Select(l => l.startCharIdx).ToArray();
                 int normalSize = normal.fontSizeUsedForBestFit;
-                var settings = text.GetGenerationSettings(text.rectTransform.rect.size);
                 settings.scaleFactor *= 2;
                 bool populated = entry.High.PopulateWithErrors(text.text, settings, text.gameObject);
                 IList<UIVertex> high = entry.High.verts;
