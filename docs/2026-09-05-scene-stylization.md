@@ -1,10 +1,10 @@
 # Code-only scene stylization
 
-- Default: `SceneStyle=Off`, `SceneStyleStrength=100`, `PixelSize=6`.
+- Default: `SceneStyle=Off`, `SceneStyleStrength=100`, `PixelSize=2`.
 - Graphics options: Scene style (Off / Cartoon / Pixel art), Style strength (0–100), Pixel block size (2–16 output pixels).
-- `Renderforge.RenderforgeMod.SetSceneStyle("Cartoon", 100, 6)` is the PPCLI control; `Off` restores the original post path.
+- `Renderforge.RenderforgeMod.SetSceneStyle("PixelArt", 100, 2)` is the PPCLI control; `Off` restores the original post path.
 - Cartoon uses five luminance bands, a small texture-smoothing cross and dark contrast outlines. These are color edges, not geometry/depth/normal edges. It is a cartoon post filter, not a replacement cel material.
-- Pixel art samples the center of each output-sized block and quantizes each display RGB channel to eight levels. Its screen grid is stable, but moving objects cross the grid; it is not an authored pixel-art animation system.
+- Pixel art samples the center of each output-sized block and quantizes each display RGB channel to 32 levels. The default is two actual output pixels at both 1280×720 and 2560×1440, with no automatic resolution multiplier. Larger blocks remain adjustable up to 16. No extra outlines are applied. Its screen grid is stable, but moving objects cross the grid; it is not an authored pixel-art animation system.
 - Both share the existing post-reconstruction compute pass with color grading. Pixel art replaces the sharpening contribution inside the styled portion; the strength blend still uses the normal sharpened input. LUT grading follows the style.
 - The existing scene output is processed before normal overlay UI. World-space UI or UI already baked into the camera image receives the filter. Verify the real game's UI with the runtime plan below.
 - No generated faces, texture files, model weights, new DLL dependencies or downloads. Geometry, silhouette, animation and face identity stay unchanged. True low-poly geometry and depth/normal cel outlines are outside this change.
@@ -19,10 +19,19 @@
 - The probe caught full-strength `lerp` cancellation producing tiny differences inside a pixel block. Full strength now returns the styled value directly; block uniformity passes exactly even with sharpening enabled.
 - `D:\Renderforge-work\scene-style\native\Release\lut_probe.exe`: **PASS** all nine production LUTs: 4,913-color cube, 1,025-step ramps, alpha, blend endpoints, B&W channel equality, floating-point overbrights.
 - [Same-input contact sheet](scene-stylization/contact-sheet.png) runs the actual production shader against a saved screenshot using WARP. It is not a new in-game capture. [Manifest](scene-stylization/contact-sheet.json) records input/probe hashes, crop and limitations; [script](scene-stylization/make-preview.py) reproduces it. Screenshot-baked markers are filtered in this fixture; UI isolation requires the runtime check below.
-- Native DLL: **237,568 bytes**, versus **235,008 bytes** at the preceding LUT commit (**+2,560 bytes**). Managed DLL: **146,432 bytes**. No model/texture payload is added to the mod; the 1.18 MB comparison PNG lives only in docs.
-- Ready artifacts remain under `D:\Renderforge-work\scene-style\`. Managed SHA256: `61EBFF1FA2E901646A6EB98ACB1851602485966416408A4D2BAB8570EFBD7618`; native SHA256: `981AB304EF60A51D7413A60B36D7386BC296D028E401F4DFC1CE994D6EF76664`.
+- Native DLL: **237,568 bytes**, versus **235,008 bytes** at the preceding LUT commit (**+2,560 bytes**). Managed DLL: **146,944 bytes**. No model/texture payload is added to the mod; all comparison PNGs live only in docs.
+- Ready artifacts remain under `D:\Renderforge-work\scene-style\`. Managed SHA256: `1EADEC0BF455B7CBC1D6FBD14D5484F0996929148F5AC1259D68C4A11328E06D`; native SHA256: `AA8C823A80A11B7178D1F7D7E03911E316CE670B0DBCF863FDC90F6086A920EE`.
 - The running game was not controlled, restarted or deployed to. Live temporal stability, FG interaction, UI layout and performance remain unverified.
 - Integration audit also fixed the managed frame submission's old LUT upper bound (`4` → `LutPreset.VintageSepia`), so all nine registered LUTs reach native unchanged. The final managed hash above includes that fix; the Release rebuild passed with 0 warnings/errors.
+
+## Pixel readability refinement
+
+- The first six-pixel/eight-level example was too coarse for ordinary play. The new two-pixel/32-level default favors the small soldier silhouette, cover rims and ground detail; three and four pixels remain optional stronger looks. Explicitly saved block-size preferences are not overwritten.
+- [720p normal-framing comparison](scene-stylization/pixel-readability-720p.png) shows the verified 1280×720 fixture pixel-for-pixel: original, default two pixels, optional three and four pixels. The small soldier and cover edges remain more recognizable at two than at three/four in this fixture. This is visual inspection of one static image, not a general gameplay-readability guarantee.
+- [1440p display-scale comparison](scene-stylization/pixel-readability-1440p.png) runs the same shader at 2560×1440 on a bilinearly enlarged 720p source, then fits panels to 50%. It verifies block scale and does not pretend to contain native 1440p game detail. At 1440p the fixed two-pixel default is gentler relative to the same camera framing; no hidden scaling inflates it to six or more pixels.
+- [Reproduction script](scene-stylization/pixel-readability.py) and [manifest](scene-stylization/pixel-readability.json) record the exact source/probe hashes and simulation limits. All fixture UI is baked into the screenshot; it cannot prove live HUD exclusion.
+- Rebuilt native/managed Release and reran both probes: **PASS**. Pixel tests cover all 15 block sizes, exact block uniformity, 32-level palette membership and default quantization error ≤`1/62` per display channel relative to the selected source sample (not an error bound for spatial downsampling).
+- Cartoon's full 1280×720 floating-point output is byte-identical before/after this PixelArt change: SHA256 `A1BD02EE069184D75F3F0254776F998CA7B45E37C5C9D1CC9DC1A1397E445383`. All nine LUT checks and exact Off/zero checks still pass. Live movement, UI and FG checks remain pending.
 
 ## Runtime verification required
 

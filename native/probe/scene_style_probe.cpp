@@ -138,10 +138,16 @@ int main(int argc, char** argv)
             for (unsigned y = 0; y < h; ++y) for (unsigned x = 0; x < w; ++x) for (int c = 0; c < 3; ++c) {
                 const auto value = pixel[y*w+x][c];
                 Require(value == pixel[(y/block*block)*w + x/block*block][c], "Pixel grid is not block-uniform");
-                Require(std::abs(value*7-std::round(value*7)) < 2e-6f, "Pixel palette is not quantized");
+                Require(std::abs(value*31-std::round(value*31)) < 4e-6f, "Pixel palette is not quantized");
+                if (block == 2) {
+                    const unsigned sx = (x / 2 * 2 + 1 < w) ? x / 2 * 2 + 1 : w - 1;
+                    const unsigned sy = (y / 2 * 2 + 1 < h) ? y / 2 * 2 + 1 : h - 1;
+                    Require(std::abs(value - input[sy*w+sx][c]) <= 0.5f / 31 + 1e-6f,
+                        "Default pixel palette lost too much sampled color detail");
+                }
             }
         }
-        printf("PASS: production HLSL on D3D11 WARP; 2 styles x gamma/linear; exact Off/zero, alpha, finite output, blend, tiny/odd sizes; 15 pixel grids and palettes; original Off packing.\n");
+        printf("PASS: production HLSL on D3D11 WARP; 2 styles x gamma/linear; exact Off/zero, alpha, finite output, blend, tiny/odd sizes; 15 pixel grids, 32-level palettes, default color error <=1/62; original Off packing.\n");
         return 0;
     }
     catch (const std::exception& e) { fprintf(stderr, "FAIL: %s\n", e.what()); return 1; }

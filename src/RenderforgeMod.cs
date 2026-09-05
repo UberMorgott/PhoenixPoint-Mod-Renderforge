@@ -520,7 +520,7 @@ namespace Renderforge
         public static string GetStatus() => "provider=" + Upscalers.Running + " lut=" + (Instance?.Cfg?.Lut ?? LutPreset.Off) + " lutStrength=" + (Instance?.Cfg?.LutStrength ?? 0) + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " sceneStyle=" + (Instance?.Cfg?.SceneStyle ?? SceneStyle.Off)
-                                          + " styleStrength=" + (Instance?.Cfg?.SceneStyleStrength ?? 0) + " pixelSize=" + (Instance?.Cfg?.PixelSize ?? 6)
+                                          + " styleStrength=" + (Instance?.Cfg?.SceneStyleStrength ?? 0) + " pixelSize=" + (Instance?.Cfg?.PixelSize ?? 2)
                                           + " | fg=" + FrameGen.Status();
 
         private static string Reason(int code)

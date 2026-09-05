@@ -26,7 +26,8 @@ float3 Stylize(int2 p, float3 original) {
     if (styleMode == 2) {
         int block = int(max(pixelSize, 2u));
         int2 q = (p / block) * block + block / 2;
-        c = floor(StyleSample(q) * 7.0 + 0.5) / 7.0;
+        // Retain small material/lighting differences; the grid supplies the style, not a coarse eight-level palette.
+        c = floor(StyleSample(q) * 31.0 + 0.5) / 31.0;
     } else {
         // A small cross smooths fine texture before banding. Ink uses the original local contrast.
         int radius = max(1, int(H / 720));

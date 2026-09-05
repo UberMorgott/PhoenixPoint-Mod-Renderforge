@@ -1,0 +1,37 @@
+{
+  "source": "E:\\DEV\\PhoenixPoint\\Renderforge\\build\\lut-proof\\verified-syn-day-off.png",
+  "source_sha256": "e288971deba7f539a36301de72b72ad1a3e7aad65a47a148ad9f3a9ea6164f68",
+  "probe_sha256": "beea53ee16d704c2400f7b66873b5d760b00a6c31a9281fab901710c69a6ce22",
+  "default_block": 2,
+  "palette_levels_per_channel": 32,
+  "automatic_resolution_scaling": false,
+  "limits": "Offline production HLSL/WARP. All screenshot UI is baked in. 1440p is an enlarged input, not a native game capture.",
+  "cases": [
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "kind": "original fixture",
+      "blocks": [
+        2,
+        3,
+        4
+      ],
+      "sheet": "pixel-readability-720p.png"
+    },
+    {
+      "size": [
+        2560,
+        1440
+      ],
+      "kind": "display-scale simulation",
+      "blocks": [
+        2,
+        3,
+        4
+      ],
+      "sheet": "pixel-readability-1440p.png"
+    }
+  ]
+}

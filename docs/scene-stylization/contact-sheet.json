@@ -6,14 +6,14 @@
     720
   ],
   "probe": "D:\\Renderforge-work\\scene-style\\native\\Release\\scene_style_probe.exe",
-  "probe_sha256": "8d62f50646e07942d85c6811fe4e72d4cd85e20f175bffdfd840275dd18fbddd",
+  "probe_sha256": "beea53ee16d704c2400f7b66873b5d760b00a6c31a9281fab901710c69a6ce22",
   "modes": [
     "Original fixture",
     "Cartoon: colour bands + contrast ink",
-    "Pixel art: 6 output pixels per block, 8 levels per RGB channel"
+    "Pixel art DEFAULT: 2 output pixels per block, 32 levels per RGB channel"
   ],
   "strength": 1,
-  "pixel_size": 6,
+  "pixel_size": 2,
   "crop": [
     0,
     100,

@@ -92,8 +92,8 @@ namespace Renderforge
             {
                 GraphicsPanel.SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[index]);
                 GraphicsPanel.Tip(picker.CentralButton.gameObject, DlssConfig.Loc(
-                    "Cartoon: colour bands and contrast outlines. Pixel art: block sampling and a limited palette. Scene only; no downloaded textures.",
-                    "Мультфильм: ступени цвета и контрастные контуры. Пиксель-арт: крупные пиксели и ограниченная палитра. Без загружаемых текстур."));
+                    "Cartoon: colour bands and contrast outlines. Pixel art: fine 2-pixel blocks by default, a gentle palette reduction, no extra outlines. Increase block size for a stronger effect.",
+                    "Мультфильм: ступени цвета и контрастные контуры. Пиксель-арт: мелкие блоки по 2 пикселя, мягкое сокращение палитры, без дополнительных контуров. Размер блока можно увеличить."));
             }
             SyncSlider(strength, strengthValue, index != 0, Mathf.Clamp(cfg.SceneStyleStrength, 0, 100), "%");
             SyncSlider(pixelSize, pixelValue, index == 2, Mathf.Clamp(cfg.PixelSize, 2, 16), " px");

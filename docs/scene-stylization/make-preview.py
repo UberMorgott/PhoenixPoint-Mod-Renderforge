@@ -24,7 +24,7 @@ array("f", (v / 255 for v in original.tobytes())).tofile(raw.open("wb"))
 images = [original]
 for mode in (1, 2):
     target = args.scratch / f"style-{mode}.rgba32f"
-    subprocess.run([str(args.probe), str(raw), str(width), str(height), str(mode), "6", str(target)], check=True)
+    subprocess.run([str(args.probe), str(raw), str(width), str(height), str(mode), "2", str(target)], check=True)
     values = array("f")
     with target.open("rb") as stream:
         values.fromfile(stream, width * height * 4)
@@ -37,7 +37,7 @@ preview_height = round((crop[3] - crop[1]) * preview_width / width)
 sheet = Image.new("RGB", (preview_width, (preview_height + 30) * 3 + 46), "#15191d")
 draw = ImageDraw.Draw(sheet)
 draw.text((12, 8), "Production shader on a saved screenshot (WARP) | NOT a live-game capture | Strength 100%", fill="white")
-labels = ("Original fixture", "Cartoon: colour bands + contrast ink", "Pixel art: 6 output pixels per block, 8 levels per RGB channel")
+labels = ("Original fixture", "Cartoon: colour bands + contrast ink", "Pixel art DEFAULT: 2 output pixels per block, 32 levels per RGB channel")
 for index, (label, img) in enumerate(zip(labels, images)):
     y = 38 + index * (preview_height + 30)
     draw.text((12, y), label, fill="white")
@@ -47,7 +47,7 @@ manifest = {
     "source": str(args.source.resolve()), "source_sha256": hashlib.sha256(args.source.read_bytes()).hexdigest(),
     "source_size": [width, height], "probe": str(args.probe.resolve()),
     "probe_sha256": hashlib.sha256(args.probe.read_bytes()).hexdigest(),
-    "modes": labels, "strength": 1, "pixel_size": 6, "crop": crop,
+    "modes": labels, "strength": 1, "pixel_size": 2, "crop": crop,
     "method": "Actual compiled production HLSL, D3D11 WARP, display RGB; image display resized after shader evaluation.",
     "limits": "Saved screenshot includes baked UI markers. No live UI exclusion, motion, FG, NR or performance proof."
 }
