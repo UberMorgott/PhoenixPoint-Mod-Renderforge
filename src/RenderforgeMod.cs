@@ -305,6 +305,22 @@ namespace Renderforge
             if (m != null) m.AttachAndApply();
         }
 
+        /// <summary>Live scene style: Off/Cartoon/PixelArt. No temporal-feature recreation.</summary>
+        public static string SetSceneStyle(string style, int strength, int pixelSize)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            SceneStyle value;
+            if (!Enum.TryParse(style, true, out value) || !Enum.IsDefined(typeof(SceneStyle), value))
+                return "bad scene style '" + style + "'";
+            m.Cfg.SceneStyle = value;
+            m.Cfg.SceneStyleStrength = Mathf.Clamp(strength, 0, 100);
+            m.Cfg.PixelSize = Mathf.Clamp(pixelSize, 2, 16);
+            SaveConfig();
+            SceneStylePanel.Sync();
+            return "sceneStyle=" + value + " strength=" + m.Cfg.SceneStyleStrength + " pixelSize=" + m.Cfg.PixelSize;
+        }
+
         /// <summary>PPCLI/live A-B surface: preset = Off/RealisticDesaturated/Neutral/CinematicBleach/Vivid.</summary>
         public static string SetLut(string preset, int strength)
         {
@@ -503,6 +519,8 @@ namespace Renderforge
 
         public static string GetStatus() => "provider=" + Upscalers.Running + " lut=" + (Instance?.Cfg?.Lut ?? LutPreset.Off) + " lutStrength=" + (Instance?.Cfg?.LutStrength ?? 0) + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
+                                          + " sceneStyle=" + (Instance?.Cfg?.SceneStyle ?? SceneStyle.Off)
+                                          + " styleStrength=" + (Instance?.Cfg?.SceneStyleStrength ?? 0) + " pixelSize=" + (Instance?.Cfg?.PixelSize ?? 6)
                                           + " | fg=" + FrameGen.Status();
 
         private static string Reason(int code)

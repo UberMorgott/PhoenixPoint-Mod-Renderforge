@@ -199,6 +199,15 @@ void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void*
     p->nearZ = S.nearZ; p->farZ = S.farZ; p->fovY = S.fovY;
 }
 
+void __cdecl Dlss_SetSceneStyle(void* slot, int mode, float strength, int pixelSize)
+{
+    FrameParams* p = (FrameParams*)slot;
+    if (!p) return;
+    p->style.mode = mode >= 1 && mode <= 2 ? (unsigned)mode : 0;
+    p->style.strength = strength > 0 ? (strength < 1 ? strength : 1) : 0; // NaN disables
+    p->style.pixelSize = pixelSize < 2 ? 2 : pixelSize > 16 ? 16 : (unsigned)pixelSize;
+}
+
 static void __stdcall OnRenderEventAndData(int eventId, void* data)
 {
     if (!S.dev) return;

@@ -106,6 +106,10 @@ namespace Renderforge
             int reset, float dtMs, uint renderW, uint renderH,
             float preExposure, float sharpness, int lutPreset, float lutStrength);
 
+        // Fill the same frame slot after Dlss_SetFrame clears it; values never enter the feature settings key.
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Dlss_SetSceneStyle(IntPtr slot, int mode, float strength, int pixelSize);
+
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetRenderEventFunc();
 

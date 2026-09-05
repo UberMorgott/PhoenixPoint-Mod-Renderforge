@@ -106,6 +106,7 @@ namespace Renderforge
             onChanged = null;
             NeuralRenderingPanel.Clear();
             LutPanel.Clear();
+            SceneStylePanel.Clear();
         }
 
         internal static void Hide(Transform content)

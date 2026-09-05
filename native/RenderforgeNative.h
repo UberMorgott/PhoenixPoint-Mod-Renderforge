@@ -70,6 +70,9 @@ DLSS_API void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* 
                                     float jitterX, float jitterY, float mvScaleX, float mvScaleY,
                                     int reset, float dtMs, unsigned renderW, unsigned renderH,
                                     float preExposure, float sharpness, int lutPreset, float lutStrength);
+// Main thread, after SetFrame and before queuing its event. mode: 0 Off, 1 Cartoon, 2 PixelArt.
+// Existing SetFrame ABI stays unchanged. Each slot owns its values, so sliders never race a global render setting.
+DLSS_API void __cdecl Dlss_SetSceneStyle(void* slot, int mode, float strength, int pixelSize);
 // Unity UnityRenderingEvent: void (__stdcall*)(int eventId). Event 2 here evaluates the LAST filled slot.
 DLSS_API void* __cdecl Dlss_GetRenderEventFunc(void);
 // Unity UnityRenderingEventAndData: void (__stdcall*)(int eventId, void* data). Event 2 reads the slot in `data`; 1/3 ignore it.

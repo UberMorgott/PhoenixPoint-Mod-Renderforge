@@ -285,15 +285,15 @@ struct Fsr12 : IDevice
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            bool wantPost = fp.sharpness > 0.0f || ColorGradeEnabled(fp.lutPreset, fp.lutStrength);
+            bool wantPost = fp.sharpness > 0.0f || (ColorGradeEnabled(fp.lutPreset, fp.lutStrength) || SceneStyleEnabled(fp.style));
             if (!wantPost || !post.RunPassthrough(cl, color, output, owned, ring, srgbViews, false,
-                                                   fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx))
+                                                   fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style))
                 OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
         } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
-            bool grade = ColorGradeEnabled(fp.lutPreset, fp.lutStrength);
+            bool grade = (ColorGradeEnabled(fp.lutPreset, fp.lutStrength) || SceneStyleEnabled(fp.style));
             bool doPost = grade && post.TargetEnsure(owned.out, ring, true);
             struct ffxDispatchDescUpscale d = {};
             d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
@@ -342,7 +342,7 @@ struct Fsr12 : IDevice
             ffxReturnCode_t rc = ffx->Dispatch(&context, &d.header);
             lastEval = Map(rc);
             if (rc != FFX_API_RETURN_OK) lastError = DLSS_ERR_FFX;
-            else if (doPost) post.Run(cl, owned.out, 0.0f, fp.lutPreset, fp.lutStrength, ring.ringIdx);
+            else if (doPost) post.Run(cl, owned.out, 0.0f, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style);
             ring.Stamp(2);
             owned.Leave(cl, output);
         }

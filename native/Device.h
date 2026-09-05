@@ -7,6 +7,7 @@
 #include "nvsdk_ngx.h"
 #include "RenderforgeNative.h"
 #include "DlssNr12.h"
+#include "SceneStyle.h"
 
 // NGX project identity, defined in RenderforgeNative.cpp, used by both backends.
 extern const char kProjectId[];
@@ -30,6 +31,7 @@ struct FrameParams
     int   lutPreset;      // DLSS_LUT_*; analytic color grade after reconstruction/sharpen
     float lutStrength;    // 0..1; zero or DLSS_LUT_OFF skips color grading
     float nearZ, farZ, fovY;   // camera near/far/vertical FOV (radians) from Dlss_SetCamera; FSR needs them, NGX does not
+    SceneStyleParams style;   // cleared by SetFrame; filled by SetSceneStyle before the event is queued
 };
 
 // Feature-creation parameters, stored by Dlss_SetCreateParams and consumed by DLSS_EV_CREATE.

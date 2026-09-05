@@ -34,7 +34,8 @@ namespace Renderforge
         private static readonly HashSet<string> HiddenFromModSettings = new HashSet<string>
         {
             nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen), nameof(NeuralRendering),
-            nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength)
+            nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
+            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize)
         };
 
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance")]
@@ -45,6 +46,12 @@ namespace Renderforge
         public LutPreset Lut = LutPreset.Off;
         [ConfigField("LUT strength", "0 = original image … 100 = full grade. Applied live.")]
         public int LutStrength = 100;
+        [ConfigField("Scene style", "Off, Cartoon or PixelArt. Code-only scene filtering after reconstruction.")]
+        public SceneStyle SceneStyle = SceneStyle.Off;
+        [ConfigField("Style strength", "0 = original image, 100 = full style. Applied live.")]
+        public int SceneStyleStrength = 100;
+        [ConfigField("Pixel block size", "PixelArt only: 2 to 16 output pixels per block.")]
+        public int PixelSize = 6;
         [ConfigField("Show DLSS in Graphics options")]
         public bool ShowInGraphicsOptions = true;
         // Pressed together with Ctrl+Alt (fixed chord, like ContentTool's fit bench Ctrl+Alt+B). No F-keys/Insert/End:
@@ -92,6 +99,9 @@ namespace Renderforge
             { nameof(Sharpness), new[] { "Резкость", "0 = выкл … 100. Проход RCAS после DLSS; также ползунок в Настройки → Графика." } },
             { nameof(Lut), new[] { "LUT-фильтр", "Оригинальная цветокоррекция тактических миссий после темпоральной реконструкции; также в Настройки → Графика." } },
             { nameof(LutStrength), new[] { "Сила LUT", "0 = оригинал … 100 = полный эффект. Применяется сразу." } },
+            { nameof(SceneStyle), new[] { "Стиль сцены", "Выкл, мультфильм или пиксель-арт. Стилизация кодом после реконструкции." } },
+            { nameof(SceneStyleStrength), new[] { "Сила стилизации", "0 = оригинал, 100 = полный эффект. Применяется сразу." } },
+            { nameof(PixelSize), new[] { "Размер пикселя", "Для пиксель-арта: от 2 до 16 пикселей экрана в блоке." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
             { nameof(OverlayHotkey), new[] { "Клавиша оверлея (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

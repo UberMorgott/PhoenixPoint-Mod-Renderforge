@@ -1,0 +1,25 @@
+{
+  "source": "E:\\DEV\\PhoenixPoint\\Renderforge\\build\\lut-proof\\verified-syn-day-off.png",
+  "source_sha256": "e288971deba7f539a36301de72b72ad1a3e7aad65a47a148ad9f3a9ea6164f68",
+  "source_size": [
+    1280,
+    720
+  ],
+  "probe": "D:\\Renderforge-work\\scene-style\\native\\Release\\scene_style_probe.exe",
+  "probe_sha256": "8d62f50646e07942d85c6811fe4e72d4cd85e20f175bffdfd840275dd18fbddd",
+  "modes": [
+    "Original fixture",
+    "Cartoon: colour bands + contrast ink",
+    "Pixel art: 6 output pixels per block, 8 levels per RGB channel"
+  ],
+  "strength": 1,
+  "pixel_size": 6,
+  "crop": [
+    0,
+    100,
+    1280,
+    540
+  ],
+  "method": "Actual compiled production HLSL, D3D11 WARP, display RGB; image display resized after shader evaluation.",
+  "limits": "Saved screenshot includes baked UI markers. No live UI exclusion, motion, FG, NR or performance proof."
+}

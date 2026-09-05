@@ -41,6 +41,7 @@ namespace Renderforge
                     if (hidden != null) hidden.gameObject.SetActive(false);
                     NeuralRenderingPanel.Hide(src.transform.parent);
                     LutPanel.Hide(src.transform.parent);
+                    SceneStylePanel.Hide(src.transform.parent);
                     return;
                 }
                 // RENDERER / UPSCALER / FRAME GENERATION first; our quality row goes after the last of them.
@@ -59,7 +60,8 @@ namespace Renderforge
                 int idx = LabelIndex(mod.Cfg.Mode);
                 picker.Init(Labels.Length, idx, i => OnChanged(picker, i));
                 BuildSlider(__instance, picker.transform, mod.Cfg);
-                LutPanel.Build(__instance, sharp != null ? sharp.transform.parent : picker.transform, mod.Cfg);
+                after = LutPanel.Build(__instance, sharp != null ? sharp.transform.parent : picker.transform, mod.Cfg);
+                SceneStylePanel.Build(__instance, after, mod.Cfg);
                 SyncQuality();
             }
             catch (Exception ex)

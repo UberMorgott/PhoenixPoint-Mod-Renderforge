@@ -170,7 +170,7 @@ namespace Renderforge
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
             bool lutActive = RenderforgeMod.TacticalActive && cfg != null && cfg.Lut != LutPreset.Off && cfg.LutStrength > 0;
-            bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive;
+            bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg);
             switch (gen)
             {
                 case Gen.Idle:
@@ -249,7 +249,7 @@ namespace Renderforge
             var nrConfig = RenderforgeMod.Instance?.Cfg;
             liveNrKey = NeuralRenderingSupport.SettingsKey(nrConfig);
             NeuralRenderingSupport.ConfigureNative(nrConfig);
-            // A LUT with the upscaler Off still uses this full-resolution copy path, then grades the copy.
+            // A LUT or scene style with the upscaler Off uses this full-resolution copy path.
             passthrough = liveView == DebugView.Passthrough || liveMode == RenderforgeMode.Off;
             wantsFeature = !passthrough;
             quality = QualityFor(liveMode, outH);
@@ -463,6 +463,9 @@ namespace Renderforge
                 IntPtr slot = Native.Dlss_GetFrameSlot();
                 Native.Dlss_SetFrame(slot, colorPtr, depthPtr, mvPtr, outPtr, rjx, rjy, -renderW, -renderH,
                     reset, Time.unscaledDeltaTime * 1000f, (uint)renderW, (uint)renderH, 1f, sharp, lutPreset, lutStrength);
+                if (SceneStylePanel.Active(cfg))
+                    Native.Dlss_SetSceneStyle(slot, (int)cfg.SceneStyle,
+                        Mathf.Clamp01(cfg.SceneStyleStrength / 100f), Mathf.Clamp(cfg.PixelSize, 2, 16));
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
                 if (FrameGen.Live && !FrameGen.HoldPrepare)

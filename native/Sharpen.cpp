@@ -44,8 +44,9 @@ static const char kRcasHlsl[] =
 static const char kColorGradeHlsl[] =
 "Texture2D<float4> src : register(t0);\n"
 "RWTexture2D<float4> dst : register(u0);\n"
-"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; float2 pad; };\n"
+"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; uint styleMode; uint pixelSize; float styleStrength; uint styleLinear; float2 pad; };\n"
 "float3 L(int2 p) { p=clamp(p,int2(0,0),int2(int(W)-1,int(H)-1)); return src.Load(int3(p,0)).rgb; }\n"
+RF_SCENE_STYLE_HLSL
 "float3 Grade(float3 c) {\n"
 "  float y=dot(c,float3(0.2126,0.7152,0.0722)); float3 g=c;\n"
 "  if (preset==1) { g=lerp(y.xxx,c,0.72); g=(g-0.5)*0.96+0.5; g*=float3(0.98,1.0,1.02); }\n"
@@ -70,7 +71,7 @@ static const char kColorGradeHlsl[] =
 "    float3 mn4=min(min(b,d),min(f,h)),mx4=max(max(b,d),max(f,h));\n"
 "    float3 hitMin=mn4/max(4.0*mx4,1e-5),hitMax=(1.0-mx4)/min(4.0*mn4-4.0,-1e-5);\n"
 "    float3 lr=max(-hitMin,hitMax); float l=max(-0.1875,min(max(max(lr.r,lr.g),lr.b),0.0))*con*nz; c=(l*(b+d+f+h)+e)/(4.0*l+1.0); }\n"
-"  dst[id.xy]=float4(Grade(c),src.Load(int3(p,0)).a); }\n";
+"  dst[id.xy]=float4(Grade(Stylize(p,c)),src.Load(int3(p,0)).a); }\n";
 
 // NIS sharpen-only: the NIS_Main.hlsl example's bindings + NVSharpen entry. Block/group sizes = NISOptimizer(isUpscaling=false,
 // NVIDIA_Generic) in NIS_Config.h (32 x 32, 128 threads). NIS_HDR_MODE 0: the DLSS output is display-referred LDR;
@@ -129,13 +130,15 @@ ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr, bool colorGrade)
 }
 
 void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
-                          int lutPreset, float lutStrength, bool hdr)
+                          int lutPreset, float lutStrength, bool hdr, const SceneStyleParams& style)
 {
     memset(dst256, 0, 256);
-    if (ColorGradeEnabled(lutPreset, lutStrength)) {
+    if (ColorGradeEnabled(lutPreset, lutStrength) || SceneStyleEnabled(style)) {
         float* fp = (float*)dst256; unsigned* up = (unsigned*)dst256;
         fp[0] = sharpness; fp[1] = lutStrength; up[2] = w; up[3] = h; up[4] = (unsigned)lutPreset;
         fp[5] = exp2f(-2.0f * (1.0f - sharpness));
+        up[6] = style.mode; up[7] = style.pixelSize;
+        fp[8] = style.strength; up[9] = hdr ? 1u : 0u;
     } else if (kind == DLSS_SHARPEN_NIS) {
         NISConfig cfg = {};
         NVSharpenUpdateConfig(cfg, sharpness, 0, 0, w, h, w, h, 0, 0, hdr ? NISHDRMode::Linear : NISHDRMode::None);

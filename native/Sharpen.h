@@ -4,6 +4,7 @@
 
 #include <d3dcommon.h>
 #include <dxgiformat.h>
+#include "SceneStyle.h"
 
 // Compiles the post shader. When colorGrade is false this is the original NIS/RCAS sharpen path; when true it is
 // one analytic RCAS + color-grade pass. Returns the DXBC blob (caller Release()s it) and writes
@@ -14,7 +15,8 @@ ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr = false, bool colorGrade = f
 // Fills a 256-byte constant block for the compiled shader `kind`. w/h = output texture size.
 // sharpness is 0..1; zero still runs when a color grade is active. hdr must match the compiled blob.
 void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
-                          int lutPreset = 0, float lutStrength = 0.0f, bool hdr = false);
+                          int lutPreset = 0, float lutStrength = 0.0f, bool hdr = false,
+                          const SceneStyleParams& style = SceneStyleParams{});
 
 inline bool ColorGradeEnabled(int preset, float strength) { return preset >= 1 && preset <= 9 && strength > 0.0f; }
 

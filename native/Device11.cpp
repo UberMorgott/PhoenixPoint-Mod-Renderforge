@@ -85,10 +85,10 @@ struct Device11 : IDevice
     }
 
     void Sharpen(ID3D11DeviceContext* ctx, ID3D11Resource* output, float sharpness,
-                 int lutPreset, float lutStrength)
+                 int lutPreset, float lutStrength, const SceneStyleParams& style)
     {
         if (sharpenDead || !output || !device) return;
-        bool grade = ColorGradeEnabled(lutPreset, lutStrength);
+        bool grade = ColorGradeEnabled(lutPreset, lutStrength) || SceneStyleEnabled(style);
         if (!EnsureSharpenShader(grade)) return;
 
         ID3D11Texture2D* tex = NULL;
@@ -118,7 +118,7 @@ struct Device11 : IDevice
         ctx->CopyResource(scratch, output);
         D3D11_MAPPED_SUBRESOURCE m = {};
         if (SUCCEEDED(ctx->Map(cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
-            FillSharpenConstants(m.pData, sharpener, sharpness, od.Width, od.Height, lutPreset, lutStrength);
+            FillSharpenConstants(m.pData, sharpener, sharpness, od.Width, od.Height, lutPreset, lutStrength, false, style);
             ctx->Unmap(cb, 0);
         } else { SharpenFail(); return; }
 
@@ -251,8 +251,8 @@ struct Device11 : IDevice
         if (passthrough) {
             if (SameSize(color, output)) {
                 ctx->CopyResource(output, color); lastEval = NVSDK_NGX_Result_Success;
-                if (fp.sharpness > 0.0f || ColorGradeEnabled(fp.lutPreset, fp.lutStrength))
-                    Sharpen(ctx, output, fp.sharpness, fp.lutPreset, fp.lutStrength);
+                if (fp.sharpness > 0.0f || (ColorGradeEnabled(fp.lutPreset, fp.lutStrength) || SceneStyleEnabled(fp.style)))
+                    Sharpen(ctx, output, fp.sharpness, fp.lutPreset, fp.lutStrength, fp.style);
             }
             else { lastEval = NVSDK_NGX_Result_FAIL_InvalidParameter; lastError = DLSS_ERR_PASSTHROUGH_SIZE; }
         } else if (!feature || !params) {
@@ -275,8 +275,8 @@ struct Device11 : IDevice
             ep.InFrameTimeDeltaInMsec = fp.dtMs;
             lastEval = NGX_D3D11_EVALUATE_DLSS_EXT(ctx, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
-            else if (fp.sharpness > 0.0f || ColorGradeEnabled(fp.lutPreset, fp.lutStrength))
-                Sharpen(ctx, output, fp.sharpness, fp.lutPreset, fp.lutStrength);
+            else if (fp.sharpness > 0.0f || (ColorGradeEnabled(fp.lutPreset, fp.lutStrength) || SceneStyleEnabled(fp.style)))
+                Sharpen(ctx, output, fp.sharpness, fp.lutPreset, fp.lutStrength, fp.style);
         }
         ctx->Release();
     }
