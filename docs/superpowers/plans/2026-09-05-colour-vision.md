@@ -1311,9 +1311,58 @@ focus=<none|game|child|other> fg=<0|1> shadow=<ptr> out=<w>x<h> flags=0x… caps
 presentHr=0x… presented=<n> fps=<n> frameId=<n> idle=<n>[ reason=<text>]
 ```
 
+**`presented` going up proves nothing on its own.** `presented=` is `FgPresentCount()` = `g_total`
+(`native\FgHook.cpp:536`), and `g_total` is bumped once per *present of any kind* by `CountPresent`
+(`FgHook.cpp:180-190`). While FG is live the hook stops counting Unity's own present
+(`FgHook.cpp:283,297`: `if (fg) FgHostAfterUnityPresent(hr); else CountPresent();`) and the host counts
+`1 + generated` instead (`FgHost.cpp:536`), with the provider adding its interpolated frames through
+`FgPresentedAdd` (`FgStreamline.cpp:455`, `FgXess.cpp:243`, `FgFsr.cpp:190`). So with **zero** generated
+frames `presented` still advances 1 per rendered frame, and `fps=` (`FgPresentedFps`, the same counter over
+a 0.5 s window) with it. There is no `generated=`/`interpolated=` token in `Fg_Status()` at all — the
+providers only log their `generated` totals.
+
+**The generated-frame count is therefore a difference, and must be measured as one:** over the same window,
+`Δpresented − ΔTime.frameCount`. `Time.frameCount` advances once per rendered frame = the one real present
+the host counts, so the remainder is exactly what the provider interpolated. Take **two readbacks ~2 s
+apart**, each reading both numbers back to back:
+
+```powershell
+# t0
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"get","type":"UnityEngine.Time","member":"frameCount"}'                      -PPRoot 'D:\PP-Instance3'
+Start-Sleep -Seconds 2
+# t1 — the same two calls again, verbatim
+```
+
+With the 6b helpers loaded this is one helper (`Rf-Call` returns the value, see 6b):
+
+```powershell
+function Rf-FgCounters {
+    $s = Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}'
+    if ("$s" -notmatch 'presented=(\d+)') { throw "no presented= in status: $s" }
+    [pscustomobject]@{ Presented = [long]$Matches[1]; Frames = Rf-Frame; Status = "$s" }
+}
+$a = Rf-FgCounters; Start-Sleep -Seconds 2; $b = Rf-FgCounters
+$dPres = $b.Presented - $a.Presented
+$dFrame = $b.Frames - $a.Frames
+$dGen  = $dPres - $dFrame
+"presented $($a.Presented) -> $($b.Presented) (d=$dPres); frameCount $($a.Frames) -> $($b.Frames) (d=$dFrame); generated=$dGen"
+if ($dFrame -le 0) { throw "the engine presented nothing in 2 s - this readback is not FG evidence" }
+if ($dGen -le 0)   { throw "FG generated 0 frames in 2 s (presented advanced only by the real frames) - NOT active" }
+```
+
+**Pass condition, every FG case and after every transition leg (`fg1-x2`, `fg2-off`, `fg3-x2`):** `$dGen > 0`,
+and at `multiplier=2` it should land near `$dFrame` — accept `$dGen -ge 0.5 * $dFrame`, report the actual pair.
+On the `Off` leg the required result is the opposite: `$dGen` = 0 (± the one frame a leg boundary can straddle).
+Record both `presented`/`frameCount` readbacks verbatim per leg — a single reading is not evidence.
+
+*If `$dGen` is 0 while everything else looks live, check `focus=` / `fg=<0|1>` in the same status line first:*
+DLSS-G interpolates ONLY while the game window has focus (`native\FgStreamline.cpp:35-39`), so an
+unfocused window produces exactly this symptom and is a test-harness fault, not an FG failure.
+
 **FG is ACTIVE iff** the `fg=` token starts with `live `, the embedded `provider=` names a real provider
-(never `-`, never `detached`), `enabled=1`, `multiplier=2` for X2, and `presented` **increases between two
-reads taken a second apart** while `fps` is non-zero. A `reason=` suffix is the rejection text and means it
+(never `-`, never `detached`), `enabled=1`, `multiplier=2` for X2, and the `$dGen > 0` check above passes
+while `fps` is non-zero. A `reason=` suffix is the rejection text and means it
 is not running. Confirm with the two ints the host exposes directly (`FgHostAlive` / `FgHostProvider`,
 `native\FgHost.cpp:581,583`; `Renderforge.Native` is a public static class, `src\Native.cs:10`):
 
@@ -1382,8 +1431,29 @@ $Cli = 'E:\DEV\PhoenixPoint\PPCLI\ppcli.ps1'
 $Out = 'C:\Temp\rf-cv'
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-function Rf-Call([string]$json) { & $Cli connect call $json -PPRoot $PP | ConvertFrom-Json }
-function Rf-Frame { [int](Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"frameCount"}').value }
+# PPCLI prints ONE object and it is an ENVELOPE: {status:"done",id,jobId,result:{ok,…}} - the verb DTO is
+# `.result`, never the top level (PPCLI\AGENTS.md:60-61). So `(… | ConvertFrom-Json).value` is ALWAYS $null
+# and every number read through it would be 0/empty. Inside `.result`:
+#   op:"get"          -> {ok:true, value:<projected>}          (PPCLI\src\Reflect.cs:1064-1067, Value())
+#   op:"get" +convertTo -> …plus {convertedTo, converted}      (Reflect.cs:554)
+#   op:"set"          -> {ok:true, set:"<member>"}  - NO value key (Reflect.cs:572)
+#   op:"invoke" void  -> {ok:true, void:true}                  (Reflect.cs:515); non-void -> {ok:true, value:…}
+#   refusal           -> {ok:false, error, code} and NO value/items/output key (AGENTS.md:61); exits 1.
+function Rf-Call([string]$json) {
+    $raw = (& $Cli connect call $json -PPRoot $PP) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "ppcli exited $LASTEXITCODE for $json`n$raw" }
+    $r = ($raw | ConvertFrom-Json).result
+    if (-not $r -or $r.ok -ne $true) { throw "call refused (code=$($r.code)): $($r.error)`n  request: $json" }
+    $r.value   # $null for set / void invoke, which is correct - those carry no value
+}
+function Rf-Frame { [int](Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"frameCount"}') }
+
+# timeScale is a float and its JSON must be built, not interpolated: `'…"value":' + $prevScale` emits
+# `"value":` (invalid JSON) when the read failed, and a decimal comma under a non-invariant culture.
+function Rf-SetTimeScale([double]$v) {
+    Rf-Call (@{ op = 'set'; type = 'UnityEngine.Time'; member = 'timeScale'; value = $v } | ConvertTo-Json -Compress) | Out-Null
+}
+function Rf-GetTimeScale { [double](Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"timeScale"}') }
 
 # Block until the engine has presented at least $n more frames. Throws rather than capturing a stale frame:
 # if frameCount does not advance while paused, EVERY number this task produces would be a ghost.
@@ -1404,7 +1474,7 @@ function Rf-Shot([string]$case, [string]$step, [string]$mode) {
     $path
 }
 
-function Rf-SetCv([string]$mode) { Rf-Call ('{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["' + $mode + '"]}') | Out-Null }
+function Rf-SetCv([string]$mode) { Rf-Call (@{ op = 'invoke'; type = 'Renderforge.RenderforgeMod'; member = 'SetColorVision'; args = @($mode) } | ConvertTo-Json -Compress) | Out-Null }
 
 # Mean |d| on the SCENE row of cmp.py's output, as three doubles.
 function Rf-SceneDelta([string]$a, [string]$b, [string]$label) {
@@ -1420,9 +1490,9 @@ function Rf-SceneDelta([string]$a, [string]$b, [string]$label) {
 $case = 'd3d11-off'            # case tag, see the table in 6c
 
 # Read the CURRENT timeScale first; restore THAT, not a hard-coded 1.
-$prevScale = (Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"timeScale"}').value
+$prevScale = Rf-GetTimeScale
 try {
-    Rf-Call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":0}' | Out-Null
+    Rf-SetTimeScale 0
     Rf-SetCv 'None'
 
     # Control pair, re-taken until the noise floor is genuinely stable (<= 0.5 on every channel).
@@ -1445,7 +1515,7 @@ try {
 finally {
     # Runs on success, on a thrown assertion and on Ctrl+C: the game never stays frozen, and it goes back to
     # the speed it actually had.
-    Rf-Call ('{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":' + $prevScale + '}') | Out-Null
+    Rf-SetTimeScale $prevScale
 }
 ```
 
@@ -1549,30 +1619,35 @@ therefore part of the name (`fg1-x2`, `fg2-off`, `fg3-x2`), never the FG value a
 
 ```powershell
 $case = 'd3d12-fg-dlss'        # or d3d12-fg-fsr / d3d12-fg-xess
-$prevScale = (Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"timeScale"}').value
+$prevScale = Rf-GetTimeScale
 try {
-    Rf-Call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":0}' | Out-Null
+    Rf-SetTimeScale 0
     Rf-SetCv 'Deuteranopia'
     $step = 0
     foreach ($fg in 'X2','Off','X2') {
         $step++
-        Rf-Call ('{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["' + $fg + '"]}') | Out-Null
+        Rf-Call (@{ op = 'invoke'; type = 'Renderforge.RenderforgeMod'; member = 'SetFrameGen'; args = @($fg) } | ConvertTo-Json -Compress) | Out-Null
         Rf-WaitFrames 10
-        # FG activation, read twice a second apart: `presented` must MOVE on an X2 leg.
-        $s1 = (Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}').value
-        $alive = (Rf-Call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Alive","args":[]}').value
-        $prov  = (Rf-Call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Provider","args":[]}').value
-        Start-Sleep -Seconds 1
-        $s2 = (Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}').value
-        "$case fg$step-$fg alive=$alive provider=$prov`n  $s1`n  $s2" |
+        # FG activation: two readbacks ~2 s apart of BOTH counters (Rf-FgCounters, 6a). `presented` alone
+        # advances with zero generated frames - the generated count is d(presented) - d(frameCount).
+        $c1 = Rf-FgCounters
+        $alive = Rf-Call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Alive","args":[]}'
+        $prov  = Rf-Call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Provider","args":[]}'
+        Start-Sleep -Seconds 2
+        $c2 = Rf-FgCounters
+        $dPres = $c2.Presented - $c1.Presented; $dFrame = $c2.Frames - $c1.Frames; $dGen = $dPres - $dFrame
+        "$case fg$step-$fg alive=$alive provider=$prov dPresented=$dPres dFrame=$dFrame generated=$dGen`n  $($c1.Status)`n  $($c2.Status)" |
             Tee-Object -FilePath "$Out\cv-$case-fg.txt" -Append
+        if ($dFrame -le 0) { throw "$case fg$step-$fg : frameCount did not advance in 2 s - this leg is not evidence" }
+        if ($fg -eq 'X2' -and $dGen -lt (0.5 * $dFrame)) { throw "$case fg$step-$fg : generated=$dGen over $dFrame real frames - FG is NOT interpolating" }
+        if ($fg -eq 'Off' -and $dGen -gt 1)              { throw "$case fg$step-$fg : generated=$dGen with FG off - the chain did not detach" }
         Rf-Shot $case ("fg{0}-{1}" -f $step, $fg.ToLowerInvariant()) "deut" | Out-Null
     }
     Rf-SetCv 'None'
     Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["Off"]}' | Out-Null
 }
 finally {
-    Rf-Call ('{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":' + $prevScale + '}') | Out-Null
+    Rf-SetTimeScale $prevScale
 }
 ```
 
@@ -1585,10 +1660,12 @@ Acceptance, per leg:
   scene/HUD thresholds as 6b. A transition that clears the correction is a failure.
 - **On the two X2 legs, FG must actually be running** — `Fg_Alive` = `1`, `Fg_Provider` matching the case
   (1 DLSS / 2 FSR / 3 XeSS), and inside the `fg=` token: `live `, `provider=` naming a real provider,
-  `enabled=1`, `multiplier=2`, no `reason=` suffix, and `presented` **strictly larger in `$s2` than in
-  `$s1`** with `fps` non-zero. If `presented` does not move, the chain is parked and that leg is not FG
-  evidence — do not report it as passing.
-- On the `Off` leg the opposite must hold: `Fg_Alive` = `0` and the `fg=` token starts with `off `.
+  `enabled=1`, `multiplier=2`, no `reason=` suffix, and **`generated` = `dPresented - dFrame` > 0** across the
+  two readbacks 2 s apart (at `multiplier=2`, ≈ `dFrame`; the loop throws below `0.5 * dFrame`) with `fps`
+  non-zero. `presented` rising on its own is NOT that proof — it counts the real frames too
+  (`FgHook.cpp:180-190,536`; see 6a). A leg with `generated` = 0 is a parked chain, not FG evidence.
+- On the `Off` leg the opposite must hold: `Fg_Alive` = `0`, the `fg=` token starts with `off `, and
+  `generated` = 0 (the loop allows 1 for a leg boundary straddling a readback).
 - `lastError=0` in `GetStatus` is a necessary condition, **not** proof of anything about FG: it is the
   upscaler's error slot (`Native.Dlss_LastError()`) and stays `0` when FG never started at all. Judge FG by
   the tokens above, and `lastError` only as a "the upscale pass did not break" check.

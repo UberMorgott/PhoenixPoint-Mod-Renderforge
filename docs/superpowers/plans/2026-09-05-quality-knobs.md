@@ -904,16 +904,22 @@ Notes that decide whether the numbers are real:
   - **`--no_top` does not exist in 2.5.1 and the tool rejects it** — the flag table lists no such option. Passing it
     aborts the capture, and a `Measure-Cfg` that ignores the exit code then produces an empty or absent CSV that the
     reducer would happily average to `0`. Do not carry it over from an older recipe.
-- **Column names, taken from the same README's CSV column table.** In 2.5.1 every timing column is `Ms`-prefixed; the
-  bare `FrameTime` / `GPUBusy` spellings from PresentMon 2.0–2.2 **do not appear in this build at all**:
-  - `MsBetweenPresents` — *"The time between this Present() call and the previous one, in milliseconds."* → frame time.
-  - `MsGPUBusy` — *"How long the GPU was actively working on this frame (i.e., the time during which at least one GPU
-    engine is executing work from the target process)."* → **the whole-frame GPU time this task exists to produce.**
-  - `MsGPUTime` — *"The total amount of time that GPU was working on this frame."* (recorded as a cross-check, not the
-    headline figure).
-  - `MsCPUBusy` — *"How long the CPU spent working on this frame before presenting it."*
-  - `--v2_metrics` emits *"Most of the above metrics"* — the same `Ms`-prefixed names, a subset of the default set. If a
-    future build renames them, the reducer in step 6 **fails with the actual header list**; it never falls back to `0`.
+- **Column names — `--v2_metrics` changes them, and that is the whole point of passing it.** The v2 header row is
+  emitted by `WriteCsvHeader<FrameMetrics>` in `PresentMon/CsvOutput.cpp` at tag `v2.5.1`
+  ([source, ~L426](https://github.com/GameTechDev/PresentMon/blob/v2.5.1/PresentMon/CsvOutput.cpp#L426)); the columns
+  it writes, in order, are `CPUStartTime` (or `CPUStartQPC` / `CPUStartQPCTime` / `CPUStartDateTime`, per `--qpc_time`
+  etc.), then `FrameTime`, `CPUBusy`, `CPUWait`, `GPULatency`, `GPUTime`, `GPUBusy`, `GPUWait`, `VideoBusy`,
+  `DisplayLatency`, `DisplayedTime`, `AnimationError`, `AnimationTime`, `MsFlipDelay`, `AllInputToPhotonLatency`,
+  `ClickToPhotonLatency`, `InstrumentedLatency` (the GPU / video / display / input groups only when that tracking is on).
+  The `Ms`-prefixed spellings (`MsBetweenPresents`, `MsGPUBusy`, …) are the **v1** column set — the one you get
+  *without* `--v2_metrics` — and they do not appear in a v2 CSV at all:
+  - `FrameTime` — time from this frame's CPU start to the next one, in ms → frame time (the v1 `MsBetweenPresents`).
+  - `GPUBusy` — how long the GPU was actively working on this frame, in ms → **the whole-frame GPU time this task
+    exists to produce** (the v1 `MsGPUBusy`).
+  - `GPUTime` — total GPU time attributed to the frame (recorded as a cross-check, not the headline figure).
+  - `CPUBusy` — CPU work on this frame before it was presented.
+  - Both spellings are wrong to *guess* at: the reducer in step 6 **fails with the actual header list** if a build
+    disagrees; it never falls back to `0`.
 
 - [ ] 3. **Start the VRAM sampler with timestamps** in a second shell and leave it running through all five
 measurements, so each run can be aligned to its own window by wall clock:
@@ -972,9 +978,9 @@ instead of silently reporting `0` (an `exit` typed into the elevated interactive
 #   2 = no CSV / no data rows      3 = expected column absent      4 = column present but empty
 $ErrorActionPreference = 'Stop'
 
-# Exact v2.5.1 CSV headers (README-ConsoleApplication.md, CSV column table). NOT 'FrameTime'/'GPUBusy' - those
-# spellings are PresentMon 2.0-2.2 and do not exist in this build.
-$Cols = [ordered]@{ FrameMs = 'MsBetweenPresents'; GpuBusyMs = 'MsGPUBusy'; GpuTimeMs = 'MsGPUTime'; CpuBusyMs = 'MsCPUBusy' }
+# Exact v2.5.1 --v2_metrics headers (PresentMon/CsvOutput.cpp:426, tag v2.5.1). NOT 'MsBetweenPresents'/'MsGPUBusy' -
+# those are the v1 column set, i.e. what a capture WITHOUT --v2_metrics writes; the capture above passes --v2_metrics.
+$Cols = [ordered]@{ FrameMs = 'FrameTime'; GpuBusyMs = 'GPUBusy'; GpuTimeMs = 'GPUTime'; CpuBusyMs = 'CPUBusy' }
 
 function Median([object[]]$rows, [string]$tag, [string]$name) {
     $v = @($rows.$name | Where-Object { $_ -ne $null -and "$_".Trim() -ne '' -and "$_" -ne 'NA' } |
@@ -1014,8 +1020,11 @@ Get-Content C:\Temp\claude\pm-windows.txt
 $LASTEXITCODE          # MUST be 0. Any other value = the numbers are not real; fix the capture, do not report the table.
 ```
 
-`GpuBusyMs` (`MsGPUBusy`) is the headline whole-frame GPU figure; `GpuTimeMs` (`MsGPUTime`) and `CpuBusyMs`
-(`MsCPUBusy`) are recorded alongside it as cross-checks.
+`GpuBusyMs` (`GPUBusy`) is the headline whole-frame GPU figure; `GpuTimeMs` (`GPUTime`) and `CpuBusyMs`
+(`CPUBusy`) are recorded alongside it as cross-checks. Expected output: one row per config with the columns
+`Config Frames FrameMs GpuBusyMs GpuTimeMs CpuBusyMs`, all four medians non-zero. A run whose CSV came from a
+capture that dropped `--v2_metrics` exits `3` printing the actual (v1, `Ms`-prefixed) header list — re-capture,
+never re-map `$Cols` to make the error go away.
 
 For VRAM, take the **peak** `memory.used` from `C:\Temp\claude\vram.csv` inside each run's timestamp window printed by
 `pm-windows.txt` (the nvidia-smi `timestamp` column is what makes that alignment possible).
@@ -1066,7 +1075,7 @@ Measured cost on an RTX 5070 Ti at 1440p, in a tactical mission with a fixed cam
 | Vignette: Off | `<+X.X ms>` | `<+YYY MiB>` |
 ```
 
-Fill the four rows from **Task 7 step 7** (`shadow`, `lod`, `aniso`, `vigoff` — the `GpuBusyMs` (`MsGPUBusy`) delta vs the `vanilla` row,
+Fill the four rows from **Task 7 step 7** (`shadow`, `lod`, `aniso`, `vigoff` — the `GpuBusyMs` (`GPUBusy`) delta vs the `vanilla` row,
 and the peak-VRAM delta from `vram.csv` inside each run's window). Your own rig is not the reference: if the measurement
 was made anywhere other than the RTX 5070 Ti / 1440p rig, change the sentence to name the hardware actually used.
 
