@@ -144,4 +144,38 @@ namespace Renderforge
             loggedError = true;
         }
     }
+
+    /// <summary>OptionsManager.UsePreset (public void UsePreset(int, bool), OptionsManager.cs:375) is where vanilla writes
+    /// the quality level and, through ChangeGraphicsQuality (:391), nests the LightingManager callback. Prefix raises the
+    /// guard so every nested seam writes nothing of ours; the Finalizer lowers it — ALWAYS, so a throw cannot latch the
+    /// guard and freeze the knobs (same shape as ModSettingsFilter.cs:18-29) — but takes the baseline only when the
+    /// original method actually completed.
+    ///
+    /// __exception is Harmony's "the original threw" channel: non-null = it threw. Returning it UNCHANGED rethrows the
+    /// original exception with its own type and message; returning null would swallow it, which would hide a real
+    /// OptionsManager failure from the game. So: always unwind, snapshot only on __exception == null, return as-is.</summary>
+    [HarmonyPatch(typeof(OptionsManager), "UsePreset")]
+    internal static class OptionsManager_UsePreset_Patch
+    {
+        [HarmonyPrefix]
+        private static void Prefix() => QualityKnobs.EnterUsePreset();
+
+        [HarmonyFinalizer]
+        private static Exception Finalizer(Exception __exception)
+        {
+            QualityKnobs.LeaveUsePreset(__exception == null);
+            return __exception;   // preserve/rethrow the original; never swallow
+        }
+    }
+
+    /// <summary>LightingManager.ApplyPostProcessOptions (LightingManager.cs:163) runs on every lighting change and on
+    /// every level, and LightingSettingsDef.ApplyTo re-instantiates the lights prefab each time
+    /// (LightingSettingsDef.cs:21-22), so the PostProcessVolume here is a NEW object with a fresh profile. Vignette only:
+    /// the scalars are QualitySettings and are already suppressed while inUsePreset, which is exactly when this fires
+    /// as a nested callback.</summary>
+    [HarmonyPatch(typeof(LightingManager), "ApplyPostProcessOptions")]
+    internal static class LightingManager_ApplyPostProcessOptions_QualityPatch
+    {
+        static void Postfix(LightingManager __instance) => QualityKnobs.ApplyVignette(__instance);
+    }
 }

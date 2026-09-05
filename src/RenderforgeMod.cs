@@ -159,7 +159,7 @@ namespace Renderforge
             Instance = null;
         }
 
-        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); }   // Reapply covers a level that starts with the generation still live
+        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); }   // Reapply covers a level that starts with the generation still live
 
         /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
         public override void OnLevelEnd(Level level) => DlssDriver.Instance?.Apply(RenderforgeMode.Off, Diagnostics.View);
@@ -169,6 +169,7 @@ namespace Renderforge
             CrispFonts.Apply(Cfg.CrispFonts);
             Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Diagnostics.View + " upscaler = " + Cfg.Upscaler);
             ApplyFrameRate();
+            QualityKnobs.ApplyAll();
             ApplyUpscaler();
             AttachAndApply();
         }
