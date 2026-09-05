@@ -14,8 +14,9 @@ namespace Renderforge
     ///
     /// Vanilla writes QualitySettings inside OptionsManager.UsePreset (OptionsManager.cs:384), which nests
     /// ChangeGraphicsQuality (:391) -> OnGraphicsSettingsChangedEvent (:406) -> LightingManager.ApplyPostProcessOptions
-    /// (LightingManager.cs:53-55). So the whole nesting runs under a guard: nothing of ours is written while vanilla is
-    /// mid-apply, and the baseline is taken the moment the nesting unwinds.</summary>
+    /// (LightingManager.cs:53-55). So the whole nesting runs under a guard: the outgoing level gets the baseline back
+    /// before vanilla switches, nothing of ours is written while vanilla is mid-apply, and the baseline is taken the
+    /// moment the nesting unwinds.</summary>
     public static class QualityKnobs
     {
         // Depth, not a bool: UsePreset is not documented as non-reentrant, and a nested call must not clear the guard early.
@@ -38,7 +39,37 @@ namespace Renderforge
             haveSnapshot = true;
         }
 
-        internal static void EnterUsePreset() { usePresetDepth++; }
+        /// <summary>Guard up. On the OUTERMOST entry the baseline goes back into the outgoing level first: Unity quality
+        /// levels are runtime-mutable - every QualitySettings setter writes into the ACTIVE level's stored values, and
+        /// SetQualityLevel only selects a level, it never reloads the asset defaults. Without this, reselecting the same
+        /// preset (or switching away and back) makes the unwind Snapshot() read OUR overrides as "Vanilla".</summary>
+        internal static void EnterUsePreset()
+        {
+            if (usePresetDepth == 0) RestoreBaseline();
+            usePresetDepth++;
+        }
+
+        /// <summary>Vanilla aniso = captured mode + (-1, -1), the engine default (no forced limits). Coexistence with
+        /// another mod's limits is not attempted.</summary>
+        private static void RestoreAniso()
+        {
+            QualitySettings.anisotropicFiltering = baseAniso;
+            Texture.SetGlobalAnisotropicFilteringLimits(-1, -1);
+        }
+
+        /// <summary>Write the captured baseline back. No-op without a snapshot - never restore uninitialised values.
+        /// If UsePreset then throws, the Finalizer's ApplyAll puts the overrides back on top.</summary>
+        private static void RestoreBaseline()
+        {
+            if (!haveSnapshot) return;
+            try
+            {
+                RestoreAniso();
+                QualitySettings.lodBias = baseLodBias;
+                QualitySettings.shadowResolution = baseShadowRes;
+            }
+            catch (Exception ex) { Log("baseline restore failed", ex); }
+        }
 
         /// <summary>Guard down, take the fresh baseline, put our values back on top. Called from a HarmonyFinalizer, so a
         /// throw inside UsePreset cannot leave the guard latched and the knobs frozen.
@@ -77,12 +108,7 @@ namespace Renderforge
                     QualitySettings.anisotropicFiltering = AnisotropicFiltering.ForceEnable;
                     Texture.SetGlobalAnisotropicFilteringLimits(16, 16);
                 }
-                else
-                {
-                    QualitySettings.anisotropicFiltering = baseAniso;
-                    // (-1, -1) is the engine default (no forced limits). Coexistence with another mod's limits is not attempted.
-                    Texture.SetGlobalAnisotropicFilteringLimits(-1, -1);
-                }
+                else RestoreAniso();
                 QualitySettings.lodBias = cfg.LodBias > 0f ? Mathf.Clamp(cfg.LodBias, 1f, 4f) : baseLodBias;
                 QualitySettings.shadowResolution = cfg.ShadowResolution == ShadowResolutionMode.VeryHigh
                     ? ShadowResolution.VeryHigh
