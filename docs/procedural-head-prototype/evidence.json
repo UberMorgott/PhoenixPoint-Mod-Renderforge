@@ -1,0 +1,2496 @@
+{
+  "normal_control": [
+    {
+      "head": "sofia",
+      "angle": "front",
+      "source_face_mae_255": 1.8650080758942538,
+      "pixels": 52213
+    },
+    {
+      "head": "sofia",
+      "angle": "45",
+      "source_face_mae_255": 1.157707312193658,
+      "pixels": 49985
+    },
+    {
+      "head": "sofia",
+      "angle": "profile",
+      "source_face_mae_255": 0.5716348383289068,
+      "pixels": 31628
+    },
+    {
+      "head": "yael",
+      "angle": "front",
+      "source_face_mae_255": 1.0614669882962566,
+      "pixels": 48503
+    },
+    {
+      "head": "yael",
+      "angle": "45",
+      "source_face_mae_255": 0.5742439776720384,
+      "pixels": 38039
+    },
+    {
+      "head": "yael",
+      "angle": "profile",
+      "source_face_mae_255": 0.2776422213185125,
+      "pixels": 14754
+    }
+  ],
+  "micro_comparison": [
+    {
+      "head": "sofia",
+      "angle": "front",
+      "source_face_mae_255": 0.9706350843417675,
+      "pixels": 58176
+    },
+    {
+      "head": "sofia",
+      "angle": "45",
+      "source_face_mae_255": 1.3480622603762131,
+      "pixels": 53817
+    },
+    {
+      "head": "sofia",
+      "angle": "profile",
+      "source_face_mae_255": 0.4444307477374752,
+      "pixels": 32449
+    },
+    {
+      "head": "yael",
+      "angle": "front",
+      "source_face_mae_255": 1.2205330604687423,
+      "pixels": 47887
+    },
+    {
+      "head": "yael",
+      "angle": "45",
+      "source_face_mae_255": 0.3548070525615436,
+      "pixels": 40080
+    },
+    {
+      "head": "yael",
+      "angle": "profile",
+      "source_face_mae_255": 0.3297163315890939,
+      "pixels": 18155
+    }
+  ],
+  "repeated_original_mae_255": 0.9316049230177852,
+  "visual_result": "Rejected: near-indistinguishable surface difference, no human anatomy reconstruction.",
+  "captures": [
+    {
+      "head": "sofia",
+      "label": "front-control",
+      "status": "captured",
+      "expectedPrefab": "Head - Tutorial - Female_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "276b5f5f-1d18-aa64-5aef-6298b23430d6",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Tutorial_Head_Female",
+      "faceRendererId": -243076,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 0.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 12,
+      "originalGlossScale": 1.0,
+      "sampleChannelsMin": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        255,
+        254,
+        0,
+        255
+      ],
+      "originalMeshId": 1557680,
+      "originalBoneIds": [
+        -242934,
+        -242946,
+        -242954,
+        -242990,
+        -243014,
+        -243034,
+        -243038,
+        -243042,
+        -243050,
+        -243054,
+        -243058,
+        -243026,
+        -243030,
+        -243022,
+        -243006,
+        -242982,
+        -243046,
+        -242938,
+        -242942,
+        -243062,
+        -243066
+      ],
+      "renderPosition": "(1114.16028, 0.569514632, -5.555602)",
+      "renderRotation": "(0.028146429, -0.121820271, 0.00345594482, 0.992147)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 438671,
+      "renderers": [
+        {
+          "id": -241814,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -243076,
+          "name": "Tutorial_Head_Female",
+          "materials": [
+            -243578
+          ]
+        },
+        {
+          "id": -243082,
+          "name": "Tutorial_Head_Female_Eyelashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -243088,
+          "name": "Tutorial_Head_Female_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -243094,
+          "name": "Tutorial_Head_Female_Eyeshadow",
+          "materials": [
+            1550602
+          ]
+        },
+        {
+          "id": -243100,
+          "name": "Tutorial_Head_Female_Teeth",
+          "materials": [
+            1542862
+          ]
+        },
+        {
+          "id": -242284,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -242532,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -243188,
+          "name": "Tutorial_Head_Female_Hair",
+          "materials": [
+            1529676,
+            1517712
+          ]
+        },
+        {
+          "id": -240594,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -242740,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -242892,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-242774:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-241672:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-243158:Head - Tutorial - Female_HAIR_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-242622:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-240590:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-242328:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-242930:Head - Tutorial - Female_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-242084:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-242600:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 666952,
+        "face": 52474,
+        "face-unoccluded": 114862,
+        "source": 3636598,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "sofia",
+      "label": "45-control",
+      "status": "captured",
+      "expectedPrefab": "Head - Tutorial - Female_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "276b5f5f-1d18-aa64-5aef-6298b23430d6",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Tutorial_Head_Female",
+      "faceRendererId": -243076,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 45.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 12,
+      "originalGlossScale": 1.0,
+      "sampleChannelsMin": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        255,
+        254,
+        0,
+        255
+      ],
+      "originalMeshId": 1557680,
+      "originalBoneIds": [
+        -242934,
+        -242946,
+        -242954,
+        -242990,
+        -243014,
+        -243034,
+        -243038,
+        -243042,
+        -243050,
+        -243054,
+        -243058,
+        -243026,
+        -243030,
+        -243022,
+        -243006,
+        -242982,
+        -243046,
+        -242938,
+        -242942,
+        -243062,
+        -243066
+      ],
+      "renderPosition": "(1113.29126, 0.569514632, -5.42571354)",
+      "renderRotation": "(0.0273264423, 0.267131031, -0.007578296, 0.963242948)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 438762,
+      "renderers": [
+        {
+          "id": -241814,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -243076,
+          "name": "Tutorial_Head_Female",
+          "materials": [
+            -243644
+          ]
+        },
+        {
+          "id": -243082,
+          "name": "Tutorial_Head_Female_Eyelashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -243088,
+          "name": "Tutorial_Head_Female_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -243094,
+          "name": "Tutorial_Head_Female_Eyeshadow",
+          "materials": [
+            1550602
+          ]
+        },
+        {
+          "id": -243100,
+          "name": "Tutorial_Head_Female_Teeth",
+          "materials": [
+            1542862
+          ]
+        },
+        {
+          "id": -242284,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -242532,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -243188,
+          "name": "Tutorial_Head_Female_Hair",
+          "materials": [
+            1529676,
+            1517712
+          ]
+        },
+        {
+          "id": -240594,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -242740,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -242892,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-242774:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-241672:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-243158:Head - Tutorial - Female_HAIR_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-242622:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-240590:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-242328:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-242930:Head - Tutorial - Female_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-242084:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-242600:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 644804,
+        "face": 50399,
+        "face-unoccluded": 123832,
+        "source": 3343278,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "sofia",
+      "label": "profile-control",
+      "status": "captured",
+      "expectedPrefab": "Head - Tutorial - Female_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "276b5f5f-1d18-aa64-5aef-6298b23430d6",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Tutorial_Head_Female",
+      "faceRendererId": -243076,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 90.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 12,
+      "originalGlossScale": 1.0,
+      "sampleChannelsMin": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        255,
+        254,
+        0,
+        255
+      ],
+      "originalMeshId": 1557680,
+      "originalBoneIds": [
+        -242934,
+        -242946,
+        -242954,
+        -242990,
+        -243014,
+        -243034,
+        -243038,
+        -243042,
+        -243050,
+        -243054,
+        -243058,
+        -243026,
+        -243030,
+        -243022,
+        -243006,
+        -242982,
+        -243046,
+        -242938,
+        -242942,
+        -243062,
+        -243066
+      ],
+      "renderPosition": "(1112.76855, 0.5695146, -4.719319)",
+      "renderRotation": "(0.0223462526, 0.615413964, -0.0174588077, 0.7876938)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 438854,
+      "renderers": [
+        {
+          "id": -241814,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -243076,
+          "name": "Tutorial_Head_Female",
+          "materials": [
+            -243710
+          ]
+        },
+        {
+          "id": -243082,
+          "name": "Tutorial_Head_Female_Eyelashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -243088,
+          "name": "Tutorial_Head_Female_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -243094,
+          "name": "Tutorial_Head_Female_Eyeshadow",
+          "materials": [
+            1550602
+          ]
+        },
+        {
+          "id": -243100,
+          "name": "Tutorial_Head_Female_Teeth",
+          "materials": [
+            1542862
+          ]
+        },
+        {
+          "id": -242284,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -242532,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -243188,
+          "name": "Tutorial_Head_Female_Hair",
+          "materials": [
+            1529676,
+            1517712
+          ]
+        },
+        {
+          "id": -240594,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -242740,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -242892,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-242774:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-241672:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-243158:Head - Tutorial - Female_HAIR_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-242622:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-240590:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-242328:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-242930:Head - Tutorial - Female_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-242084:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-242600:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 463500,
+        "face": 32211,
+        "face-unoccluded": 116348,
+        "source": 3109100,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "sofia",
+      "label": "front-micro",
+      "status": "captured",
+      "expectedPrefab": "Head - Tutorial - Female_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "276b5f5f-1d18-aa64-5aef-6298b23430d6",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Tutorial_Head_Female",
+      "faceRendererId": -259540,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 0.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 12,
+      "originalGlossScale": 1.0,
+      "sampleChannelsMin": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        255,
+        254,
+        0,
+        255
+      ],
+      "microGenerationMs": 325.10110000000003,
+      "microChangedPixels": 84328,
+      "microAmplitude": 0.025,
+      "microSeed": 17,
+      "microProfile": "Head - Tutorial - Female_Ready",
+      "originalMeshId": 1557680,
+      "originalBoneIds": [
+        -259398,
+        -259410,
+        -259418,
+        -259454,
+        -259478,
+        -259498,
+        -259502,
+        -259506,
+        -259514,
+        -259518,
+        -259522,
+        -259490,
+        -259494,
+        -259486,
+        -259470,
+        -259446,
+        -259510,
+        -259402,
+        -259406,
+        -259526,
+        -259530
+      ],
+      "renderPosition": "(1114.172, 0.5754669, -5.53492975)",
+      "renderRotation": "(0.028146429, -0.121820271, 0.00345594482, 0.992147)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 464917,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -259540,
+          "name": "Tutorial_Head_Female",
+          "materials": [
+            -259782
+          ]
+        },
+        {
+          "id": -259546,
+          "name": "Tutorial_Head_Female_Eyelashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -259552,
+          "name": "Tutorial_Head_Female_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -259558,
+          "name": "Tutorial_Head_Female_Eyeshadow",
+          "materials": [
+            1550602
+          ]
+        },
+        {
+          "id": -259564,
+          "name": "Tutorial_Head_Female_Teeth",
+          "materials": [
+            1542862
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -259652,
+          "name": "Tutorial_Head_Female_Hair",
+          "materials": [
+            1529676,
+            1517712
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-259622:Head - Tutorial - Female_HAIR_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-259394:Head - Tutorial - Female_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 646612,
+        "face": 58242,
+        "face-unoccluded": 115762,
+        "source": 3634522,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "sofia",
+      "label": "45-micro",
+      "status": "captured",
+      "expectedPrefab": "Head - Tutorial - Female_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "276b5f5f-1d18-aa64-5aef-6298b23430d6",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Tutorial_Head_Female",
+      "faceRendererId": -259540,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 45.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 12,
+      "originalGlossScale": 1.0,
+      "sampleChannelsMin": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        255,
+        254,
+        0,
+        255
+      ],
+      "microGenerationMs": 324.3849,
+      "microChangedPixels": 84328,
+      "microAmplitude": 0.025,
+      "microSeed": 17,
+      "microProfile": "Head - Tutorial - Female_Ready",
+      "originalMeshId": 1557680,
+      "originalBoneIds": [
+        -259398,
+        -259410,
+        -259418,
+        -259454,
+        -259478,
+        -259498,
+        -259502,
+        -259506,
+        -259514,
+        -259518,
+        -259522,
+        -259490,
+        -259494,
+        -259486,
+        -259470,
+        -259446,
+        -259510,
+        -259402,
+        -259406,
+        -259526,
+        -259530
+      ],
+      "renderPosition": "(1113.303, 0.5754669, -5.40504074)",
+      "renderRotation": "(0.0273264423, 0.267131031, -0.007578296, 0.963242948)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 464994,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -259540,
+          "name": "Tutorial_Head_Female",
+          "materials": [
+            -259848
+          ]
+        },
+        {
+          "id": -259546,
+          "name": "Tutorial_Head_Female_Eyelashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -259552,
+          "name": "Tutorial_Head_Female_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -259558,
+          "name": "Tutorial_Head_Female_Eyeshadow",
+          "materials": [
+            1550602
+          ]
+        },
+        {
+          "id": -259564,
+          "name": "Tutorial_Head_Female_Teeth",
+          "materials": [
+            1542862
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -259652,
+          "name": "Tutorial_Head_Female_Hair",
+          "materials": [
+            1529676,
+            1517712
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-259622:Head - Tutorial - Female_HAIR_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-259394:Head - Tutorial - Female_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 637992,
+        "face": 54184,
+        "face-unoccluded": 122953,
+        "source": 3326888,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "sofia",
+      "label": "profile-micro",
+      "status": "captured",
+      "expectedPrefab": "Head - Tutorial - Female_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "276b5f5f-1d18-aa64-5aef-6298b23430d6",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Tutorial_Head_Female",
+      "faceRendererId": -259540,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 90.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 12,
+      "originalGlossScale": 1.0,
+      "sampleChannelsMin": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        255,
+        254,
+        0,
+        255
+      ],
+      "microGenerationMs": 322.7293,
+      "microChangedPixels": 84328,
+      "microAmplitude": 0.025,
+      "microSeed": 17,
+      "microProfile": "Head - Tutorial - Female_Ready",
+      "originalMeshId": 1557680,
+      "originalBoneIds": [
+        -259398,
+        -259410,
+        -259418,
+        -259454,
+        -259478,
+        -259498,
+        -259502,
+        -259506,
+        -259514,
+        -259518,
+        -259522,
+        -259490,
+        -259494,
+        -259486,
+        -259470,
+        -259446,
+        -259510,
+        -259402,
+        -259406,
+        -259526,
+        -259530
+      ],
+      "renderPosition": "(1112.78027, 0.5754669, -4.69864655)",
+      "renderRotation": "(0.0223462526, 0.615413964, -0.0174588077, 0.7876938)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 465074,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -259540,
+          "name": "Tutorial_Head_Female",
+          "materials": [
+            -259914
+          ]
+        },
+        {
+          "id": -259546,
+          "name": "Tutorial_Head_Female_Eyelashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -259552,
+          "name": "Tutorial_Head_Female_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -259558,
+          "name": "Tutorial_Head_Female_Eyeshadow",
+          "materials": [
+            1550602
+          ]
+        },
+        {
+          "id": -259564,
+          "name": "Tutorial_Head_Female_Teeth",
+          "materials": [
+            1542862
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -259652,
+          "name": "Tutorial_Head_Female_Hair",
+          "materials": [
+            1529676,
+            1517712
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-259622:Head - Tutorial - Female_HAIR_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-259394:Head - Tutorial - Female_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 459077,
+        "face": 32804,
+        "face-unoccluded": 113875,
+        "source": 3111221,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "sofia",
+      "label": "motion",
+      "status": "cancelled",
+      "expectedPrefab": "Head - Tutorial - Female_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "276b5f5f-1d18-aa64-5aef-6298b23430d6",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Tutorial_Head_Female",
+      "faceRendererId": -259540,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 0.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 12,
+      "originalGlossScale": 1.0,
+      "sampleChannelsMin": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        255,
+        254,
+        0,
+        255
+      ],
+      "microGenerationMs": 340.4377,
+      "microChangedPixels": 84328,
+      "microAmplitude": 0.025,
+      "microSeed": 17,
+      "microProfile": "Head - Tutorial - Female_Ready",
+      "originalMeshId": 1557680,
+      "originalBoneIds": [
+        -259398,
+        -259410,
+        -259418,
+        -259454,
+        -259478,
+        -259498,
+        -259502,
+        -259506,
+        -259514,
+        -259518,
+        -259522,
+        -259490,
+        -259494,
+        -259486,
+        -259470,
+        -259446,
+        -259510,
+        -259402,
+        -259406,
+        -259526,
+        -259530
+      ],
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "yael",
+      "label": "front-control",
+      "status": "captured",
+      "expectedPrefab": "Head_Hispanic1_F_V01_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Head_Hispanic1_F_V01",
+      "faceRendererId": -257800,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 0.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 10,
+      "originalGlossScale": 0.5,
+      "sampleChannelsMin": [
+        32,
+        21,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        234,
+        208,
+        0,
+        255
+      ],
+      "originalMeshId": 1532274,
+      "originalBoneIds": [
+        -257654,
+        -257666,
+        -257674,
+        -257710,
+        -257734,
+        -257758,
+        -257762,
+        -257766,
+        -257774,
+        -257778,
+        -257782,
+        -257746,
+        -257750,
+        -257742,
+        -257726,
+        -257702,
+        -257770,
+        -257658,
+        -257662,
+        -257786,
+        -257790
+      ],
+      "renderPosition": "(1114.082, 0.55663836, -5.42856169)",
+      "renderRotation": "(0.028146429, -0.121820271, 0.00345594482, 0.992147)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 450339,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -257800,
+          "name": "Head_Hispanic1_F_V01",
+          "materials": [
+            -258830
+          ]
+        },
+        {
+          "id": -257806,
+          "name": "Head_Hispanic1_F_V01_EyeLashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -257812,
+          "name": "Head_Hispanic1_F_V01_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -257818,
+          "name": "Head_Hispanic1_F_V01_EyeShadow",
+          "materials": [
+            1489194
+          ]
+        },
+        {
+          "id": -257824,
+          "name": "Head_Hispanic1_F_V01_Teeth",
+          "materials": [
+            1489152
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258378,
+          "name": "Hair_SYN1_F_V01_Ready",
+          "materials": [
+            1522258
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-258374:Hair_SYN1_F_V01_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-257650:Head_Hispanic1_F_V01_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 693125,
+        "face": 48784,
+        "face-unoccluded": 118802,
+        "source": 3668539,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "yael",
+      "label": "45-control",
+      "status": "captured",
+      "expectedPrefab": "Head_Hispanic1_F_V01_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Head_Hispanic1_F_V01",
+      "faceRendererId": -257800,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 45.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 10,
+      "originalGlossScale": 0.5,
+      "sampleChannelsMin": [
+        32,
+        21,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        234,
+        208,
+        0,
+        255
+      ],
+      "originalMeshId": 1532274,
+      "originalBoneIds": [
+        -257654,
+        -257666,
+        -257674,
+        -257710,
+        -257734,
+        -257758,
+        -257762,
+        -257766,
+        -257774,
+        -257778,
+        -257782,
+        -257746,
+        -257750,
+        -257742,
+        -257726,
+        -257702,
+        -257770,
+        -257658,
+        -257662,
+        -257786,
+        -257790
+      ],
+      "renderPosition": "(1113.213, 0.55663836, -5.29867268)",
+      "renderRotation": "(0.0273264423, 0.267131031, -0.007578296, 0.963242948)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 450474,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -257800,
+          "name": "Head_Hispanic1_F_V01",
+          "materials": [
+            -258926
+          ]
+        },
+        {
+          "id": -257806,
+          "name": "Head_Hispanic1_F_V01_EyeLashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -257812,
+          "name": "Head_Hispanic1_F_V01_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -257818,
+          "name": "Head_Hispanic1_F_V01_EyeShadow",
+          "materials": [
+            1489194
+          ]
+        },
+        {
+          "id": -257824,
+          "name": "Head_Hispanic1_F_V01_Teeth",
+          "materials": [
+            1489152
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258378,
+          "name": "Hair_SYN1_F_V01_Ready",
+          "materials": [
+            1522258
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-258374:Hair_SYN1_F_V01_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-257650:Head_Hispanic1_F_V01_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 625038,
+        "face": 38286,
+        "face-unoccluded": 120971,
+        "source": 3310949,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "yael",
+      "label": "profile-control",
+      "status": "captured",
+      "expectedPrefab": "Head_Hispanic1_F_V01_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Head_Hispanic1_F_V01",
+      "faceRendererId": -257800,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 90.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 10,
+      "originalGlossScale": 0.5,
+      "sampleChannelsMin": [
+        32,
+        21,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        234,
+        208,
+        0,
+        255
+      ],
+      "originalMeshId": 1532274,
+      "originalBoneIds": [
+        -257654,
+        -257666,
+        -257674,
+        -257710,
+        -257734,
+        -257758,
+        -257762,
+        -257766,
+        -257774,
+        -257778,
+        -257782,
+        -257746,
+        -257750,
+        -257742,
+        -257726,
+        -257702,
+        -257770,
+        -257658,
+        -257662,
+        -257786,
+        -257790
+      ],
+      "renderPosition": "(1112.69031, 0.5566383, -4.59227848)",
+      "renderRotation": "(0.0223462526, 0.615413964, -0.0174588077, 0.7876938)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 450579,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -257800,
+          "name": "Head_Hispanic1_F_V01",
+          "materials": [
+            -258992
+          ]
+        },
+        {
+          "id": -257806,
+          "name": "Head_Hispanic1_F_V01_EyeLashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -257812,
+          "name": "Head_Hispanic1_F_V01_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -257818,
+          "name": "Head_Hispanic1_F_V01_EyeShadow",
+          "materials": [
+            1489194
+          ]
+        },
+        {
+          "id": -257824,
+          "name": "Head_Hispanic1_F_V01_Teeth",
+          "materials": [
+            1489152
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258378,
+          "name": "Hair_SYN1_F_V01_Ready",
+          "materials": [
+            1522258
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-258374:Hair_SYN1_F_V01_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-257650:Head_Hispanic1_F_V01_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 485809,
+        "face": 14878,
+        "face-unoccluded": 119922,
+        "source": 3168327,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "yael",
+      "label": "front-micro",
+      "status": "captured",
+      "expectedPrefab": "Head_Hispanic1_F_V01_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Head_Hispanic1_F_V01",
+      "faceRendererId": -257800,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 0.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 10,
+      "originalGlossScale": 0.5,
+      "sampleChannelsMin": [
+        32,
+        21,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        234,
+        208,
+        0,
+        255
+      ],
+      "microGenerationMs": 21.0702,
+      "microChangedPixels": 5943,
+      "microAmplitude": 0.025,
+      "microSeed": 17,
+      "microProfile": "Head_Hispanic1_F_V01_Ready",
+      "originalMeshId": 1532274,
+      "originalBoneIds": [
+        -257654,
+        -257666,
+        -257674,
+        -257710,
+        -257734,
+        -257758,
+        -257762,
+        -257766,
+        -257774,
+        -257778,
+        -257782,
+        -257746,
+        -257750,
+        -257742,
+        -257726,
+        -257702,
+        -257770,
+        -257658,
+        -257662,
+        -257786,
+        -257790
+      ],
+      "renderPosition": "(1114.08215, 0.557247043, -5.452925)",
+      "renderRotation": "(0.028146429, -0.121820271, 0.00345594482, 0.992147)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 463413,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -257800,
+          "name": "Head_Hispanic1_F_V01",
+          "materials": [
+            -259178
+          ]
+        },
+        {
+          "id": -257806,
+          "name": "Head_Hispanic1_F_V01_EyeLashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -257812,
+          "name": "Head_Hispanic1_F_V01_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -257818,
+          "name": "Head_Hispanic1_F_V01_EyeShadow",
+          "materials": [
+            1489194
+          ]
+        },
+        {
+          "id": -257824,
+          "name": "Head_Hispanic1_F_V01_Teeth",
+          "materials": [
+            1489152
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258378,
+          "name": "Hair_SYN1_F_V01_Ready",
+          "materials": [
+            1522258
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-258374:Hair_SYN1_F_V01_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-257650:Head_Hispanic1_F_V01_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 693432,
+        "face": 48165,
+        "face-unoccluded": 118658,
+        "source": 3675048,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "yael",
+      "label": "45-micro",
+      "status": "captured",
+      "expectedPrefab": "Head_Hispanic1_F_V01_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Head_Hispanic1_F_V01",
+      "faceRendererId": -257800,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 45.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 10,
+      "originalGlossScale": 0.5,
+      "sampleChannelsMin": [
+        32,
+        21,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        234,
+        208,
+        0,
+        255
+      ],
+      "microGenerationMs": 20.501900000000003,
+      "microChangedPixels": 5943,
+      "microAmplitude": 0.025,
+      "microSeed": 17,
+      "microProfile": "Head_Hispanic1_F_V01_Ready",
+      "originalMeshId": 1532274,
+      "originalBoneIds": [
+        -257654,
+        -257666,
+        -257674,
+        -257710,
+        -257734,
+        -257758,
+        -257762,
+        -257766,
+        -257774,
+        -257778,
+        -257782,
+        -257746,
+        -257750,
+        -257742,
+        -257726,
+        -257702,
+        -257770,
+        -257658,
+        -257662,
+        -257786,
+        -257790
+      ],
+      "renderPosition": "(1113.21313, 0.557247043, -5.323036)",
+      "renderRotation": "(0.0273264423, 0.267131031, -0.007578296, 0.963242948)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 463505,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -257800,
+          "name": "Head_Hispanic1_F_V01",
+          "materials": [
+            -259244
+          ]
+        },
+        {
+          "id": -257806,
+          "name": "Head_Hispanic1_F_V01_EyeLashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -257812,
+          "name": "Head_Hispanic1_F_V01_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -257818,
+          "name": "Head_Hispanic1_F_V01_EyeShadow",
+          "materials": [
+            1489194
+          ]
+        },
+        {
+          "id": -257824,
+          "name": "Head_Hispanic1_F_V01_Teeth",
+          "materials": [
+            1489152
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258378,
+          "name": "Hair_SYN1_F_V01_Ready",
+          "materials": [
+            1522258
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-258374:Hair_SYN1_F_V01_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-257650:Head_Hispanic1_F_V01_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 615273,
+        "face": 40185,
+        "face-unoccluded": 121499,
+        "source": 3315377,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "yael",
+      "label": "profile-micro",
+      "status": "captured",
+      "expectedPrefab": "Head_Hispanic1_F_V01_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Head_Hispanic1_F_V01",
+      "faceRendererId": -257800,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 90.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 10,
+      "originalGlossScale": 0.5,
+      "sampleChannelsMin": [
+        32,
+        21,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        234,
+        208,
+        0,
+        255
+      ],
+      "microGenerationMs": 20.816100000000002,
+      "microChangedPixels": 5943,
+      "microAmplitude": 0.025,
+      "microSeed": 17,
+      "microProfile": "Head_Hispanic1_F_V01_Ready",
+      "originalMeshId": 1532274,
+      "originalBoneIds": [
+        -257654,
+        -257666,
+        -257674,
+        -257710,
+        -257734,
+        -257758,
+        -257762,
+        -257766,
+        -257774,
+        -257778,
+        -257782,
+        -257746,
+        -257750,
+        -257742,
+        -257726,
+        -257702,
+        -257770,
+        -257658,
+        -257662,
+        -257786,
+        -257790
+      ],
+      "renderPosition": "(1112.69043, 0.557247043, -4.616642)",
+      "renderRotation": "(0.0223462526, 0.615413964, -0.0174588077, 0.7876938)",
+      "renderFov": 26.0,
+      "warmupFrames": 32,
+      "renderFrame": 463596,
+      "renderers": [
+        {
+          "id": -257612,
+          "name": "CHR_PX_ASS_TS_F_V01",
+          "materials": [
+            1509002,
+            1508910
+          ]
+        },
+        {
+          "id": -257800,
+          "name": "Head_Hispanic1_F_V01",
+          "materials": [
+            -259310
+          ]
+        },
+        {
+          "id": -257806,
+          "name": "Head_Hispanic1_F_V01_EyeLashes",
+          "materials": [
+            1489164
+          ]
+        },
+        {
+          "id": -257812,
+          "name": "Head_Hispanic1_F_V01_Eyes",
+          "materials": [
+            1489192
+          ]
+        },
+        {
+          "id": -257818,
+          "name": "Head_Hispanic1_F_V01_EyeShadow",
+          "materials": [
+            1489194
+          ]
+        },
+        {
+          "id": -257824,
+          "name": "Head_Hispanic1_F_V01_Teeth",
+          "materials": [
+            1489152
+          ]
+        },
+        {
+          "id": -258082,
+          "name": "CHR_PX_ASS_LA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258330,
+          "name": "CHR_PX_ASS_RA_F_V01",
+          "materials": [
+            1506316,
+            1506328,
+            1484926
+          ]
+        },
+        {
+          "id": -258378,
+          "name": "Hair_SYN1_F_V01_Ready",
+          "materials": [
+            1522258
+          ]
+        },
+        {
+          "id": -256388,
+          "name": "WPN_PX_RG_Assault_Rifle_T01_V01_Ready",
+          "materials": [
+            1512266
+          ]
+        },
+        {
+          "id": -258538,
+          "name": "CHR_PX_ASS_LL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        },
+        {
+          "id": -258690,
+          "name": "CHR_PX_ASS_RL_F_V01",
+          "materials": [
+            1506608,
+            1506574
+          ]
+        }
+      ],
+      "generation": "00eb26e9-faf7-5e84-3a65-11640b0f7512:-258572:CHR_PX_Assault_F_V01_RightLeg_Ready|07453903-d9b3-08b4-5962-8bd6e23b4a75:-257470:CHR_PX_Assault_F_V01_Torso_Ready|1a99762d-0132-d0e4-5b7f-de2e06dc4471:-258374:Hair_SYN1_F_V01_Ready|297bf974-3ffc-b784-89e8-30db7f37936d:-258420:CHR_PX_Assault_F_V01_LeftLeg_Ready|318f7b4f-b1d2-b9c4-db81-195ec92fe1a8:null:null|3446fb42-7bd9-8b54-b92f-7f04fefbf144:null:null|4a9232b1-3216-1ed4-d942-adf66ad9d841:null:null|726face7-01d3-77c4-998d-2caf68e4251f:null:null|7e13b07e-4106-6874-2977-714c25c553ce:null:null|87e8c315-612c-4a04-ab7f-ea6309d8b83f:null:null|88349756-7c98-ce54-69bb-0d03d2d2e548:-256384:WPN_PX_RG_Assault_Rifle_T01_V01_Ready|a0f1f07f-48ab-ca24-d881-ad723d0f26a7:null:null|a31681f4-5b96-d634-9b6f-ebfea9a20ee9:-258126:CHR_PX_Assault_F_V01_RightArm_Ready|b474e53e-63fe-09d4-28d9-168343c7c2a1:-257650:Head_Hispanic1_F_V01_Ready|d3175500-1c1c-e404-7a93-1bcaa58a1dda:-257882:CHR_PX_Assault_F_V01_LeftArm_Ready|e541ab91-d15a-bc54-7821-8c766369f228:-258398:InvisiblePartDummy|fa6aae5b-bf61-8374-4b49-755dc97103dd:null:null",
+      "nonBlackPixels": {
+        "character": 492908,
+        "face": 18301,
+        "face-unoccluded": 120319,
+        "source": 3160905,
+        "output": 3686400
+      },
+      "sharedMaterialsUnchanged": false,
+      "captureMaterialsStable": true,
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    },
+    {
+      "head": "yael",
+      "label": "motion",
+      "status": "cancelled",
+      "expectedPrefab": "Head_Hispanic1_F_V01_Ready",
+      "camera": "GeoscapeCamera",
+      "cameraId": 300730,
+      "depthSource": "CameraTarget",
+      "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+      "cameraTargetDepthBits": 0,
+      "reversedZ": true,
+      "width": 2560,
+      "height": 1440,
+      "faceRenderer": "Head_Hispanic1_F_V01",
+      "faceRendererId": -260168,
+      "occluderMode": 0,
+      "closeUp": true,
+      "yaw": 0.0,
+      "candidate": "",
+      "normalFormat": "RG_BC5_UNorm",
+      "normalMipCount": 10,
+      "originalGlossScale": 0.5,
+      "sampleChannelsMin": [
+        32,
+        21,
+        0,
+        255
+      ],
+      "sampleChannelsMax": [
+        234,
+        208,
+        0,
+        255
+      ],
+      "microGenerationMs": 20.476100000000002,
+      "microChangedPixels": 5943,
+      "microAmplitude": 0.025,
+      "microSeed": 17,
+      "microProfile": "Head_Hispanic1_F_V01_Ready",
+      "originalMeshId": 1532274,
+      "originalBoneIds": [
+        -260022,
+        -260034,
+        -260042,
+        -260078,
+        -260102,
+        -260126,
+        -260130,
+        -260134,
+        -260142,
+        -260146,
+        -260150,
+        -260114,
+        -260118,
+        -260110,
+        -260094,
+        -260070,
+        -260138,
+        -260026,
+        -260030,
+        -260154,
+        -260158
+      ],
+      "authoredMaterialsRestored": true,
+      "temporaryResourcesReleased": true
+    }
+  ],
+  "morphs": [
+    {
+      "head": "sofia",
+      "mesh": "Tutorial_Head_Female",
+      "vertices": 2960,
+      "shapes": [],
+      "is_readable": false,
+      "bindposes": 21,
+      "weights": 2960,
+      "gloss": 1.0,
+      "names": [
+        "#Chest_Addon => Human_Head_BodyPartDef",
+        "#Neck_Addon => Human_Head_BodyPartDef",
+        "#Head_Addon => Human_Head_BodyPartDef",
+        "Eye_LowEyelid_R",
+        "Eye_UpEyelid_R",
+        "#Jaw_Addon => Human_Head_BodyPartDef",
+        "#Jaw_Tip_2_Addon => Human_Head_BodyPartDef",
+        "LowerLip_M",
+        "LowerLip_R",
+        "Nose",
+        "UpperLip_M",
+        "Eyebrow_R",
+        "Frown",
+        "Eyebrow_L",
+        "Eye_UpEyelid_L",
+        "Eye_LowEyelid_L",
+        "LowerLip_L",
+        "#L.Shoulder_Addon => Human_Head_BodyPartDef",
+        "#L.Arm_Addon => Human_Head_BodyPartDef",
+        "#R.Shoulder_Addon => Human_Head_BodyPartDef",
+        "#R.Arm_Addon => Human_Head_BodyPartDef"
+      ],
+      "frames": [
+        434269,
+        464735
+      ],
+      "local_transform_changes": [],
+      "full_local_artifact": "D:\\RenderforgeWork\\procedural-head\\sofia-a\\morphs.json"
+    },
+    {
+      "head": "yael",
+      "mesh": "Head_Hispanic1_F_V01",
+      "vertices": 2958,
+      "shapes": [],
+      "is_readable": true,
+      "bindposes": 21,
+      "weights": 2958,
+      "gloss": 0.5,
+      "names": [
+        "#Chest_Addon => Human_Head_BodyPartDef",
+        "#Neck_Addon => Human_Head_BodyPartDef",
+        "#Head_Addon => Human_Head_BodyPartDef",
+        "Eye_LowEyelid_R",
+        "Eye_UpEyelid_R",
+        "#Jaw_Addon => Human_Head_BodyPartDef",
+        "#Jaw_Tip_2_Addon => Human_Head_BodyPartDef",
+        "LowerLip_M",
+        "LowerLip_R",
+        "Nose",
+        "UpperLip_M",
+        "Eyebrow_R",
+        "Frown",
+        "Eyebrow_L",
+        "Eye_UpEyelid_L",
+        "Eye_LowEyelid_L",
+        "LowerLip_L",
+        "#L.Shoulder_Addon => Human_Head_BodyPartDef",
+        "#L.Arm_Addon => Human_Head_BodyPartDef",
+        "#R.Shoulder_Addon => Human_Head_BodyPartDef",
+        "#R.Arm_Addon => Human_Head_BodyPartDef"
+      ],
+      "frames": [
+        448973,
+        463233
+      ],
+      "local_transform_changes": [],
+      "full_local_artifact": "D:\\RenderforgeWork\\procedural-head\\yael-a\\morphs.json"
+    }
+  ],
+  "motion": [
+    {
+      "head": "sofia",
+      "frames": [
+        {
+          "frame": 468888,
+          "path": "D:\\RenderforgeWork\\procedural-head\\sofia-motion\\motion-0.png"
+        },
+        {
+          "frame": 468891,
+          "path": "D:\\RenderforgeWork\\procedural-head\\sofia-motion\\motion-1.png"
+        },
+        {
+          "frame": 468894,
+          "path": "D:\\RenderforgeWork\\procedural-head\\sofia-motion\\motion-2.png"
+        },
+        {
+          "frame": 468897,
+          "path": "D:\\RenderforgeWork\\procedural-head\\sofia-motion\\motion-3.png"
+        }
+      ],
+      "distinct_image_hashes": 4,
+      "hashes": [
+        "521ec047689122427c420c86fb625fa9b53d35b2a38b3fdb3e3519e995c5ffdd",
+        "571f1fc0e53e1b29294291f545ff058c812716b1c016148b47925a042ccfcc60",
+        "44ee1db23de93cf502b48c5d5f3e0ac22393957378f7ad5d97681e6e7cbde0be",
+        "0b4b7b54c51a2f25baaac0e2823a7b7ea8dd81aa34cdeaa59ae2bb93cd6903be"
+      ]
+    },
+    {
+      "head": "yael",
+      "frames": [
+        {
+          "frame": 469000,
+          "path": "D:\\RenderforgeWork\\procedural-head\\yael-motion\\motion-0.png"
+        },
+        {
+          "frame": 469003,
+          "path": "D:\\RenderforgeWork\\procedural-head\\yael-motion\\motion-1.png"
+        },
+        {
+          "frame": 469006,
+          "path": "D:\\RenderforgeWork\\procedural-head\\yael-motion\\motion-2.png"
+        },
+        {
+          "frame": 469009,
+          "path": "D:\\RenderforgeWork\\procedural-head\\yael-motion\\motion-3.png"
+        }
+      ],
+      "distinct_image_hashes": 4,
+      "hashes": [
+        "b5a7d9249d01796d124015f71df213b614cd55cfb2ff0fd32c04ef42e6a14d74",
+        "423ed9a7d047d6de89da7a58867d28b948968656028217afcc7e6990464c780a",
+        "1a11f163a291394e3381526cc8b9fbc68a0776f61b26a47e891c33e5234b4ade",
+        "38283d1ea876452ae374ae85bea6f5b8af4700146398fd47db761cf2acf46c48"
+      ]
+    }
+  ],
+  "head_change": {
+    "status": "failed",
+    "expectedPrefab": "Head_Hispanic1_F_V01_Ready",
+    "camera": "GeoscapeCamera",
+    "cameraId": 300730,
+    "depthSource": "CameraTarget",
+    "faceTag": "b522b546-b9d3-d564-3902-d78541d04c44",
+    "cameraTargetDepthBits": 0,
+    "reversedZ": true,
+    "width": 2560,
+    "height": 1440,
+    "faceRenderer": "Head_Hispanic1_F_V01",
+    "faceRendererId": -260168,
+    "occluderMode": 0,
+    "closeUp": true,
+    "yaw": 0.0,
+    "candidate": "",
+    "normalFormat": "RG_BC5_UNorm",
+    "normalMipCount": 10,
+    "originalGlossScale": 0.5,
+    "sampleChannelsMin": [
+      32,
+      21,
+      0,
+      255
+    ],
+    "sampleChannelsMax": [
+      234,
+      208,
+      0,
+      255
+    ],
+    "microGenerationMs": 23.3202,
+    "microChangedPixels": 5943,
+    "microAmplitude": 0.025,
+    "microSeed": 17,
+    "microProfile": "Head_Hispanic1_F_V01_Ready",
+    "originalMeshId": 1532274,
+    "originalBoneIds": [
+      -260022,
+      -260034,
+      -260042,
+      -260078,
+      -260102,
+      -260126,
+      -260130,
+      -260134,
+      -260142,
+      -260146,
+      -260150,
+      -260114,
+      -260118,
+      -260110,
+      -260094,
+      -260070,
+      -260138,
+      -260026,
+      -260030,
+      -260154,
+      -260158
+    ],
+    "error": "System.InvalidOperationException: Visual generation changed; capture cancelled.\r\n  at Renderforge.CharacterMaskDiagnostic.PrepareCamera (UnityEngine.Camera current) [0x00038] in <d793479d97a349379b4c7d5fc1999797>:0 ",
+    "temporaryResourcesReleased": true
+  },
+  "restored_state": {
+    "actor": "Sophia Brown",
+    "helmet": true,
+    "nr": "Auto",
+    "strengths": [
+      0.99,
+      0.89,
+      0.82,
+      0.26
+    ],
+    "mode": "DLAA",
+    "fg": "X2",
+    "overlay": false,
+    "time_scale": 1,
+    "diagnostic": null
+  }
+}
