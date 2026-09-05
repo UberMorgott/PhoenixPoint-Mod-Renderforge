@@ -11,6 +11,8 @@ namespace Renderforge
     {
         public const int DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4, DLSS_ERR_NO_UNITY_IFACE = 5;
         public const int DLSS_ERR_NO_PROVIDER_DLL = 6, DLSS_ERR_PROVIDER_UNSUPPORTED = 7;
+        /// <summary>Upscaler dead, D3D device alive: the analytic post pass still runs (RenderforgeNative.h).</summary>
+        public const int DLSS_OK_POST_ONLY = 8;
         public const int PROVIDER_DLSS = 0, PROVIDER_FSR = 1, PROVIDER_XESS = 2;
         public const int DLSS_Q_DLAA = 0, DLSS_Q_QUALITY = 1, DLSS_Q_BALANCED = 2, DLSS_Q_PERFORMANCE = 3, DLSS_Q_ULTRA_PERFORMANCE = 4;
         /// <summary>XeSS-only presets (1.5x / 1.3x); DLSS and FSR treat them as Quality.</summary>
@@ -233,6 +235,17 @@ namespace Renderforge
         public static int Api()
         {
             try { return Dlss_Api(); }
+            catch (Exception) { return 0; }
+        }
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int Dlss_PostOnlyReason();
+
+        /// <summary>The real DLSS_ERR_* behind a DLSS_OK_POST_ONLY init; 0 otherwise. Behind a try: an older
+        /// shim without the export must not take the mod down.</summary>
+        public static int PostOnlyReason()
+        {
+            try { return Dlss_PostOnlyReason(); }
             catch (Exception) { return 0; }
         }
 
