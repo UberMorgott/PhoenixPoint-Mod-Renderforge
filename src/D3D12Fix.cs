@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -25,6 +26,55 @@ namespace Renderforge
         internal static bool DisableAo;
 
         private static bool loggedError;
+
+        // Unity's supportsComputeShaders and a non-null shader do not prove that its D3D12 kernels shipped.
+        // Cache by managed shader identity without retaining unloaded Unity assets. HasKernel is the installed
+        // non-throwing availability API; never use FindKernel as a per-frame support probe.
+        private sealed class HistogramKernels
+        {
+            internal readonly bool Supported;
+            internal HistogramKernels(ComputeShader shader)
+            {
+                Supported = HasKernel(shader, "KEyeHistogramClear") && HasKernel(shader, "KEyeHistogram");
+                if (!Supported) RenderforgeMod.Instance?.Logger.LogWarning("Renderforge D3D12: exposure histogram kernels unavailable; auto exposure and light meter skipped.");
+            }
+        }
+
+        private sealed class ExposureKernels
+        {
+            internal readonly bool Fixed, Progressive;
+            internal ExposureKernels(ComputeShader shader)
+            {
+                Fixed = HasKernel(shader, "KAutoExposureAvgLuminance_fixed");
+                Progressive = HasKernel(shader, "KAutoExposureAvgLuminance_progressive");
+                if (!Fixed || !Progressive) RenderforgeMod.Instance?.Logger.LogWarning("Renderforge D3D12: auto-exposure kernels fixed=" + Fixed + " progressive=" + Progressive + "; unsupported adaptation skipped.");
+            }
+        }
+
+        private static readonly ConditionalWeakTable<ComputeShader, HistogramKernels> histogramKernels = new ConditionalWeakTable<ComputeShader, HistogramKernels>();
+        private static readonly ConditionalWeakTable<ComputeShader, ExposureKernels> exposureKernels = new ConditionalWeakTable<ComputeShader, ExposureKernels>();
+
+        private static bool HasKernel(ComputeShader shader, string name)
+        {
+            try { return shader.HasKernel(name); }
+            catch { return false; } // A disposed/broken asset is unsupported; the cached result prevents log/exception spam.
+        }
+
+        internal static bool HistogramSupported(PostProcessRenderContext context)
+        {
+            var shader = context?.resources?.computeShaders?.exposureHistogram;
+            return shader && histogramKernels.GetValue(shader, s => new HistogramKernels(s)).Supported;
+        }
+
+        internal static bool ExposureSupported(PostProcessRenderContext context, EyeAdaptation adaptation)
+        {
+            if (!HistogramSupported(context)) return false;
+            var shader = context?.resources?.computeShaders?.autoExposure;
+            if (!shader) return false;
+            var kernels = exposureKernels.GetValue(shader, s => new ExposureKernels(s));
+            // AutoExposureRenderer always uses fixed on history reset; progressive is only needed by that mode.
+            return kernels.Fixed && (adaptation == EyeAdaptation.Fixed || kernels.Progressive);
+        }
 
         internal static bool Active
         {
@@ -73,6 +123,40 @@ namespace Renderforge
             DisableAo = string.Equals(mode, "off", StringComparison.OrdinalIgnoreCase);
             Apply();
             return "d3d12=" + Active + " ao=" + (DisableAo ? "off" : "sao");
+        }
+    }
+
+    [HarmonyPatch(typeof(AutoExposure), nameof(AutoExposure.IsEnabledAndSupported))]
+    internal static class AutoExposure_D3D12Support_Patch
+    {
+        static void Postfix(AutoExposure __instance, PostProcessRenderContext context, ref bool __result)
+        {
+            if (__result && D3D12Fix.Active)
+                __result = D3D12Fix.ExposureSupported(context, __instance.eyeAdaptation.value);
+            // RenderBuiltins already initializes autoExposureTexture to white: skipping this effect retains
+            // ordinary fixed exposure, tone mapping, fog of war and every other supported post effect.
+        }
+    }
+
+    [HarmonyPatch(typeof(Monitor), nameof(Monitor.IsRequestedAndSupported))]
+    internal static class LightMeter_D3D12Support_Patch
+    {
+        static void Postfix(Monitor __instance, PostProcessRenderContext context, ref bool __result)
+        {
+            // Block the histogram request and the debug layer's aggregate support test.
+            if (__result && __instance is LightMeterMonitor && D3D12Fix.Active)
+                __result = D3D12Fix.HistogramSupported(context);
+        }
+    }
+
+    [HarmonyPatch(typeof(LightMeterMonitor), "Render")]
+    internal static class LightMeter_D3D12Render_Patch
+    {
+        static bool Prefix(PostProcessRenderContext context)
+        {
+            // RenderMonitors checks support only when deciding whether ANY monitor can run, then renders
+            // every requested monitor. A supported second monitor must not bypass this consumer guard.
+            return !D3D12Fix.Active || D3D12Fix.HistogramSupported(context);
         }
     }
 }
