@@ -470,22 +470,30 @@ int main() {
             // of them. The cv=0 run of the same shader is the input to the CPU model, so this holds for any
             // preset/style without duplicating their maths here. Cartoon and PixelArt both, because
             // PixelArt samples a block neighbourhood and Cartoon does not.
+            // BOTH colour-space paths (encoded hdr=false AND FP16-linear hdr=true): ColorVision() picks its
+            // decode/encode branch off `styleLinear`, which is the SAME uniform the LUT and the style stages
+            // branch on, so a composition bug that only bites when the shader runs linear (D3D12 half-colour,
+            // the shipping D3D12 path) is invisible to an hdr=false-only test. `linear` is the sRGB-decoded
+            // cube built for check 5 above, so hdr=true is fed linear light, exactly as the runtime feeds it.
             for (unsigned styleMode : { 1u, 2u }) {
                 SceneStyleParams style = {}; style.mode = styleMode; style.strength = 0.8f; style.pixelSize = 4;
-                const auto graded  = probe.Run(cube, 17, 289, RF_CV_NONE, false, DLSS_LUT_VIVID, 0.85f, style);
-                const auto composed = probe.Run(cube, 17, 289, mode,     false, DLSS_LUT_VIVID, 0.85f, style);
-                RequireMatchesReference(composed, graded, mode, false, "LUT+style composition");
-                bool differs = false;
-                for (size_t i = 0; i < cube.size() && !differs; ++i)
-                    for (int c = 0; c < 3; ++c)
-                        if (std::abs(composed[i][c] - graded[i][c]) > 1.0f / 255.0f) { differs = true; break; }
-                Require(differs, "Correction vanished once a LUT and a style were active");
+                for (bool hdr : {false, true}) {
+                    const std::vector<Pixel>& input = hdr ? linear : cube;
+                    const auto graded   = probe.Run(input, 17, 289, RF_CV_NONE, hdr, DLSS_LUT_VIVID, 0.85f, style);
+                    const auto composed = probe.Run(input, 17, 289, mode,       hdr, DLSS_LUT_VIVID, 0.85f, style);
+                    RequireMatchesReference(composed, graded, mode, hdr, "LUT+style composition");
+                    bool differs = false;
+                    for (size_t i = 0; i < graded.size() && !differs; ++i)
+                        for (int c = 0; c < 3; ++c)
+                            if (std::abs(composed[i][c] - graded[i][c]) > 1.0f / 255.0f) { differs = true; break; }
+                    Require(differs, "Correction vanished once a LUT and a style were active");
+                }
             }
         }
 
         printf("PASS: production HLSL on D3D11 WARP; 3 modes; matrices match colour_vision_ref.py; "
                "every GPU sample matches the reference model on BOTH colour-space paths (4913-colour cube, "
-               "196 sRGB-knee samples, 8 gamut corners) and composes with LUT Vivid + Cartoon/PixelArt; "
+               "196 sRGB-knee samples, 8 gamut corners) and composes with LUT Vivid + Cartoon/PixelArt on BOTH paths; "
                "bit-exact mode-0 bypass on both paths; cube stays in gamut; encoded/linear parity <= 1/255; "
                "white and black are fixed points.\n");
         return 0;
@@ -722,7 +730,7 @@ E:\DEV\PhoenixPoint\Renderforge\build\native\Release\scene_style_probe.exe
 Expected: the cmake build reports 0 errors, then
 
 ```
-PASS: production HLSL on D3D11 WARP; 3 modes; matrices match colour_vision_ref.py; every GPU sample matches the reference model on BOTH colour-space paths (4913-colour cube, 196 sRGB-knee samples, 8 gamut corners) and composes with LUT Vivid + Cartoon/PixelArt; bit-exact mode-0 bypass on both paths; cube stays in gamut; encoded/linear parity <= 1/255; white and black are fixed points.
+PASS: production HLSL on D3D11 WARP; 3 modes; matrices match colour_vision_ref.py; every GPU sample matches the reference model on BOTH colour-space paths (4913-colour cube, 196 sRGB-knee samples, 8 gamut corners) and composes with LUT Vivid + Cartoon/PixelArt on BOTH paths; bit-exact mode-0 bypass on both paths; cube stays in gamut; encoded/linear parity <= 1/255; white and black are fixed points.
 PASS: production HLSL on D3D11 WARP; 9 presets; 4913-color cube; alpha, finite range, blend endpoints, B&W equality, 1025-step monotonic ramps, FP overbrights.
 ```
 
@@ -1241,22 +1249,88 @@ The returned string (`src\RenderforgeMod.cs:486`, which embeds `DlssDriver.Statu
 | Read this token | Meaning | Source of truth |
 |---|---|---|
 | `api=` | the live graphics API — `D3D11` / `D3D12`. This is the renderer, not the flag. | `Native.Api()` via `DlssDriver.Status` |
-| `d3d12HalfColor=` | the FP16 knob (`Diagnostics.D3D12HalfColor`, default on) | `RenderforgeMod.cs:486` |
+| `d3d12HalfColor=` | the FP16 **request** (`Diagnostics.D3D12HalfColor`, default on) — a knob, NOT the allocation | `RenderforgeMod.cs:486` |
 | `provider=` | which upscaler is actually running | `Upscalers.Running` |
 | `passthrough=` / `mode=` / `render=`/`out=` | whether an upscaler is really scaling | `DlssDriver.Status` |
 | `lastError=` | must stay `0` (in particular never `-3`, `DLSS_ERR_SHARPEN`) | `Native.Dlss_LastError()` |
 | `sharpen=` | which post shader kind is compiled | `Native.SharpenerName(...)` |
+| `fg=` | frame-gen state: `live`/`off` + the whole native `Fg_Status()` line | `FrameGen.Status()`, `RenderforgeMod.cs:490` |
 
-**The FP16-linear branch (`styleLinear != 0`) is live iff `api=D3D12` AND `d3d12HalfColor=True`** — that is
-literally the predicate at `src\DlssDriver.cs:550` (`WantHalfColor => graphicsDeviceType == Direct3D12 && Diagnostics.D3D12HalfColor`).
-If a D3D12 pass reports `d3d12HalfColor=False`, turn it back on before capturing, or the FP16 branch is
-simply not being tested:
+**`d3d12HalfColor=` is the requested configuration, not the live allocation.** It is
+`Diagnostics.D3D12HalfColor` printed straight back (`RenderforgeMod.cs:486`); the generation only *acts* on
+it through `WantHalfColor => graphicsDeviceType == Direct3D12 && Diagnostics.D3D12HalfColor`
+(`src\DlssDriver.cs:550`), latches the result into the private `liveHalfColor` (`:41`), and the colour RT is
+allocated from *that* — `ARGBHalf` linear when it is set, `ARGB32` (or the sRGB descriptor path) when it is
+not (`:303`, `:311-314`, `:329`). A knob flipped after the generation was built, or a generation created on
+D3D11 and never rebuilt, leaves the two disagreeing. **`DlssDriver.Status` does not print `liveHalfColor` at
+all**, so `GetStatus` alone can never prove which branch the shader took.
+
+- [ ] Read the LIVE allocation off the render targets themselves. `Instance` is a public static property
+(`src\DlssDriver.cs:13`); `colorRT` / `outRT` / `liveHalfColor` are private (`:19`, `:41`) and PPCLI's
+reflection reaches private members (`PPCLI\docs\REFERENCE.md:505`). Each `get` on a non-scalar returns a
+handle — feed it to the next call as `target`:
+
+```powershell
+# 1. the driver instance -> <DRV>
+.\ppcli.ps1 connect call '{"op":"get","type":"Renderforge.DlssDriver","assembly":"Renderforge","member":"Instance"}' -PPRoot 'D:\PP-Instance3'
+# 2. what the generation actually latched (bool, inline - no handle)
+.\ppcli.ps1 connect call '{"op":"get","target":"<DRV>","member":"liveHalfColor"}' -PPRoot 'D:\PP-Instance3'
+# 3. the colour RT -> <CRT>, then its REAL format
+.\ppcli.ps1 connect call '{"op":"get","target":"<DRV>","member":"colorRT"}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"get","target":"<CRT>","member":"graphicsFormat"}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"get","target":"<CRT>","member":"format"}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"get","target":"<CRT>","member":"sRGB"}' -PPRoot 'D:\PP-Instance3'
+# 4. the same three on outRT -> <ORT>
+.\ppcli.ps1 connect call '{"op":"get","target":"<DRV>","member":"outRT"}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"get","target":"<ORT>","member":"graphicsFormat"}' -PPRoot 'D:\PP-Instance3'
+```
+
+**The FP16-linear branch (`styleLinear != 0`) is live iff the colour RT is really FP16**, i.e.
+`liveHalfColor` = `True` **and** `colorRT.format` = `ARGBHalf` (`graphicsFormat` = `R16G16B16A16_SFloat`,
+`sRGB` = `False`) **and** `outRT.format` = `ARGBHalf`. Anything else — `ARGB32` /
+`R8G8B8A8_SRGB` / `R8G8B8A8_UNorm` — means the encoded branch ran and case 4 tested nothing new,
+whatever `d3d12HalfColor=` said. Cross-check against the generation log line, which prints the same
+three values at creation time (`src\DlssDriver.cs:363`: `colorRT=… sRGB=… colorDesc=… halfColor=… outRT=…`).
+
+If a D3D12 pass reports `liveHalfColor=False`, turn the knob back on **and force a generation rebuild**
+(the RTs are allocated once per generation, so flipping the knob alone changes nothing until the driver
+re-creates them), then re-read steps 2–4 before capturing:
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetD3D12HalfColor","args":[true]}' -PPRoot 'D:\PP-Instance3'
 ```
 
-- [ ] Record the `api=` / `d3d12HalfColor=` / `provider=` triple for each of the two launches (6c pass 1 and pass 2) verbatim. A case whose readback does not match its intended renderer is **not evidence** — relaunch.
+- [ ] **Frame generation: `lastError=0` proves nothing.** `Dlss_LastError` is the upscaler's error slot; it
+stays `0` when FG never started, when the provider was rejected, and when the chain detached mid-run. The
+FG state is the `fg=` token, which is `FrameGen.Status()` = `live `/`off ` + the native `Fg_Status()` line
+(`src\FrameGen.cs:176`, `RenderforgeMod.cs:490`). That line is formatted at `native\FgHost.cpp:601-608`:
+
+```
+provider=<name|detached|-> enabled=<0|1> multiplier=<n> chain=<-|child> child=<ptr> childHr=0x… hit=<n>
+focus=<none|game|child|other> fg=<0|1> shadow=<ptr> out=<w>x<h> flags=0x… caps=0x… lastError=<n>
+presentHr=0x… presented=<n> fps=<n> frameId=<n> idle=<n>[ reason=<text>]
+```
+
+**FG is ACTIVE iff** the `fg=` token starts with `live `, the embedded `provider=` names a real provider
+(never `-`, never `detached`), `enabled=1`, `multiplier=2` for X2, and `presented` **increases between two
+reads taken a second apart** while `fps` is non-zero. A `reason=` suffix is the rejection text and means it
+is not running. Confirm with the two ints the host exposes directly (`FgHostAlive` / `FgHostProvider`,
+`native\FgHost.cpp:581,583`; `Renderforge.Native` is a public static class, `src\Native.cs:10`):
+
+```powershell
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Alive","args":[]}'    -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Provider","args":[]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Reason","args":[]}'   -PPRoot 'D:\PP-Instance3'
+```
+
+Expected with X2 running: `Fg_Alive` = `1`, `Fg_Provider` = `1` (DLSS) / `2` (FSR) / `3` (XeSS) matching the
+case, `Fg_Reason` = `""`. `Fg_Alive=0` on a case 7–9 capture means that capture is **not** FG evidence —
+fix it or mark the case failed; do not report it as passing because `lastError` was `0`.
+
+- [ ] Record, verbatim, for each of the two launches (6c pass 1 and pass 2): `api=` / `provider=` /
+`d3d12HalfColor=` (requested) / `liveHalfColor` (latched) / `colorRT.graphicsFormat` / `outRT.graphicsFormat`,
+and — for cases 7–9 — the `fg=` line plus `Fg_Alive` / `Fg_Provider`. A case whose readback does not match
+its intended renderer, colour format or FG state is **not evidence** — relaunch or fix, do not report it.
 
 ### 6b — the capture protocol (defined once, used by every case below)
 
@@ -1267,33 +1341,116 @@ Three rules make a screenshot pair mean something:
    thing that can prove both "the scene changed" and "the HUD did not". It talks to the game only to learn
    which pid to capture, so it is also immune to the engine-capture edge cases. The window must **not be
    minimised**.
-2. **Pause the game.** `-Window` capture is not frame-synchronised, so animation, temporal accumulation and
-   an idle-breathing soldier all leak into a whole-frame diff. Freeze time first, restore it after:
+2. **Pause the game — and put the previous `timeScale` back, whatever it was.** `-Window` capture is not
+   frame-synchronised, so animation, temporal accumulation and an idle-breathing soldier all leak into a
+   whole-frame diff. Freeze time first. **Read `timeScale` into a variable before setting it to 0 and restore
+   *that*** — hard-coding `1` on the way out silently rewrites the game's own speed if the mission was
+   running at anything else (a slow-mo cinematic, another mod's time control), and the whole protocol then
+   leaves the game in a state it was never in. The restore lives in a PowerShell `finally`, so an exception,
+   a failed capture or Ctrl+C cannot leave the game frozen.
+
+3. **A setter is not a frame.** `connect call` returns as soon as the main thread ran the setter; the new
+   constant reaches the GPU on the *next* frame, and `-Window` grabs whatever DWM last composited. Capturing
+   immediately after a setter can therefore photograph the previous mode. So after every state change, wait
+   for **presented frames**, not a sleep: poll `UnityEngine.Time.frameCount` until it has advanced by at
+   least 10.
+   *`frameCount` at `timeScale = 0`:* Unity 2019.4 documents `Time.frameCount` as
+   "The total number of frames since the start of the game (Read Only). This value starts at 0 and increases
+   by 1 on each Update phase" — the Update phase of the player loop, which `timeScale` does not gate
+   (`timeScale` scales `deltaTime` and the FixedUpdate budget, it does not stop the loop). The docs do not
+   state this for the `timeScale = 0` case explicitly, so the helper below **does not assume it**: if
+   `frameCount` has not moved within the timeout it throws instead of capturing a stale frame. There is no
+   `Time.renderedFrameCount` in 2019.4 (the API page 404s), so `frameCount` is the only counter available.
+
+4. **Always take an OFF/OFF control pair first, and re-take it until it is stable.** Two captures with
+   *nothing changed between them* measure the residual noise floor (TAA/DLSS history, dithering, a cursor
+   blink). Only a signal well above that floor counts, so an OFF/ON pair captured while the control floor is
+   still above 0.5 is worthless — take the OFF/ON pair only after the control scene delta has settled to
+   ≤ 0.5. Never compare a single OFF/ON pair on its own.
+
+5. **Every capture filename is unique — per case AND per step.** A repeated name (`fg-X2-deut.png` written
+   once before and once after the `Off` step) overwrites the earlier evidence and the two X2 legs become
+   indistinguishable. Naming scheme, used everywhere below: **`cv-<case>-<step>-<mode>.png`**, where
+   `<case>` is the 6c tag, `<step>` is a monotonically distinct step label (`control-a`, `control-b`, `set`,
+   `fg1-x2`, `fg2-off`, `fg3-x2`), and `<mode>` is the colour-vision mode (`off`, `deut`, `prot`, `trit`).
+
+Paste the helpers once per session, then run the protocol per case with the camera untouched throughout:
 
 ```powershell
-.\ppcli.ps1 connect call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":0}' -PPRoot 'D:\PP-Instance3'
-# … captures …
-.\ppcli.ps1 connect call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":1}' -PPRoot 'D:\PP-Instance3'
+$PP  = 'D:\PP-Instance3'
+$Cli = 'E:\DEV\PhoenixPoint\PPCLI\ppcli.ps1'
+$Out = 'C:\Temp\rf-cv'
+New-Item -ItemType Directory -Force $Out | Out-Null
+
+function Rf-Call([string]$json) { & $Cli connect call $json -PPRoot $PP | ConvertFrom-Json }
+function Rf-Frame { [int](Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"frameCount"}').value }
+
+# Block until the engine has presented at least $n more frames. Throws rather than capturing a stale frame:
+# if frameCount does not advance while paused, EVERY number this task produces would be a ghost.
+function Rf-WaitFrames([int]$n = 10, [int]$timeoutSec = 20) {
+    $start = Rf-Frame
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    while ((Rf-Frame) -lt $start + $n) {
+        if ((Get-Date) -gt $deadline) { throw "Time.frameCount stalled at $start - the player loop is not advancing at timeScale=0; captures would be meaningless" }
+        Start-Sleep -Milliseconds 100
+    }
+}
+
+# cv-<case>-<step>-<mode>.png, always after a frame wait.
+function Rf-Shot([string]$case, [string]$step, [string]$mode) {
+    Rf-WaitFrames 10
+    $path = "$Out\cv-$case-$step-$mode.png"
+    & $Cli connect screenshot ('{"path":"' + $path.Replace('\', '\\') + '"}') -Window -PPRoot $PP | Out-Null
+    $path
+}
+
+function Rf-SetCv([string]$mode) { Rf-Call ('{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["' + $mode + '"]}') | Out-Null }
+
+# Mean |d| on the SCENE row of cmp.py's output, as three doubles.
+function Rf-SceneDelta([string]$a, [string]$b, [string]$label) {
+    $lines = python C:\Temp\rf-cv\cmp.py $a $b $label
+    $lines | Write-Host
+    $scene = $lines | Where-Object { $_ -match '\bscene\b' }
+    if ($scene -notmatch 'R=(-?[\d.]+) G=(-?[\d.]+) B=(-?[\d.]+)') { throw "cmp.py produced no scene row for $label" }
+    @([double]$Matches[1], [double]$Matches[2], [double]$Matches[3])
+}
 ```
-
-3. **Always take an OFF/OFF control pair first.** Two captures with *nothing changed between them* measure
-   the residual noise floor (TAA/DLSS history, dithering, a cursor blink). Only a signal well above that
-   floor counts. Never compare a single OFF/ON pair on its own.
-
-Per case, with the camera untouched throughout:
 
 ```powershell
-$tag = 'd3d11-off'            # case tag, see the table in 6c
-.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-off-a.png"}') -Window -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-off-b.png"}') -Window -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Deuteranopia"]}' -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-deut.png"}') -Window -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Protanopia"]}' -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-prot.png"}') -Window -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Tritanopia"]}' -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-trit.png"}') -Window -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["None"]}' -PPRoot 'D:\PP-Instance3'
+$case = 'd3d11-off'            # case tag, see the table in 6c
+
+# Read the CURRENT timeScale first; restore THAT, not a hard-coded 1.
+$prevScale = (Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"timeScale"}').value
+try {
+    Rf-Call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":0}' | Out-Null
+    Rf-SetCv 'None'
+
+    # Control pair, re-taken until the noise floor is genuinely stable (<= 0.5 on every channel).
+    # Only then is an OFF/ON delta interpretable.
+    $a = $null; $b = $null
+    for ($try = 1; $true; $try++) {
+        $a = Rf-Shot $case "control-a" "off"
+        $b = Rf-Shot $case "control-b" "off"
+        $floor = Rf-SceneDelta $a $b "$case CONTROL try$try"
+        if (($floor | Where-Object { $_ -gt 0.5 }).Count -eq 0) { break }
+        if ($try -ge 5) { throw "$case : control scene floor never settled <= 0.5 - the pause did not take; fix that before reading anything else" }
+    }
+
+    foreach ($m in @(@('Deuteranopia','deut'), @('Protanopia','prot'), @('Tritanopia','trit'))) {
+        Rf-SetCv $m[0]
+        Rf-Shot $case "set" $m[1] | Out-Null      # Rf-Shot waits 10 presented frames before grabbing
+    }
+    Rf-SetCv 'None'
+}
+finally {
+    # Runs on success, on a thrown assertion and on Ctrl+C: the game never stays frozen, and it goes back to
+    # the speed it actually had.
+    Rf-Call ('{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":' + $prevScale + '}') | Out-Null
+}
 ```
+
+Files this produces per case (list them in the record): `cv-<case>-control-a-off.png`,
+`cv-<case>-control-b-off.png`, `cv-<case>-set-deut.png`, `cv-<case>-set-prot.png`, `cv-<case>-set-trit.png`.
 
 - [ ] Write the comparison script **once**, to `C:\Temp\rf-cv\cmp.py`. It reports mean |Δ| per channel over
       two regions: a stable scene box and a HUD box that our pass must never touch.
@@ -1331,13 +1488,14 @@ for name, f in (("scene", SCENE), ("hud", HUD)):
 - [ ] Run it per case — control floor first, then each mode, then mode-vs-mode:
 
 ```powershell
-$tag = 'd3d11-off'
-python C:\Temp\rf-cv\cmp.py "C:\Temp\rf-cv\$tag-off-a.png" "C:\Temp\rf-cv\$tag-off-b.png" "$tag CONTROL"
+$case = 'd3d11-off'
+$C = "$Out\cv-$case"
+python C:\Temp\rf-cv\cmp.py "$C-control-a-off.png" "$C-control-b-off.png" "$case CONTROL"
 foreach ($m in 'deut','prot','trit') {
-    python C:\Temp\rf-cv\cmp.py "C:\Temp\rf-cv\$tag-off-a.png" "C:\Temp\rf-cv\$tag-$m.png" "$tag off-vs-$m"
+    python C:\Temp\rf-cv\cmp.py "$C-control-a-off.png" "$C-set-$m.png" "$case off-vs-$m"
 }
-python C:\Temp\rf-cv\cmp.py "C:\Temp\rf-cv\$tag-deut.png" "C:\Temp\rf-cv\$tag-prot.png" "$tag deut-vs-prot"
-python C:\Temp\rf-cv\cmp.py "C:\Temp\rf-cv\$tag-deut.png" "C:\Temp\rf-cv\$tag-trit.png" "$tag deut-vs-trit"
+python C:\Temp\rf-cv\cmp.py "$C-set-deut.png" "$C-set-prot.png" "$case deut-vs-prot"
+python C:\Temp\rf-cv\cmp.py "$C-set-deut.png" "$C-set-trit.png" "$case deut-vs-trit"
 ```
 
 **Acceptance per case** (all five, or the case fails):
@@ -1369,7 +1527,7 @@ Expected: each replies `ok:true`; the last returns `colorVision=None`.
 | 1 | `d3d11-off` | 1 | `SetUpscaler Off` | **Upscaler OFF.** The correction runs with no upscaler at all — the `Device11.cpp:254` passthrough predicate, the case the old plan never covered |
 | 2 | `d3d11-dlss` | 1 | `SetUpscaler DLSS` | the `Device11.cpp:278` DLSS call site |
 | 3 | `d3d11-compose` | 1 | `SetUpscaler DLSS`, `SetLut VintageSepia 80`, `SetSceneStyle Cartoon 70 4` | **Composition live:** correction on top of a LUT preset *and* a style. Its control pair is captured with LUT+style already on, so the measured delta is the correction alone |
-| 4 | `d3d12-dlss` | 2 | `SetUpscaler DLSS` | the **FP16-linear branch** (`styleLinear != 0`) D3D11 never takes — only valid if 6a reported `api=D3D12` and `d3d12HalfColor=True` |
+| 4 | `d3d12-dlss` | 2 | `SetUpscaler DLSS` | the **FP16-linear branch** (`styleLinear != 0`) D3D11 never takes — only valid if 6a reported `api=D3D12` **and** the live readback showed `liveHalfColor=True` with `colorRT`/`outRT` at `R16G16B16A16_SFloat`; `d3d12HalfColor=True` alone is only the request |
 | 5 | `d3d12-fsr` | 2 | `SetUpscaler FSR` | `Fsr12.cpp:289/297` — FSR does its own RCAS, so `doPost` is driven by `grade` alone and this is the only proof the widened predicate reaches it |
 | 6 | `d3d12-xess` | 2 | `SetUpscaler XeSS` | `Xess12.cpp:324/332` |
 | 7 | `d3d12-fg-dlss` | 2 | `SetUpscaler DLSS`, `SetFgProvider Dlss`, `SetFrameGen X2` | **Frame generation on**, the case the provider probes never exercise: the correction must still be there in the presented frame |
@@ -1386,28 +1544,69 @@ Example of setting a case (case 3):
 
 - [ ] **FG transition test** (cases 7–9, one extra step each). With colour vision left ON at `Deuteranopia`, walk frame generation `X2 → Off → X2` and capture after each step; the correction must be present in all three:
 
+The three legs are `X2 → Off → X2`, so the two X2 legs would collide on one filename. The step label is
+therefore part of the name (`fg1-x2`, `fg2-off`, `fg3-x2`), never the FG value alone.
+
 ```powershell
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Deuteranopia"]}' -PPRoot 'D:\PP-Instance3'
-foreach ($fg in 'X2','Off','X2') {
-    .\ppcli.ps1 connect call ('{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["' + $fg + '"]}') -PPRoot 'D:\PP-Instance3'
-    .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}' -PPRoot 'D:\PP-Instance3'
-    .\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\fg-' + $fg + '-deut.png"}') -Window -PPRoot 'D:\PP-Instance3'
+$case = 'd3d12-fg-dlss'        # or d3d12-fg-fsr / d3d12-fg-xess
+$prevScale = (Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"timeScale"}').value
+try {
+    Rf-Call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":0}' | Out-Null
+    Rf-SetCv 'Deuteranopia'
+    $step = 0
+    foreach ($fg in 'X2','Off','X2') {
+        $step++
+        Rf-Call ('{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["' + $fg + '"]}') | Out-Null
+        Rf-WaitFrames 10
+        # FG activation, read twice a second apart: `presented` must MOVE on an X2 leg.
+        $s1 = (Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}').value
+        $alive = (Rf-Call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Alive","args":[]}').value
+        $prov  = (Rf-Call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Provider","args":[]}').value
+        Start-Sleep -Seconds 1
+        $s2 = (Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}').value
+        "$case fg$step-$fg alive=$alive provider=$prov`n  $s1`n  $s2" |
+            Tee-Object -FilePath "$Out\cv-$case-fg.txt" -Append
+        Rf-Shot $case ("fg{0}-{1}" -f $step, $fg.ToLowerInvariant()) "deut" | Out-Null
+    }
+    Rf-SetCv 'None'
+    Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["Off"]}' | Out-Null
+}
+finally {
+    Rf-Call ('{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":' + $prevScale + '}') | Out-Null
 }
 ```
 
-Acceptance: each `GetStatus` still reports `lastError=0`, and each of the three captures compared against
-that case's `-off-a.png` meets the same scene/HUD thresholds as 6b. A transition that clears the
-correction, or one that leaves `lastError` non-zero, is a failure.
+Produces `cv-<case>-fg1-x2-deut.png`, `cv-<case>-fg2-off-deut.png`, `cv-<case>-fg3-x2-deut.png` — three
+distinct files — plus `cv-<case>-fg.txt` with the three status pairs.
 
-- [ ] After every case, restore the state you changed and unpause:
+Acceptance, per leg:
+
+- Each of the three captures, compared against that case's `cv-<case>-control-a-off.png`, meets the same
+  scene/HUD thresholds as 6b. A transition that clears the correction is a failure.
+- **On the two X2 legs, FG must actually be running** — `Fg_Alive` = `1`, `Fg_Provider` matching the case
+  (1 DLSS / 2 FSR / 3 XeSS), and inside the `fg=` token: `live `, `provider=` naming a real provider,
+  `enabled=1`, `multiplier=2`, no `reason=` suffix, and `presented` **strictly larger in `$s2` than in
+  `$s1`** with `fps` non-zero. If `presented` does not move, the chain is parked and that leg is not FG
+  evidence — do not report it as passing.
+- On the `Off` leg the opposite must hold: `Fg_Alive` = `0` and the `fg=` token starts with `off `.
+- `lastError=0` in `GetStatus` is a necessary condition, **not** proof of anything about FG: it is the
+  upscaler's error slot (`Native.Dlss_LastError()`) and stays `0` when FG never started at all. Judge FG by
+  the tokens above, and `lastError` only as a "the upscale pass did not break" check.
+
+- [ ] After every case, restore the state you changed. The `timeScale` is already back — the `finally` above
+  restored the value read before the pause — so only the feature state is left:
 
 ```powershell
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["None"]}' -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["Off"]}' -PPRoot 'D:\PP-Instance3'
-.\ppcli.ps1 connect call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":1}' -PPRoot 'D:\PP-Instance3'
+Rf-SetCv 'None'
+Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["Off"]}' | Out-Null
+Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"timeScale"}'   # confirm it is back at $prevScale, not hard-coded 1
 ```
 
-- [ ] Record, for every case: its `api=` / `d3d12HalfColor=` / `provider=` readback, the control floor, and the three scene/HUD deltas. Those numbers go into the doc in Task 7. A case reported without its readback triple is not evidence.
+- [ ] Record, for every case: the full 6a readback — `api=` / `provider=` / `d3d12HalfColor=` (requested) /
+`liveHalfColor` (latched) / `colorRT.graphicsFormat` / `outRT.graphicsFormat`, plus `fg=` + `Fg_Alive` /
+`Fg_Provider` for cases 7–9 — the control floor, the three scene/HUD deltas, and **the list of capture
+filenames** (`cv-<case>-<step>-<mode>.png`) the case produced. Those numbers go into the doc in Task 7. A
+case reported without its readback, or with two captures sharing a filename, is not evidence.
 - [ ] If PPCLI itself misbehaves at any point, append an entry to `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity) and work around it. Do not edit PPCLI source.
 - [ ] Nothing to commit in this task unless a fix was needed; if the live run forced a code change, re-run Task 2e's probes and commit the fix on its own.
 
@@ -1466,7 +1665,7 @@ Check each line before declaring the plan done.
 | Probe: matrices equal an independent reference | Task 2a check 1 (CPU matrices vs `colour_vision_ref.py` at 1e-6) **and** check 4/5 (every GPU sample vs the CPU reference model built from those same numbers, on BOTH colour-space paths — cube, sRGB knees, gamut corners) |
 | Probe: encoded/linear parity ≤ 1/255 | Task 2a check 5 |
 | Probe: saturated primaries stay in [0,1] | Task 2a checks 3 and 6, plus white/black fixed points and the 196-sample sRGB-knee set |
-| Live: LUT=None/style=None/sharpen=0 + `ColorVision=1` differs from 0, with numbers | Task 6 — 9 cases (upscaler Off, D3D11 DLSS, LUT+style composition, D3D12 DLSS/FSR/XeSS, FG X2 on all three providers plus X2→Off→X2), each with a paused `-Window` OFF/OFF control pair, scene- and HUD-region mean&#124;Δ&#124;, and the real `api=`/`d3d12HalfColor=`/`provider=` readback from `GetStatus` — never a launch flag |
+| Live: LUT=None/style=None/sharpen=0 + `ColorVision=1` differs from 0, with numbers | Task 6 — 9 cases (upscaler Off, D3D11 DLSS, LUT+style composition, D3D12 DLSS/FSR/XeSS, FG X2 on all three providers plus X2→Off→X2), each with a paused, frame-synchronised `-Window` OFF/OFF control pair (uniquely named `cv-<case>-<step>-<mode>.png`, `timeScale` saved and restored in a `finally`), scene- and HUD-region mean&#124;Δ&#124;, the real `api=`/`provider=` readback plus the LIVE `liveHalfColor` + `colorRT`/`outRT` `graphicsFormat`, and — for FG cases — `Fg_Alive`/`Fg_Provider` and a moving `presented` counter, never a launch flag and never `lastError=0` alone |
 | Instance3 only | Task 6 — `-PPRoot 'D:\PP-Instance3'`, explicit prohibition on Instance2 and the Steam install |
 
 Deliberately **not** built (say so if asked, do not add): a severity slider, a per-channel strength control, HUD/UI correction, a simulation ("show me what a deuteranope sees") preview mode, and any per-type `R` for deut/prot beyond the single Fidaner matrix the authors actually publish.

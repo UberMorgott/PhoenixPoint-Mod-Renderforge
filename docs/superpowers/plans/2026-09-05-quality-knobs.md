@@ -891,15 +891,29 @@ Download the official Intel GameTechDev CLI into the scratchpad — the standalo
 $pm = 'C:\Temp\claude\PresentMon-2.5.1-x64.exe'
 New-Item -ItemType Directory -Force 'C:\Temp\claude' | Out-Null
 Invoke-WebRequest -Uri 'https://github.com/GameTechDev/PresentMon/releases/download/v2.5.1/PresentMon-2.5.1-x64.exe' -OutFile $pm
-& $pm --help          # confirm the flag and column names of THIS build before trusting the lines below
+& $pm --help          # confirm the flags below exist in THIS build before trusting any number
 ```
 
 Notes that decide whether the numbers are real:
 - PresentMon captures ETW events and **must run elevated** — start that shell with "Run as administrator", or every
   capture comes back empty.
-- Column names differ by major version: PresentMon **2.x** writes `FrameTime` and `GPUBusy` (ms); **1.x** writes
-  `MsBetweenPresents` and `MsGPUActive`. The script below reads whichever pair the CSV actually has. `GPUBusy` /
-  `MsGPUActive` is the whole-frame GPU time — that is the figure this task exists to produce.
+- **Flags, taken from the v2.5.1 README** (`README-ConsoleApplication.md` at tag `v2.5.1`):
+  - `--no_console_stats` — *"Do not display active swap chains and frame statistics in the console."* This is the
+    console-suppression flag this build has.
+  - `--v2_metrics` — *"Output a CSV using PresentMon 2.x metrics."*
+  - **`--no_top` does not exist in 2.5.1 and the tool rejects it** — the flag table lists no such option. Passing it
+    aborts the capture, and a `Measure-Cfg` that ignores the exit code then produces an empty or absent CSV that the
+    reducer would happily average to `0`. Do not carry it over from an older recipe.
+- **Column names, taken from the same README's CSV column table.** In 2.5.1 every timing column is `Ms`-prefixed; the
+  bare `FrameTime` / `GPUBusy` spellings from PresentMon 2.0–2.2 **do not appear in this build at all**:
+  - `MsBetweenPresents` — *"The time between this Present() call and the previous one, in milliseconds."* → frame time.
+  - `MsGPUBusy` — *"How long the GPU was actively working on this frame (i.e., the time during which at least one GPU
+    engine is executing work from the target process)."* → **the whole-frame GPU time this task exists to produce.**
+  - `MsGPUTime` — *"The total amount of time that GPU was working on this frame."* (recorded as a cross-check, not the
+    headline figure).
+  - `MsCPUBusy` — *"How long the CPU spent working on this frame before presenting it."*
+  - `--v2_metrics` emits *"Most of the above metrics"* — the same `Ms`-prefixed names, a subset of the default set. If a
+    future build renames them, the reducer in step 6 **fails with the actual header list**; it never falls back to `0`.
 
 - [ ] 3. **Start the VRAM sampler with timestamps** in a second shell and leave it running through all five
 measurements, so each run can be aligned to its own window by wall clock:
@@ -918,8 +932,12 @@ function Measure-Cfg {
   .\ppcli.ps1 connect call ('{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["' + $Vig + '","' + $Shadow + '","' + $Aniso + '",' + $Lod + ']}')
   Start-Sleep 30                                   # settle: streaming, shadow maps and LODs must stop churning
   $t0 = Get-Date
-  & $pm --process_name PhoenixPointWin64.exe --output_file "C:\Temp\claude\pm-$Tag.csv" `
-        --timed 30 --terminate_after_timed --stop_existing_session --no_top
+  $csv = "C:\Temp\claude\pm-$Tag.csv"
+  Remove-Item $csv -ErrorAction SilentlyContinue      # a stale CSV from a failed run must not be re-reduced
+  & $pm --process_name PhoenixPointWin64.exe --output_file $csv `
+        --timed 30 --terminate_after_timed --stop_existing_session --no_console_stats --v2_metrics
+  if ($LASTEXITCODE -ne 0) { throw "$Tag : PresentMon exited $LASTEXITCODE - flag rejected or not elevated. Do NOT reduce this run." }
+  if (-not (Test-Path $csv)) { throw "$Tag : PresentMon wrote no CSV - the capture caught nothing." }
   $t1 = Get-Date
   .\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\claude\\perf-' + $Tag + '.png"}')
   Pop-Location
@@ -945,22 +963,59 @@ asserting they are free.)
 - [ ] 6. Stop the `nvidia-smi` sampler (Ctrl+C). Reduce every capture to **medians** — a median is the figure to report;
 a mean is skewed by the loading/streaming outliers a 30 s window always contains:
 
+The reducer goes in a **script file**, not pasted into the shell, so a missing column can `exit` with a non-zero code
+instead of silently reporting `0` (an `exit` typed into the elevated interactive shell would just close it). Write
+`C:\Temp\claude\pm-stat.ps1`:
+
 ```powershell
-function Stat($tag) {
-  $rows = Import-Csv "C:\Temp\claude\pm-$tag.csv"
-  $ft = if ($rows[0].PSObject.Properties.Name -contains 'FrameTime') { 'FrameTime' } else { 'MsBetweenPresents' }
-  $gp = if ($rows[0].PSObject.Properties.Name -contains 'GPUBusy')   { 'GPUBusy' }   else { 'MsGPUActive' }
-  $med = { param($v) $s = @($v | Sort-Object); [math]::Round($s[[int]($s.Count/2)], 3) }
-  [pscustomobject]@{
-    Config   = $tag
-    Frames   = $rows.Count
-    FrameMs  = & $med ($rows.$ft | ForEach-Object { [double]$_ })
-    GpuMs    = & $med ($rows.$gp | ForEach-Object { [double]$_ })
-  }
+# Reduce the PresentMon 2.5.1 captures to medians. Exits non-zero, loudly, rather than reporting a 0 it did not measure.
+#   2 = no CSV / no data rows      3 = expected column absent      4 = column present but empty
+$ErrorActionPreference = 'Stop'
+
+# Exact v2.5.1 CSV headers (README-ConsoleApplication.md, CSV column table). NOT 'FrameTime'/'GPUBusy' - those
+# spellings are PresentMon 2.0-2.2 and do not exist in this build.
+$Cols = [ordered]@{ FrameMs = 'MsBetweenPresents'; GpuBusyMs = 'MsGPUBusy'; GpuTimeMs = 'MsGPUTime'; CpuBusyMs = 'MsCPUBusy' }
+
+function Median([object[]]$rows, [string]$tag, [string]$name) {
+    $v = @($rows.$name | Where-Object { $_ -ne $null -and "$_".Trim() -ne '' -and "$_" -ne 'NA' } |
+           ForEach-Object { [double]$_ })
+    if ($v.Count -eq 0) {
+        Write-Error "$tag : column '$name' exists but holds no numeric values (all blank or NA) - nothing was measured."
+        exit 4
+    }
+    $s = @($v | Sort-Object)
+    [math]::Round($s[[int]($s.Count / 2)], 3)
 }
-'vanilla','shadow','lod','aniso','vigoff' | ForEach-Object { Stat $_ } | Format-Table -AutoSize
+
+function Stat([string]$tag) {
+    $csv = "C:\Temp\claude\pm-$tag.csv"
+    if (-not (Test-Path $csv)) { Write-Error "$tag : $csv does not exist - PresentMon captured nothing (elevated shell? flag rejected?)."; exit 2 }
+    $rows = @(Import-Csv $csv)
+    if ($rows.Count -eq 0) { Write-Error "$tag : $csv has a header but no data rows - the 30 s window caught no frames."; exit 2 }
+    $have = @($rows[0].PSObject.Properties.Name)
+    foreach ($c in $Cols.Values) {
+        if ($have -notcontains $c) {
+            Write-Error ("$tag : expected column '$c' is not in $csv. Actual headers: " + ($have -join ', ') +
+                         ". This build's v2 column names differ from PresentMon 2.5.1 - re-check '& `$pm --help' and fix `$Cols. Do NOT report 0.")
+            exit 3
+        }
+    }
+    $o = [ordered]@{ Config = $tag; Frames = $rows.Count }
+    foreach ($k in $Cols.Keys) { $o[$k] = Median $rows $tag $Cols[$k] }
+    [pscustomobject]$o
+}
+
+@('vanilla','shadow','lod','aniso','vigoff') | ForEach-Object { Stat $_ } | Format-Table -AutoSize
 Get-Content C:\Temp\claude\pm-windows.txt
 ```
+
+```powershell
+& C:\Temp\claude\pm-stat.ps1
+$LASTEXITCODE          # MUST be 0. Any other value = the numbers are not real; fix the capture, do not report the table.
+```
+
+`GpuBusyMs` (`MsGPUBusy`) is the headline whole-frame GPU figure; `GpuTimeMs` (`MsGPUTime`) and `CpuBusyMs`
+(`MsCPUBusy`) are recorded alongside it as cross-checks.
 
 For VRAM, take the **peak** `memory.used` from `C:\Temp\claude\vram.csv` inside each run's timestamp window printed by
 `pm-windows.txt` (the nvidia-smi `timestamp` column is what makes that alignment possible).
@@ -1011,7 +1066,7 @@ Measured cost on an RTX 5070 Ti at 1440p, in a tactical mission with a fixed cam
 | Vignette: Off | `<+X.X ms>` | `<+YYY MiB>` |
 ```
 
-Fill the four rows from **Task 7 step 7** (`shadow`, `lod`, `aniso`, `vigoff` — the `GpuMs` delta vs the `vanilla` row,
+Fill the four rows from **Task 7 step 7** (`shadow`, `lod`, `aniso`, `vigoff` — the `GpuBusyMs` (`MsGPUBusy`) delta vs the `vanilla` row,
 and the peak-VRAM delta from `vram.csv` inside each run's window). Your own rig is not the reference: if the measurement
 was made anywhere other than the RTX 5070 Ti / 1440p rig, change the sentence to name the hardware actually used.
 
