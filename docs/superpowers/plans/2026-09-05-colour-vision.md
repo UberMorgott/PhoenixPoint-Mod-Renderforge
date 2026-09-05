@@ -1384,8 +1384,9 @@ is not running. Confirm with the two ints the host exposes directly (`FgHostAliv
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Reason","args":[]}'   -PPRoot 'D:\PP-Instance3'
 ```
 
-Expected with X2 running: `Fg_Alive` = `1`, `Fg_Provider` = `1` (DLSS) / `2` (FSR) / `3` (XeSS) matching the
-case, `Fg_Reason` = `""`. `Fg_Alive=0` on a case 7–9 capture means that capture is **not** FG evidence —
+Expected with X2 running: `Fg_Alive` = `1`, `Fg_Provider` = `1` (FSR) / `2` (XeSS) / `3` (DLSS) matching the
+case (ids from `native\RenderforgeNative.h:142` — `enum { FG_PROVIDER_NONE = 0, FG_PROVIDER_FSR = 1,
+FG_PROVIDER_XESS = 2, FG_PROVIDER_DLSS = 3 };`), `Fg_Reason` = `""`. `Fg_Alive=0` on a case 7–9 capture means that capture is **not** FG evidence —
 fix it or mark the case failed; do not report it as passing because `lastError` was `0`.
 
 - [ ] Record, verbatim, for each of the two launches (6c pass 1 and pass 2): `api=` / `provider=` /
@@ -1672,7 +1673,7 @@ Acceptance, per leg:
 - Each of the three captures, compared against that case's `cv-<case>-control-a-off.png`, meets the same
   scene/HUD thresholds as 6b. A transition that clears the correction is a failure.
 - **On the two X2 legs, FG must actually be running** — `Fg_Alive` = `1`, `Fg_Provider` matching the case
-  (1 DLSS / 2 FSR / 3 XeSS), and inside the `fg=` token: `live `, `provider=` naming a real provider,
+  (1 FSR / 2 XeSS / 3 DLSS — `native\RenderforgeNative.h:142`), and inside the `fg=` token: `live `, `provider=` naming a real provider,
   `enabled=1`, `multiplier=2`, no `reason=` suffix, and **`generated` = `dPresented - dFrame` > 0** across the
   two readbacks 2 s apart (at `multiplier=2`, ≈ `dFrame`; the loop throws below `0.5 * dFrame`) with `fps`
   non-zero. `presented` rising on its own is NOT that proof — it counts the real frames too
