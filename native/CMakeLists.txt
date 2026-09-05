@@ -60,8 +60,6 @@ add_library(RenderforgeNative SHARED
     Device.h
     Device11.cpp
     Device12.cpp
-    DlssNr12.h
-    DlssNr12.cpp
     D3D12Ring.h
     D3D12Sharpen.h
     D3D12Owned.h
@@ -91,13 +89,6 @@ target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" "${XESS_LIB}" "${XE
 target_link_options(RenderforgeNative PRIVATE "/DELAYLOAD:libxess.dll" "/DELAYLOAD:libxess_fg.dll" "/DELAYLOAD:libxell.dll")
 # _WINDOWS is what ffx_api_loader.h:38 tests to compile ffxLoadFunctions; without it every pointer stays NULL.
 target_compile_definitions(RenderforgeNative PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WINDOWS DLSSNATIVE_EXPORTS)
-
-# Private compatibility boundary for the DLSS-NR snippet's caller-identity check. It is deployed only as
-# RenderforgeNR/nvngx.dll and loaded by absolute path, so it cannot intercept the normal NGX core.
-add_library(RenderforgeNrBridge SHARED NvngxBridge.cpp)
-set_target_properties(RenderforgeNrBridge PROPERTIES OUTPUT_NAME "nvngx")
-target_link_libraries(RenderforgeNrBridge PRIVATE d3d12)
-target_compile_definitions(RenderforgeNrBridge PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 add_executable(dlss_probe probe/dlss_probe.cpp)
 target_include_directories(dlss_probe PRIVATE "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}" "${XESS_SDK}/inc")

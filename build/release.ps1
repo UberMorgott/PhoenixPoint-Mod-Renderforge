@@ -2,7 +2,7 @@
 #
 # Produces, in build\release\:
 #   Renderforge-Core-<v>.zip     managed DLL + native shim + meta.json + README + MIT + NIS licence
-#   Renderforge-NVIDIA-<v>.zip   DLSS SR + private DLSS-NR runtime/bridge (+ DLSS-G with -WithFrameGen)
+#   Renderforge-NVIDIA-<v>.zip   DLSS SR (+ DLSS-G with -WithFrameGen)
 #   Renderforge-AMD-<v>.zip      amd_fidelityfx_*_dx12.dll
 #   Renderforge-Intel-<v>.zip    libxess.dll (+ libxess_fg.dll, libxell.dll with -WithFrameGen)
 #   Renderforge-Full-<v>.zip     the union of all four
@@ -39,7 +39,6 @@ $stage  = Join-Path $relDir 'stage'
 # --- TechPowerUp DLL databases; a mismatch is a WARNING, never a hard failure.
 $NewestKnownNgx = @{
     'nvngx_dlss.dll'   = '310.9.0.0'
-    'nvngx_dlssnr.dll' = '310.8.0.0'
     'nvngx_dlssg.dll'  = '310.9.0.0'
 }
 
@@ -77,8 +76,6 @@ $packs = [ordered]@{
     )
     'NVIDIA' = @(
         @{ Src = Join-Path $refs 'DLSS-sdk\lib\Windows_x86_64\rel\nvngx_dlss.dll'; Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt' }
-        @{ Src = Join-Path $outDir 'RenderforgeNR\nvngx.dll';                     Dest = 'RenderforgeNR\nvngx.dll' }
-        @{ Src = Join-Path $refs 'DLSS-NR\nvngx_dlssnr.dll';                      Dest = 'RenderforgeNR\nvngx_dlssnr.dll'; Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt' }
         @{ Src = Join-Path $refs 'Streamline\latest-dll\nvngx_dlssg.dll';          Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt'; Fg = $true }
         @{ Src = Join-Path $refs 'Streamline\bin\x64\sl.interposer.dll';           Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt'; Fg = $true }
         @{ Src = Join-Path $refs 'Streamline\bin\x64\sl.common.dll';               Signer = 'NVIDIA Corporation'; Licence = 'LICENSE-NVIDIA.txt'; Fg = $true }

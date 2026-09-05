@@ -255,11 +255,11 @@ struct SharpenPass12
     // Full-resolution passthrough with a post effect: copy Unity color into our target, run the same post shader
     // into owned.out, then copy to Unity output. Unity resources are restored to their declared states.
     bool RunPassthrough(ID3D12GraphicsCommandList* cl, ID3D12Resource* color, ID3D12Resource* output,
-                        OwnedSet12& owned, D3D12Ring& ring, bool srgbViews, bool neuralRendering,
+                        OwnedSet12& owned, D3D12Ring& ring, bool srgbViews,
                         float sharpness, int lutPreset, float lutStrength, int slot, const SceneStyleParams& style)
     {
         bool grade = ColorGradeEnabled(lutPreset, lutStrength) || SceneStyleEnabled(style);
-        if (!owned.Ensure(device, ring, color, output, srgbViews, neuralRendering)
+        if (!owned.Ensure(device, ring, color, output, srgbViews)
             || !TargetEnsure(owned.out, ring, grade)) return false;
 
         Barrier(cl, color, OwnedSet12::kUnityColor, D3D12_RESOURCE_STATE_COPY_SOURCE);

@@ -85,11 +85,6 @@ DLSS_API int __cdecl Dlss_LastError(void);
 DLSS_API int __cdecl Dlss_Sharpener(void);
 // Returns Dlss_Init code; fills last NGX results (as NVSDK_NGX_Result ints) and feature liveness.
 DLSS_API int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* featureAlive);
-// Experimental/unofficial DLSS 5 Neural Rendering stage. The caller enables it only after the managed
-// D3D12 + RTX 50 + signed-runtime gate. Errors are reported here and never replace Dlss_Status/LastError.
-DLSS_API void __cdecl DlssNr_Configure(int enabled, int style, float intensity, float localTone,
-                                       float localStructure, float skinStructure, int autoMask);
-DLSS_API void __cdecl DlssNr_Status(int* initResult, int* createResult, int* evalResult, int* featureAlive);
 // D3D12 only, ~60-frame averages of the evaluate list: GPU ms of copy-in (Unity RTs -> twins), the
 // upscale (+ sharpen), copy-out (owned out -> Unity outRT), and the CPU ms the render thread waited for a ring slot's
 // fences. All 0 under D3D11 / before the first frame.

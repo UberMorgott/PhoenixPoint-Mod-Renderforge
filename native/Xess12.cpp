@@ -321,7 +321,7 @@ struct Xess12 : IDevice
         int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
             bool wantPost = fp.sharpness > 0.0f || (ColorGradeEnabled(fp.lutPreset, fp.lutStrength) || SceneStyleEnabled(fp.style));
-            if (!wantPost || !sharpen.RunPassthrough(cl, color, output, owned, ring, srgbViews, false,
+            if (!wantPost || !sharpen.RunPassthrough(cl, color, output, owned, ring, srgbViews,
                                                       fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style))
                 OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;

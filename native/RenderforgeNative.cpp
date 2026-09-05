@@ -279,19 +279,6 @@ int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* feature
     return S.initCode;
 }
 
-void __cdecl DlssNr_Configure(int enabled, int style, float intensity, float localTone,
-                              float localStructure, float skinStructure, int autoMask)
-{
-    DlssNrConfig config = { enabled && S.wantProvider == DLSS_PROVIDER_DLSS, style, intensity,
-                            localTone, localStructure, skinStructure, autoMask };
-    ConfigureDevice12Nr(config);
-}
-
-void __cdecl DlssNr_Status(int* initResult, int* createResult, int* evalResult, int* featureAlive)
-{
-    Device12NrStatus(initResult, createResult, evalResult, featureAlive);
-}
-
 void __cdecl Dlss_Timings(float* copyInMs, float* evalMs, float* copyOutMs, float* ringWaitMs)
 {
     const D3D12Ring* r = S.dev ? S.dev->Ring12() : NULL;

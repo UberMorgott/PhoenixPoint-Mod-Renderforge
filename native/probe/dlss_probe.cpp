@@ -1,5 +1,5 @@
 // dlss_probe.cpp - offline check of RenderforgeNative.dll: init -> optimal -> create -> 3x evaluate -> passthrough -> release.
-// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12] [--nr] [--fsr|--xess]. Exit 0 only if
+// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12] [--fsr|--xess]. Exit 0 only if
 // every result succeeded; 1 = a call failed, 2 = usage, 3 (--fsr / --xess only) = that provider cannot run on this GPU/driver
 // (build warning, not an error).
 #include <d3d11.h>
@@ -262,13 +262,12 @@ static int InitD3D12(void)
     return 0;
 }
 
-static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd, int neuralRendering)
+static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
 {
     if (InitD3D12() != 0) return 1;
 
     ID3D12Resource* any = MakeTex12(1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     if (!any) return 1;
-    DlssNr_Configure(neuralRendering, 1, 1.0f, 1.0f, 1.0f, -1.0f, 1);
     int init = Dlss_Init(any, dllDir, cwd);
     int c = 0, e = 0, alive = 0; Dlss_Status(&c, &e, &alive);
     printf("Dlss_Init      code=%d (0=ok 1=noDevice 2=initFailed 3=notAvailable 4=needsDriver 5=noUnityIface) api=%d lastResult=0x%08X %s\n",
@@ -296,31 +295,16 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd, int neuralRenderi
     Dlss_Status(&c, &e, &alive);
     Report("Create", c);
     printf("  featureAlive=%d\n", alive);
-    if (neuralRendering) {
-        int ni = 0, nc = 0, ne = 0, na = 0;
-        DlssNr_Status(&ni, &nc, &ne, &na);
-        printf("DLSS-NR Create init=0x%08X create=0x%08X featureAlive=%d\n", (unsigned)ni, (unsigned)nc, na);
-        if (!NGX_OK(ni) || !NGX_OK(nc) || !na) g_failed = 1;
-    }
 
     const float jit[3][2] = { { 0.25f, -0.25f }, { -0.125f, 0.375f }, { 0.375f, 0.125f } };
     for (int i = 0; i < 3; ++i) {
         void* slot = Dlss_GetFrameSlot();
         Dlss_SetFrame(slot, color, depth, mv, out, jit[i][0], jit[i][1], (float)RW, (float)RH, i == 0, 16.6f, RW, RH, 1.0f, 0.5f,
                       i == 1 ? DLSS_LUT_VIVID : DLSS_LUT_OFF, i == 1 ? 1.0f : 0.0f);
-        // Update all four strengths on the existing feature, with no create/release event.
-        if (neuralRendering)
-            DlssNr_Configure(1, 1, 0.25f + i * 0.5f, 1.75f - i * 0.5f, 0.5f + i * 0.5f, -0.5f + i * 0.5f, 1);
         evd(DLSS_EV_EVALUATE, slot);
         Dlss_Status(&c, &e, &alive);
         char name[32]; sprintf_s(name, "Evaluate[%d]", i);
         Report(name, e);
-        if (neuralRendering) {
-            int ni = 0, nc = 0, ne = 0, na = 0;
-            DlssNr_Status(&ni, &nc, &ne, &na);
-            printf("  DLSS-NR[%d] eval=0x%08X featureAlive=%d\n", i, (unsigned)ne, na);
-            if (!NGX_OK(ne) || !na) g_failed = 1;
-        }
     }
     // sRGB output: Unity's sRGB RenderTextures are TYPELESS resources viewed as *_UNORM_SRGB; a UAV cannot be
     // sRGB, so the sharpen pass must view the output as R8G8B8A8_UNORM (SharpenViewFormat).
@@ -661,19 +645,18 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
 
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc < 2) { fprintf(stderr, "usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12] [--nr] [--fsr|--xess]\n"); return 2; }
-    int want12 = 0, wantNr = 0, wantFsr = 0, wantXess = 0;
+    if (argc < 2) { fprintf(stderr, "usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12] [--fsr|--xess]\n"); return 2; }
+    int want12 = 0, wantFsr = 0, wantXess = 0;
     for (int i = 2; i < argc; ++i) {
         if (wcscmp(argv[i], L"--d3d12") == 0) want12 = 1;
-        if (wcscmp(argv[i], L"--nr") == 0) wantNr = 1;
-        if (wcscmp(argv[i], L"--fsr") == 0) wantFsr = 1;
-        if (wcscmp(argv[i], L"--xess") == 0) wantXess = 1;
+        else if (wcscmp(argv[i], L"--fsr") == 0) wantFsr = 1;
+        else if (wcscmp(argv[i], L"--xess") == 0) wantXess = 1;
+        else { fwprintf(stderr, L"unknown probe option: %ls\n", argv[i]); return 2; }
     }
     wchar_t cwd[MAX_PATH]; _wgetcwd(cwd, MAX_PATH);
-    if (wantNr) want12 = 1;
-    printf("== dlss_probe %s ==\n", wantXess ? "XeSS (D3D12)" : wantFsr ? "FSR" : wantNr ? "D3D12 + DLSS-NR" : want12 ? "D3D12" : "D3D11");
+    printf("== dlss_probe %s ==\n", wantXess ? "XeSS (D3D12)" : wantFsr ? "FSR" : want12 ? "D3D12" : "D3D11");
 
-    int rc = wantXess ? RunXess(argv[1], cwd) : wantFsr ? RunFsr(argv[1], cwd) : want12 ? RunD3D12(argv[1], cwd, wantNr) : RunD3D11(argv[1], cwd);
+    int rc = wantXess ? RunXess(argv[1], cwd) : wantFsr ? RunFsr(argv[1], cwd) : want12 ? RunD3D12(argv[1], cwd) : RunD3D11(argv[1], cwd);
     printf(rc ? "PROBE FAILED\n" : "PROBE OK\n");
     return rc;
 }

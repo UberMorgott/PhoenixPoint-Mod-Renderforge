@@ -16,14 +16,6 @@ $sig = Get-AuthenticodeSignature $ngxDll
 if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'NVIDIA Corporation') { throw "nvngx_dlss.dll signature invalid: $ngxDll" }
 Write-Host "nvngx_dlss.dll $((Get-Item $ngxDll).VersionInfo.FileVersion) from $ngxDll"
 
-# Experimental/unofficial DLSS 5 Neural Rendering runtime. The NVIDIA binary is never modified and is staged
-# beside our tiny caller-identity bridge in a private directory, never as <mod>\nvngx.dll.
-$nrRuntime = Join-Path $root '..\refs\DLSS-NR\nvngx_dlssnr.dll'
-if (-not (Test-Path $nrRuntime)) { throw "nvngx_dlssnr.dll not found at $nrRuntime" }
-$nrSig = Get-AuthenticodeSignature $nrRuntime
-if ($nrSig.Status -ne 'Valid' -or $nrSig.SignerCertificate.Subject -notmatch 'NVIDIA Corporation') { throw "nvngx_dlssnr.dll signature invalid: $nrRuntime" }
-Write-Host "nvngx_dlssnr.dll $((Get-Item $nrRuntime).VersionInfo.FileVersion) SHA256=$((Get-FileHash -Algorithm SHA256 $nrRuntime).Hash)"
-
 # AMD FidelityFX SDK 2.3 signed binaries: the small loader, the upscaler DLL (FSR 4.1.1 ML + 3.1.5 fallback
 # in one file) and the frame-generation DLL (FG 4.0.1 ML + 3.1.x analytical). All Authenticode-signed by AMD;
 # a tampered or repacked DLL must never ship.
@@ -70,8 +62,6 @@ $dlssgVer = (Get-Item $slDlls[-1]).VersionInfo.FileVersion -replace '[ ,]+', '.'
 if ($dlssgVer -notlike '310.9.*') { Write-Warning "nvngx_dlssg.dll is $dlssgVer, expected a 310.9.* build (refs\Streamline\latest-dll, 310.9.0 verified) - shipping it anyway" }
 
 New-Item -ItemType Directory -Force $buildDir, $outDir | Out-Null
-$nrOutDir = Join-Path $outDir 'RenderforgeNR'
-New-Item -ItemType Directory -Force $nrOutDir | Out-Null
 
 & $cmake -S (Join-Path $root 'native') -B $buildDir -G 'Visual Studio 17 2022' -A x64 "-DDLSS_SDK=$((Resolve-Path $sdk).Path)" "-DFFX_SDK=$((Resolve-Path $ffxSdk).Path)" "-DXESS_SDK=$((Resolve-Path $xessSdk).Path)"
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
@@ -80,8 +70,6 @@ if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
 
 Copy-Item (Join-Path $buildDir 'Release\RenderforgeNative.dll') $outDir -Force
 Copy-Item (Join-Path $buildDir 'Release\dlss_probe.exe') $outDir -Force
-Copy-Item (Join-Path $buildDir 'Release\nvngx.dll') $nrOutDir -Force
-Copy-Item $nrRuntime $nrOutDir -Force
 Copy-Item $ngxDll $outDir -Force
 foreach ($dll in $amdDlls) { Copy-Item $dll $outDir -Force }
 Copy-Item $xessDll $outDir -Force
@@ -95,8 +83,6 @@ try {
     $rc11 = $LASTEXITCODE
     & (Join-Path $outDir 'dlss_probe.exe') $outDir --d3d12
     $rc12 = $LASTEXITCODE
-    & (Join-Path $outDir 'dlss_probe.exe') $outDir --d3d12 --nr
-    $rcNr = $LASTEXITCODE
     & (Join-Path $outDir 'dlss_probe.exe') $outDir --fsr
     $rcFsr = $LASTEXITCODE
     & (Join-Path $outDir 'dlss_probe.exe') $outDir --xess
@@ -108,8 +94,6 @@ if ($rc11 -eq 3) { Write-Warning "dlss_probe (D3D11): NGX unavailable on this GP
 elseif ($rc11 -ne 0) { throw "dlss_probe (D3D11) failed ($rc11)" }
 if ($rc12 -eq 3) { Write-Warning "dlss_probe (D3D12): NGX unavailable on this GPU/driver - DLSS untested, build continues" }
 elseif ($rc12 -ne 0) { throw "dlss_probe (D3D12) failed ($rc12)" }
-if ($rcNr -eq 3) { Write-Warning "dlss_probe (DLSS-NR): NVIDIA feature 18 unavailable on this GPU/driver - Neural Rendering untested, build continues" }
-elseif ($rcNr -ne 0) { throw "dlss_probe (DLSS-NR) failed ($rcNr)" }
 if ($rcFsr -eq 3) { Write-Warning "dlss_probe (FSR): no D3D12 upscale provider on this machine - FSR untested, build continues" }
 elseif ($rcFsr -ne 0) { throw "dlss_probe (FSR) failed ($rcFsr)" }
 if ($rcXess -eq 3) { Write-Warning "dlss_probe (XeSS): this GPU/driver cannot run XeSS (SM 6.4 + DP4a) - XeSS untested, build continues" }
