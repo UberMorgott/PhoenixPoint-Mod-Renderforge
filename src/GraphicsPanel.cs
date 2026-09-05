@@ -79,6 +79,7 @@ namespace Renderforge
             if (picker == null || mod == null) return;
             int idx = LabelIndex(mod.Cfg.Mode);
             string reason = Availability.Reason(Upscalers.ActiveFeature);
+            picker.Init(Labels.Length, idx, i => OnChanged(picker, i));   // CurrentIndex setter is private; Init is idempotent
             SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[idx]);
             Grey(picker.CurrentItem.gameObject, reason != null);
             Tip(picker.CentralButton.gameObject, reason);

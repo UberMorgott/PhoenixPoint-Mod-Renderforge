@@ -117,17 +117,21 @@ namespace Renderforge
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg == null) return;
-            Show(vignette, VignetteLabels, (int)cfg.Vignette);
-            Show(shadow, ShadowLabels, (int)cfg.ShadowResolution);
-            Show(aniso, AnisoLabels, (int)cfg.Anisotropic);
+            Show(vignette, VignetteLabels, (int)cfg.Vignette, OnVignette);
+            Show(shadow, ShadowLabels, (int)cfg.ShadowResolution, OnShadow);
+            Show(aniso, AnisoLabels, (int)cfg.Anisotropic, OnAniso);
             if (lod != null) lod.SetValueWithoutNotify(PosFromBias(cfg.LodBias));
             ShowLod(cfg.LodBias);
         }
 
-        private static void Show(ArrowPickerController row, string[] labels, int index)
+        /// <summary>Label AND CurrentIndex: the setter is private, Init is the only writer and is idempotent
+        /// (ArrowPickerController.cs:32), so a config change from PPCLI/console cannot leave a stale index.</summary>
+        private static void Show(ArrowPickerController row, string[] labels, int index, Action<int> onChanged)
         {
             if (row == null) return;
-            GraphicsPanel.SetRaw(row.CurrentItem, row.CurrentItemText, labels[Mathf.Clamp(index, 0, labels.Length - 1)]);
+            index = Mathf.Clamp(index, 0, labels.Length - 1);
+            row.Init(labels.Length, index, onChanged);
+            GraphicsPanel.SetRaw(row.CurrentItem, row.CurrentItemText, labels[index]);
             GraphicsPanel.Grey(row.CurrentItem.gameObject, false);
         }
 
