@@ -35,7 +35,7 @@ namespace Renderforge
         {
             nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen), nameof(NeuralRendering),
             nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
-            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize)
+            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts)
         };
 
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance")]
@@ -52,6 +52,8 @@ namespace Renderforge
         public int SceneStyleStrength = 100;
         [ConfigField("Pixel block size", "PixelArt: default 2 actual output pixels for readability. Increase up to 16 for a stronger effect.")]
         public int PixelSize = 2;
+        [ConfigField("Crisp fonts", "Sharper supported interface text with its original layout. Also in Options → Screen.")]
+        public bool CrispFonts = true;
         [ConfigField("Show DLSS in Graphics options")]
         public bool ShowInGraphicsOptions = true;
         // Pressed together with Ctrl+Alt (fixed chord, like ContentTool's fit bench Ctrl+Alt+B). No F-keys/Insert/End:
@@ -102,6 +104,7 @@ namespace Renderforge
             { nameof(SceneStyle), new[] { "Стиль сцены", "Выкл, мультфильм или пиксель-арт. Стилизация кодом после реконструкции." } },
             { nameof(SceneStyleStrength), new[] { "Сила стилизации", "0 = оригинал, 100 = полный эффект. Применяется сразу." } },
             { nameof(PixelSize), new[] { "Размер пикселя", "По умолчанию 2 пикселя экрана: мелкие детали остаются различимы. До 16 для более сильного эффекта." } },
+            { nameof(CrispFonts), new[] { "Чёткие шрифты", "Повышает чёткость поддерживаемого текста интерфейса, сохраняя расположение букв. Также в Настройки → Экран." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
             { nameof(OverlayHotkey), new[] { "Клавиша оверлея (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

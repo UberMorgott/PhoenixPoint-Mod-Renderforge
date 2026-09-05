@@ -88,6 +88,7 @@ namespace Renderforge
                 if (Available) DlssDriver.Create();
                 ((Harmony)HarmonyInstance).PatchAll(typeof(RenderforgeMod).Assembly);
                 patched = true;
+                CrispFonts.Apply(Cfg.CrispFonts);
                 if (RendererSwitch.Wants12(Cfg) && !Availability.IsD3D12) RendererSwitch.ArmStartupRestart();
                 AttachAndApply();
             }
@@ -142,6 +143,7 @@ namespace Renderforge
 
         public override void OnModDisabled()
         {
+            CrispFonts.Dispose();
             try
             {
                 DlssDriver.Instance?.Apply(RenderforgeMode.Off, DebugView.None);
@@ -166,6 +168,7 @@ namespace Renderforge
 
         public override void OnConfigChanged()
         {
+            CrispFonts.Apply(Cfg.CrispFonts);
             Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Diagnostics.View + " upscaler = " + Cfg.Upscaler);
             ApplyFrameRate();
             ApplyUpscaler();

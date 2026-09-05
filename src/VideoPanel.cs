@@ -18,12 +18,14 @@ namespace Renderforge
     {
         private const string ToggleName = "DlssFrameLimitToggle";
         private const string SliderName = "DlssFrameLimitSlider";
+        private const string FontsName = "RenderforgeCrispFonts";
         private static bool loggedError;
-        private static Toggle limit, vsync;
+        private static Toggle limit, vsync, fonts;
         private static Slider fps;
         private static Transform fpsValue;
         private static Action onChanged;
         private static bool pendingLimit;
+        private static bool pendingFonts;
         private static int pendingFps;
 
         [HarmonyPostfix, HarmonyPatch("Init", new Type[0])]
@@ -36,6 +38,7 @@ namespace Renderforge
                 if (mod == null || vsync == null) return;
                 var cfg = mod.Cfg;
                 pendingLimit = cfg.LimitFrameRate;
+                pendingFonts = cfg.CrispFonts;
                 pendingFps = Mathf.Clamp(cfg.FrameRateLimit, 30, 300);
                 onChanged = Traverse.Create(__instance).Field("_onChanged").GetValue<Action>();
 
@@ -43,6 +46,16 @@ namespace Renderforge
                 var content = row.parent;                  // VerticalLayoutGroup: clones just insert
                 var rowA = content.Find(ToggleName) ?? Clone(row, ToggleName, row.GetSiblingIndex() + 1);
                 var rowB = content.Find(SliderName) ?? Clone(row, SliderName, row.GetSiblingIndex() + 2);
+                var rowC = content.Find(FontsName) ?? Clone(row, FontsName, row.GetSiblingIndex() + 3);
+                fonts = rowC.GetComponentInChildren<Toggle>(true);
+                GraphicsPanel.SetRaw(rowC.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
+                    DlssConfig.Loc("Crisp fonts", "Чёткие шрифты").ToUpperInvariant());
+                GraphicsPanel.Tip(fonts.gameObject, DlssConfig.Loc(
+                    "Sharper interface text. Original letter positions are preserved; unsupported captions stay unchanged.",
+                    "Повышает чёткость текста интерфейса. Сохраняет расположение букв; неподдерживаемые надписи остаются исходными."));
+                fonts.SetIsOnWithoutNotify(pendingFonts);
+                fonts.onValueChanged.RemoveAllListeners();
+                fonts.onValueChanged.AddListener(on => { pendingFonts = on; onChanged?.Invoke(); });
 
                 // Row prefab children (live dump 2026-09-02): "Slider" (inactive on the VSync row), "Keybinds" (inactive,
                 // carries Localize texts of its own - never search by component), label "UITextGeneric_Medium (1)",
@@ -86,7 +99,8 @@ namespace Renderforge
         static void HasChanges(ref bool __result)
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
-            if (cfg != null && limit != null) __result |= pendingLimit != cfg.LimitFrameRate || pendingFps != cfg.FrameRateLimit;
+            if (cfg != null && limit != null) __result |= pendingLimit != cfg.LimitFrameRate || pendingFps != cfg.FrameRateLimit
+                || (fonts != null && pendingFonts != cfg.CrispFonts);
         }
 
         [HarmonyPostfix, HarmonyPatch("Apply")]
@@ -94,9 +108,12 @@ namespace Renderforge
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg == null || limit == null) return;
-            if (pendingLimit == cfg.LimitFrameRate && pendingFps == cfg.FrameRateLimit) return;
+            if (pendingLimit == cfg.LimitFrameRate && pendingFps == cfg.FrameRateLimit
+                && (fonts == null || pendingFonts == cfg.CrispFonts)) return;
             cfg.LimitFrameRate = pendingLimit;
             cfg.FrameRateLimit = pendingFps;
+            if (fonts != null) cfg.CrispFonts = pendingFonts;
+            CrispFonts.Apply(cfg.CrispFonts);
             RenderforgeMod.ApplyFrameRate();
             RenderforgeMod.SaveConfig();
         }

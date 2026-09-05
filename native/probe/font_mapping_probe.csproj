@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework><LangVersion>latest</LangVersion>
+    <OutputType>Exe</OutputType><AssemblyName>RenderforgeFontMappingProbe</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Managed>$(PPRoot)\PhoenixPointWin64_Data\Managed</Managed>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="font_mapping_probe.cs" />
+    <Compile Include="..\..\src\FontGlyphMapping.cs" Link="FontGlyphMapping.cs" />
+    <Compile Include="..\..\src\FontRasterCorrection.cs" Link="FontRasterCorrection.cs" />
+    <Reference Include="0Harmony"><HintPath>$(PPRoot)\ModSDK\0Harmony.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(Managed)\UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(Managed)\UnityEngine.UIModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(Managed)\UnityEngine.UI.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(Managed)\UnityEngine.TextRenderingModule.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
