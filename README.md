@@ -6,7 +6,6 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 
 - **DLSS Super Resolution** provides Auto, Quality, Balanced, Performance, and Ultra Performance modes on supported NVIDIA RTX GPUs.
 - **DLAA** uses DLSS at native resolution for anti-aliasing instead of upscaling.
-- **DLSS 5 Neural Rendering (experimental/unofficial)** optionally enhances the render-resolution frame before DLSS SR or DLAA. It is restricted to D3D12 on RTX 50, uses an original NVIDIA-signed runtime, and fails open to ordinary DLSS.
 - **FSR upscaling** provides cross-vendor upscaling and a native-resolution AA mode under Direct3D 12; the shipped AMD runtime runs FSR 4.1.1 on RDNA 3/4 and falls back to FSR 3.1.5 elsewhere.
 - **XeSS upscaling** runs on modern GPUs under Direct3D 12 and includes its additional Ultra Quality modes.
 - **Live upscaler switching** lets you move between DLSS, FSR, and XeSS while playing, without restarting the game.
@@ -14,6 +13,8 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **NVIDIA Image Scaling sharpening** adds a separate 0–100 sharpness control, with 0 disabling the pass.
 - **Tactical LUT filters** add nine original live colour grades after temporal reconstruction: Realistic Desaturated, Neutral, Cinematic Bleach, Vivid, B&W Cinema, Noir, Amber Film, Arctic, and Vintage Sepia, with a 0–100 strength control and no bundled third-party assets. Geoscape and non-tactical screens remain ungraded.
 - **Automatic mip bias** keeps textures appropriately detailed when the game renders below the output resolution.
+- **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to small 2-pixel blocks and a moderate palette; larger blocks are optional. The filters run after reconstruction and preserve the output-resolution interface.
+- **Crisp fonts** improve supported dynamic interface text while retaining the original letter positions and layout. Unsupported or mismatched text uses the original rendering.
 - **Frame-rate control** removes the vanilla 60 FPS pin and can optionally apply a 30–300 FPS limit.
 - **Benchmark overlay** toggles with `Ctrl+Alt+O` and shows the renderer, upscaler, mode, resolution, frame time, real FPS, and presented FPS when frame generation is active.
 - **Direct3D 12 launch fix** makes the game's otherwise broken `-force-d3d12` path usable; ambient occlusion keeps running there in SAO mode and colour grading uses a 2D LUT.
@@ -30,7 +31,6 @@ The tactical and geoscape scenes are reconstructed; the interface remains at the
 | Feature | GPU | Renderer |
 |---|---|---|
 | DLSS Super Resolution / DLAA | NVIDIA GeForce RTX | D3D11 or D3D12 |
-| DLSS 5 Neural Rendering | NVIDIA GeForce RTX 50 series only | D3D12 |
 | DLSS-G frame generation | NVIDIA GeForce RTX 40 series or newer (2x; up to 4x on RTX 50) | D3D12 |
 | FSR upscaling | Any modern GPU | D3D12 |
 | FSR Frame Generation 2x | Any modern GPU | D3D12 |
@@ -68,7 +68,7 @@ Start Phoenix Point with mod support enabled, open **Main menu → Mods**, enabl
 
 ## Settings
 
-The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, and LUT strength are under **Options → Graphics**; the FPS limiter is under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
+The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, and scene styles are under **Options → Graphics**; the FPS limiter and crisp fonts are under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
 
 | Setting | Default | Notes |
 |---|---:|---|
@@ -76,10 +76,12 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | Upscaler | Auto | Picks an available provider for the current GPU and renderer. |
 | Quality | Auto | DLAA through 1200p, Quality through 1600p, and Performance above 1600p. |
 | Frame generation | Off | 2x on a supported D3D12 setup with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU and are greyed out otherwise. |
-| Neural Rendering | Off | Auto exposes the experimental stage only on D3D12 + RTX 50 with the trusted packaged runtime. Style and strength controls are under Mods → Renderforge. |
 | Sharpness | 40 | Live 0–100 control; 0 disables sharpening. |
 | LUT filter | Off | Nine colour grades, including B&W Cinema, Noir, Amber Film, Arctic and Vintage Sepia, for tactical missions only. Runs after reconstruction so it never enters temporal history; Geoscape is unchanged. |
 | LUT strength | 100 | Live 0–100 blend from the original image to the selected grade. |
+| Scene style | Off | Cartoon or PixelArt; live 0–100 strength, default 100. This is screen filtering, not a geometry replacement. |
+| Pixel block size | 2 | Actual output pixels; adjustable from 2 to 16. |
+| Crisp fonts | On | Fixed 2x glyph raster density for supported dynamic overlay text; original geometry and safe fallback. |
 | Frame-rate limit | Off | Caps final presented FPS, including generated frames; enabling it disables VSync. |
 | Max presented FPS | 60 | Used only when the Renderforge limit is enabled; range 30–300. A live 2x/3x/4x FG chain automatically renders at 1/2, 1/3 or 1/4 of this ceiling. |
 | Benchmark overlay | Off | Toggle with `Ctrl+Alt+O`; default position is top centre. |
@@ -95,7 +97,8 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 - DLSS-G generates frames only while the game window is in the foreground and resumes when focus returns.
 - The Steam overlay touches the same presentation path used by frame generation; the current build guards against recursive hooks, but disabling the overlay is a useful first check if frame generation crashes.
 - Frame generation can add latency and may show artefacts during fast camera movement, so it is off by default.
-- Neural Rendering is an experimental, unofficial compatibility integration. A create/evaluate error disables only Neural Rendering; DLSS SR/DLAA and the game continue.
+
+The discontinued DLSS 5 / face-reconstruction experiments are documented in the [retirement dossier](docs/research/2026-09-05-dlss5-retirement-dossier.md). Their runtime, controls and experimental face tools are removed. Older configuration files remain readable: obsolete experiment keys are ignored and disappear on the next normal settings save; unrelated settings are retained.
 
 If you report a frame-generation problem, include `Mods\Renderforge\renderforge_fg.log`. For general D3D12 or upscaler problems, include the game's `Player.log` and any NGX log files written beside the mod.
 

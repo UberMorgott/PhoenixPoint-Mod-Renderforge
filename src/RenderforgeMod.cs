@@ -81,8 +81,6 @@ namespace Renderforge
                 Logger.LogInfo("Renderforge: " + SystemInfo.graphicsDeviceType + " - native DLSS init skipped ("
                                + Availability.Reason(Feature.Dlss) + ")");
             }
-            NeuralRenderingSupport.Probe(ModDir);
-            Logger.LogInfo("DLSS 5 Neural Rendering: " + NeuralRenderingSupport.Status);
             try
             {
                 if (Available) DlssDriver.Create();
@@ -352,40 +350,6 @@ namespace Renderforge
             return "frameGen=" + m.Cfg.FrameGen + " " + FrameGen.Status();
         }
 
-        public static string SetNeuralRendering(string mode)
-        {
-            var m = Instance;
-            if (m == null) return "mod not enabled";
-            NeuralRenderingMode nr;
-            if (!Enum.TryParse(mode, true, out nr)) return "bad mode '" + mode + "' (Off / Auto)";
-            m.Cfg.NeuralRendering = nr;
-            m.AttachAndApply();
-            SaveConfig();
-            return "neuralRendering=" + nr + " " + Native.NrStatus();
-        }
-
-        /// <summary>PPCLI/live UI surface for the four numeric parameters supported by the private DLSSNR ABI.</summary>
-        public static string SetNeuralParameters(float intensity, float localTone, float localStructure, float skinStructure)
-        {
-            var m = Instance;
-            if (m == null) return "mod not enabled";
-            m.Cfg.NeuralIntensity = Mathf.Clamp(intensity, 0f, 2f);
-            m.Cfg.NeuralLocalTone = Mathf.Clamp(localTone, 0f, 2f);
-            m.Cfg.NeuralLocalStructure = Mathf.Clamp(localStructure, 0f, 2f);
-            m.Cfg.NeuralSkinStructure = Mathf.Clamp(skinStructure, -1f, 1f);
-            ApplyNeuralRenderingSettings();
-            return "nrParams=" + m.Cfg.NeuralIntensity.ToString("R") + "," + m.Cfg.NeuralLocalTone.ToString("R") + ","
-                + m.Cfg.NeuralLocalStructure.ToString("R") + "," + m.Cfg.NeuralSkinStructure.ToString("R") + " " + Native.NrStatus();
-        }
-
-        internal static void ApplyNeuralRenderingSettings()
-        {
-            var m = Instance;
-            if (m == null) return;
-            m.AttachAndApply();
-            SaveConfig();
-        }
-
         /// <summary>PPCLI: {"member":"SetFgProvider","args":["Fsr"]} - Auto / None / Fsr / Xess / Dlss. Test lever:
         /// the RTX in this machine can run all three, and only a forced pick proves the cross-vendor paths.</summary>
         public static string SetFgProvider(string name)
@@ -517,8 +481,7 @@ namespace Renderforge
 
         private static string JitterKnobs() =>
             " jitterSign=" + Diagnostics.JitterReportSignX + "," + Diagnostics.JitterReportSignY + " jitterScale=" + Diagnostics.JitterScale.ToString("R") + " jitterSwapXY=" + Diagnostics.JitterReportSwapXY
-            + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset
-            + " nrJitterSuppressed=" + NeuralRenderingSupport.ShouldEnable(Instance?.Cfg);
+            + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset;
 
         public static string GetStatus() => "provider=" + Upscalers.Running + " lut=" + (Instance?.Cfg?.Lut ?? LutPreset.Off) + " lutStrength=" + (Instance?.Cfg?.LutStrength ?? 0) + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))

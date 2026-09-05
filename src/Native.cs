@@ -131,32 +131,6 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Dlss_Status(out int lastCreateResult, out int lastEvalResult, out int featureAlive);
 
-        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "DlssNr_Configure")]
-        private static extern void DlssNr_ConfigureNative(int enabled, int style, float intensity, float localTone,
-            float localStructure, float skinStructure, int autoMask);
-
-        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
-        public static extern void DlssNr_Status(out int initResult, out int createResult, out int evalResult, out int featureAlive);
-
-        /// <summary>Fail-open: a missing experimental NR export leaves the normal DLSS path untouched.</summary>
-        public static void ConfigureNr(int enabled, int style, float intensity, float localTone,
-            float localStructure, float skinStructure, int autoMask)
-        {
-            try { DlssNr_ConfigureNative(enabled, style, intensity, localTone, localStructure, skinStructure, autoMask); }
-            catch (Exception) { }
-        }
-
-        public static string NrStatus()
-        {
-            try
-            {
-                int i, c, e, alive; DlssNr_Status(out i, out c, out e, out alive);
-                return "nrInit=0x" + i.ToString("X") + " nrCreate=0x" + c.ToString("X")
-                    + " nrEval=0x" + e.ToString("X") + " nrAlive=" + alive;
-            }
-            catch (Exception) { return "nrUnavailable"; }
-        }
-
         /// <summary>D3D12 ~60-frame averages: GPU ms of copy-in / upscale / copy-out on the evaluate list, CPU ms waited for a ring slot.</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_Timings(out float copyInMs, out float evalMs, out float copyOutMs, out float ringWaitMs);
