@@ -80,7 +80,8 @@ namespace Renderforge
                     if (!IsD3D12)
                         return DlssConfig.Loc("Requires DirectX 12 — switch Renderer", "Требуется DirectX 12 — переключите рендерер");
                     if (NeedsRestart) return RestartReason;
-                    if (RenderforgeMod.Instance == null || RenderforgeMod.Instance.Cfg.Mode == RenderforgeMode.Off)
+                    // Post-only forces the EFFECTIVE mode Off whatever Cfg.Mode says (DlssDriver.Apply): no upscaler, no FG.
+                    if (RenderforgeMod.Instance == null || RenderforgeMod.Instance.Cfg.Mode == RenderforgeMode.Off || RenderforgeMod.PostOnly)
                         return DlssConfig.Loc("Turn an upscaler on first", "Сначала включите апскейлер");
                     if (!Upscalers.FsrFgDllPresent && !Upscalers.XessFgDllsPresent && !Upscalers.SlDllsPresent)
                         return DlssConfig.Loc("DLL missing: no frame-generation runtime (AMD / Intel / NVIDIA pack)",

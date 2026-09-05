@@ -128,12 +128,23 @@ namespace Renderforge
             if (InitCode != Native.DLSS_OK && InitCode != Native.DLSS_OK_POST_ONLY
                 && postCarrier == UpscalerKind.Off && want == UpscalerKind.Auto && first != UpscalerKind.DLSS)
             {
+                UpscalerKind lastFailed = Upscalers.Running; int lastCode = InitCode;   // the real FSR/XeSS failure, for the picker
                 Native.Dlss_Shutdown();
                 Upscalers.Running = UpscalerKind.DLSS;
                 Native.SetProvider(Upscalers.ProviderOf(UpscalerKind.DLSS));
                 InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
-                if (InitCode == Native.DLSS_OK_POST_ONLY) postCarrier = UpscalerKind.DLSS;
-                m.Logger.LogInfo("no upscaler available: NGX probed as the post carrier (code " + InitCode + ")");
+                if (InitCode == Native.DLSS_OK_POST_ONLY)
+                {
+                    postCarrier = UpscalerKind.DLSS;
+                    m.Logger.LogInfo("no upscaler available: NGX probed as the post carrier (reason " + Native.PostOnlyReason() + ")");
+                }
+                else
+                {
+                    // NGX hard-failed too: keep the provider that actually failed and its code, or the row the
+                    // player can see (Availability.Reason(Feature.Fsr/Xess)) would be greyed with no reason.
+                    m.Logger.LogInfo("no upscaler available: NGX probe failed too (code " + InitCode + "); " + lastFailed + " keeps code " + lastCode);
+                    Upscalers.Running = lastFailed; InitCode = lastCode;
+                }
             }
             // Every alternative upscaler is gone too: stand the post-only carrier back up so the LUT, the scene
             // styles, the colour-vision correction and NIS sharpen still have a live device to run on.
@@ -149,10 +160,13 @@ namespace Renderforge
             Available = InitCode == Native.DLSS_OK || PostOnly;
             // The carrier in its own field, latched here while Upscalers.Running still holds it. Never re-derived
             // from Upscalers.Failed: that slot belongs to the picker and the next failed switch overwrites it.
-            Upscalers.PostCarrier = PostOnly ? Upscalers.Running : UpscalerKind.Off;
+            // Resolve(Off) / Resolve(Auto) on a non-NVIDIA D3D11 box leave Running = Off while ProviderOf(Off) sent
+            // PROVIDER_DLSS (its default arm): the carrier is what the shim was actually stood up on, i.e. DLSS.
+            UpscalerKind carrier = Upscalers.Running == UpscalerKind.Off ? UpscalerKind.DLSS : Upscalers.Running;
+            Upscalers.PostCarrier = PostOnly ? carrier : UpscalerKind.Off;
             // In post-only the failed provider STAYS recorded with its real code, so the picker greys the row with
             // the true reason (Availability.Reason reads Upscalers.Failed/FailedCode) instead of claiming success.
-            if (PostOnly) { Upscalers.Failed = Upscalers.Running; Upscalers.FailedCode = Native.PostOnlyReason(); Upscalers.Running = UpscalerKind.Off; }
+            if (PostOnly) { Upscalers.Failed = carrier; Upscalers.FailedCode = Native.PostOnlyReason(); Upscalers.Running = UpscalerKind.Off; }
             else if (Available) Upscalers.Failed = UpscalerKind.Off;
             else { Upscalers.Failed = Upscalers.Running; Upscalers.FailedCode = InitCode; Upscalers.Running = UpscalerKind.Off; }
             return Available;
@@ -178,7 +192,7 @@ namespace Renderforge
                 m.Logger.LogInfo("upscaler switched to " + Upscalers.Running + (PostOnly ? " (post pass only)" : " version=" + Native.ProviderVersion()));
                 return;
             }
-            m.Logger.LogWarning(Upscalers.Failed + " init failed (code " + InitCode + "): back to "
+            m.Logger.LogWarning(Upscalers.Failed + " init failed (code " + (InitCode == Native.DLSS_OK_POST_ONLY ? Native.PostOnlyReason() + ", post pass only" : InitCode.ToString()) + "): back to "
                                 + (prev != UpscalerKind.Off ? prev.ToString() : prevCarrier + " (post pass only)"));
             UpscalerKind failed = Upscalers.Failed; int code = Upscalers.FailedCode;
             Native.Dlss_Shutdown();
@@ -206,6 +220,7 @@ namespace Renderforge
             Application.targetFrameRate = 60;   // the game's own value (OptionsManager.cs:505)
             Available = false;
             PostOnly = false;
+            Upscalers.PostCarrier = UpscalerKind.Off;
             InitCode = -1;
             Instance = null;
         }
