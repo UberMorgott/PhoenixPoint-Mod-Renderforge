@@ -50,6 +50,9 @@ enum { DLSS_LUT_OFF = 0, DLSS_LUT_REALISTIC_DESATURATED = 1, DLSS_LUT_NEUTRAL = 
        DLSS_LUT_CINEMATIC_BLEACH = 3, DLSS_LUT_VIVID = 4, DLSS_LUT_BW_CINEMA = 5,
        DLSS_LUT_NOIR = 6, DLSS_LUT_AMBER_FILM = 7, DLSS_LUT_ARCTIC = 8, DLSS_LUT_VINTAGE_SEPIA = 9 };
 
+// Colour-vision correction (daltonization) applied after the grade and the scene style. Ordinals cross the ABI.
+enum { DLSS_CV_OFF = 0, DLSS_CV_DEUTERANOPIA = 1, DLSS_CV_PROTANOPIA = 2, DLSS_CV_TRITANOPIA = 3 };
+
 // Main thread. anyNativeResource = ID3D11Resource* or ID3D12Resource* (Unity GetNativeTexturePtr); the API is
 // chosen by QueryInterface. Idempotent once it returned DLSS_OK.
 DLSS_API int __cdecl Dlss_Init(void* anyNativeResource, const wchar_t* dllDir, const wchar_t* logDir);
@@ -73,6 +76,10 @@ DLSS_API void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* 
 // Main thread, after SetFrame and before queuing its event. mode: 0 Off, 1 Cartoon, 2 PixelArt.
 // Existing SetFrame ABI stays unchanged. Each slot owns its values, so sliders never race a global render setting.
 DLSS_API void __cdecl Dlss_SetSceneStyle(void* slot, int mode, float strength, int pixelSize);
+// Main thread, after SetFrame (which clears the slot) and before queuing its event - same contract as
+// Dlss_SetSceneStyle. mode = DLSS_CV_*; out-of-range values disable the stage. Unlike the LUT and the style,
+// this stage alone is enough to make the post pass run: LUT Off + style Off + sharpness 0 still corrects.
+DLSS_API void __cdecl Dlss_SetColorVision(void* slot, int mode);
 // Unity UnityRenderingEvent: void (__stdcall*)(int eventId). Event 2 here evaluates the LAST filled slot.
 DLSS_API void* __cdecl Dlss_GetRenderEventFunc(void);
 // Unity UnityRenderingEventAndData: void (__stdcall*)(int eventId, void* data). Event 2 reads the slot in `data`; 1/3 ignore it.

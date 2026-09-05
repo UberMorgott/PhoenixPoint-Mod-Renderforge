@@ -321,15 +321,15 @@ struct Xess12 : IDevice
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            bool wantPost = fp.sharpness > 0.0f || (ColorGradeEnabled(fp.lutPreset, fp.lutStrength) || SceneStyleEnabled(fp.style));
+            bool wantPost = fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
             if (!wantPost || !sharpen.RunPassthrough(cl, color, output, owned, ring, srgbViews,
-                                                      fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style))
+                                                      fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision))
                 OwnedSet12::Passthrough(cl, color, output);
             lastEval = NVSDK_NGX_Result_Success;
         } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
-            bool grade = (ColorGradeEnabled(fp.lutPreset, fp.lutStrength) || SceneStyleEnabled(fp.style));
+            bool grade = PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
             bool doPost = (fp.sharpness > 0.0f || grade) && sharpen.TargetEnsure(owned.out, ring, grade);
 
             // Motion vectors: Unity's texture is (current - previous) in UV space; the driver's negative scale
@@ -361,7 +361,7 @@ struct Xess12 : IDevice
             lastEval = Map(r);
             if (r != XESS_RESULT_SUCCESS) { lastError = DLSS_ERR_XESS; RfDbg::Log("XeSS Execute: failed %d", (int)r); }
             // XeSS binds its own heap/root signature/PSO on this list; the sharpen pass re-binds all three.
-            else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style);
+            else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision);
             ring.Stamp(2);
             owned.Leave(cl, output);
         }

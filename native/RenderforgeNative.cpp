@@ -213,6 +213,13 @@ void __cdecl Dlss_SetSceneStyle(void* slot, int mode, float strength, int pixelS
     p->style.pixelSize = pixelSize < 2 ? 2 : pixelSize > 16 ? 16 : (unsigned)pixelSize;
 }
 
+void __cdecl Dlss_SetColorVision(void* slot, int mode)
+{
+    FrameParams* p = (FrameParams*)slot;
+    if (!p) return;
+    p->colorVision = (mode >= DLSS_CV_DEUTERANOPIA && mode <= DLSS_CV_TRITANOPIA) ? mode : DLSS_CV_OFF;
+}
+
 static void __stdcall OnRenderEventAndData(int eventId, void* data)
 {
     if (!S.dev)
