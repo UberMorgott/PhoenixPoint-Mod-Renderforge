@@ -10,7 +10,7 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **XeSS upscaling** runs on modern GPUs under Direct3D 12 and includes its additional Ultra Quality modes.
 - **Live upscaler switching** lets you move between DLSS, FSR, and XeSS while playing, without restarting the game.
 - **Frame Generation** supports DLSS-G, FSR Frame Generation, and XeSS-FG under Direct3D 12: 2x everywhere it runs, and up to 4x with DLSS-G on RTX 50.
-- **NVIDIA Image Scaling sharpening** adds a separate 0–100 sharpness control, with 0 disabling the pass.
+- **NVIDIA Image Scaling sharpening** adds a separate 0–100 sharpness control (default 40), with 0 disabling the pass. Since 1.4.0 the sharpness slider is always enabled: setting Mode Off with Sharpness above 0 runs NIS on the vanilla frame while preserving the game's own anti-aliasing.
 - **Tactical LUT filters** add nine original live colour grades after temporal reconstruction: Realistic Desaturated, Neutral, Cinematic Bleach, Vivid, B&W Cinema, Noir, Amber Film, Arctic, and Vintage Sepia, with a 0–100 strength control and no bundled third-party assets. Geoscape and non-tactical screens remain ungraded.
 - **Automatic mip bias** keeps textures appropriately detailed when the game renders below the output resolution.
 - **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to 4-pixel blocks and a moderate palette; block size remains adjustable from 2 to 16 actual output pixels. The filters run after reconstruction and preserve the output-resolution interface.
@@ -38,6 +38,7 @@ The tactical and geoscape scenes are reconstructed; the interface remains at the
 | XeSS upscaling | Any modern GPU | D3D12 |
 | XeSS-FG frame generation 2x | Any modern GPU | D3D12 |
 | NIS sharpening, LUT filters, colour vision, mip bias, FPS controls, overlay | Any supported GPU | D3D11 or D3D12 |
+| Analytic post pass without an upscaler | Verified on NVIDIA (RTX); non-NVIDIA / GTX pending smoke-test | D3D11 or D3D12 |
 
 Phoenix Point starts in D3D11 by default. To use D3D12, choose **DirectX 12 (experimental)** under **Options → Graphics → Renderer**, press **Apply**, and accept the restart. Renderforge preserves the existing command line and relaunches the game with `-force-d3d12`. With PPModEnabler on GOG or Epic, the relaunch also resets Doorstop's inherited process marker so the mod loader and enabled mods start normally.
 
@@ -118,6 +119,7 @@ The frame-time and VRAM cost of Very High shadows and LOD detail 4.0 has not bee
 - Frame generation can add latency and may show artefacts during fast camera movement, so it is off by default.
 - Tactical missions under D3D12 were dark before 1.3.0; the mod now ships its own D3D12 copies of the auto-exposure shaders, so this is fixed.
 - A D3D12-only upscaler (FSR or XeSS) left selected while running D3D11 used to disable the entire post pass (LUT, scene styles, colour vision) until the upscaler was changed; fixed in 1.4.0 by falling back to Auto on D3D11.
+- Since 1.4.0 the analytic post pass (LUT grades, scene styles, colour vision correction, NIS sharpening) runs even when no upscaler can initialise: the native shim reports `DLSS_OK_POST_ONLY`, the mod keeps a permanent passthrough generation carrying the post pass, vanilla SMAA is preserved, and the upscaler row greys out with the real reason. Verified on NVIDIA (RTX 5070 Ti) under D3D11 and D3D12 with NGX failures both faked and forced; non-NVIDIA and GTX hardware is expected to work but has not yet been smoke-tested. On D3D12 the auto-fallback chain (FSR, then XeSS, then post-only) is preserved.
 - **For other mod authors.** While an upscaler is active the game camera renders into a lower-resolution texture: `Camera.pixelWidth/pixelHeight` report the render resolution, while `Screen.width/height` and `Camera.WorldToScreenPoint` stay in backbuffer pixels. Overlays that mix the two (for example `GL.LoadPixelMatrix(0, cam.pixelWidth, ...)`) will be drawn at the wrong scale; use `Screen.*`. Immediate-mode `GL` geometry drawn during the camera pass (`OnPostRender` / `OnRenderObject`) carries no motion vectors and will ghost under DLSS/FSR/XeSS; draw such overlays from `OnGUI` or otherwise after the camera has finished.
 
 The discontinued DLSS 5 / face-reconstruction experiments are documented in the [retirement dossier](docs/research/2026-09-05-dlss5-retirement-dossier.md). Their runtime, controls and experimental face tools are removed. Older configuration files remain readable: obsolete experiment keys are ignored and disappear on the next normal settings save; unrelated settings are retained.

@@ -427,6 +427,74 @@ Cinemachine → PPv2 OnPreCull (reset) → [postfix: jitter, targetTexture=color
 - Native DLL missing/unloadable: same dormant path.
 - Render-thread callback must be exception-free C; all pointers validated non-null, sizes cached.
 
+### Init state machine (post-only)
+
+When NGX init fails but the D3D device is still alive, the post pass (LUT grades, scene styles,
+colour-vision, NIS sharpen, mip bias) can still run — no NGX feature is needed for any of it.
+
+Init outcomes (native `Dlss_Init`, `native\RenderforgeNative.cpp:142-170`):
+
+| provider `Init()` returns | `PostAlive()` | `Dlss_Init` returns | managed |
+|---|---|---|---|
+| `DLSS_OK` (0) | yes | `DLSS_OK` | `Available`, upscaler runs |
+| `DLSS_ERR_INIT_FAILED` (2) / `NOT_AVAILABLE` (3) / `NEEDS_DRIVER` (4) | **yes** | **`DLSS_OK_POST_ONLY` (8)** | `Available` + `PostOnly`, mode forced Off, post pass runs |
+| same codes | no | that code, unchanged | unavailable, as today |
+| `NO_DEVICE` (1) / `NO_UNITY_IFACE` (5) / `NO_PROVIDER_DLL` (6) / `PROVIDER_UNSUPPORTED` (7) | no | that code, unchanged | unavailable, as today |
+
+Native invariants:
+- `ngxInitialized` stays **success-only** (`Device11.cpp:186`, `Device12.cpp:109`): set to 1 only
+  after a real `NVSDK_NGX_SUCCEEDED(r)`. `Shutdown()` therefore never calls
+  `NVSDK_NGX_*_Shutdown1` on a device that never initialised NGX (`Device11.cpp:314`,
+  `Device12.cpp:270`).
+- `Shutdown()` releases the device **unconditionally** in both backends (`Device11.cpp:315`,
+  `Device12.cpp:271`), so a post-only device is always freed on shutdown / provider switch.
+- FSR/XeSS never reach post-only: they release the device on every failure path
+  (`Fsr12.cpp:147,156`; `Xess12.cpp:202,212`), and their `PostAlive()` is the base default
+  `false` (`Device.h:81`). Deliberate — the Auto loop reaches D3D11/D3D12 NGX on the machines
+  that matter, and a second post-only carrier buys nothing.
+
+Managed state (`src\RenderforgeMod.cs`):
+- `PostOnly` ⇒ `Available=true` (`:159-160`), `Upscalers.Running=Off` (`:169`).
+- The live carrier sits in `Upscalers.PostCarrier` (its own field, `src\Upscaler.cs:23`), never
+  derived from `Upscalers.Failed`.
+- `Failed`/`FailedCode` hold the carrier kind + the retained `DLSS_ERR_*` (2/3/4, never 8) so
+  the picker greys with the true reason (`Dlss_PostOnlyReason`, `RenderforgeNative.cpp:317`).
+- `ReinitNative` (`:178-204`) never trades a working upscaler for post-only: if `PostOnly &&
+  prev != Off` the init is treated as a failure and rolls back. On rollback it restores the
+  carrier from `PostCarrier` (`:186,199`), not from `Failed` (which is about to be overwritten).
+
+Driver (`src\DlssDriver.cs`):
+- `Apply` (`:137`) forces `wantMode = Off` under `PostOnly` — every generation is a passthrough
+  carrying LUT / style / colour-vision / NIS.
+- Mip bias = 0 in passthrough (`:241`).
+- Sharpness zeroed only for `DebugView.Passthrough` (`:500`), not for the post-only Off
+  passthrough — the user's NIS slider still applies.
+- Vanilla SMAA kept: `KeepCameraState` (`:400-405`) and `AfterApplyPostProcessOptions`
+  (`:549-553`) skip the `Antialiasing.None` assignment when `passthrough`.
+- FrameGen gated off in post-only (`src\Availability.cs:84`): `PostOnly` → "Turn an upscaler on
+  first".
+- Overlay (`:160-170`): prints `Upscaler: off (<reason>)` via `Availability.Reason`; hides the
+  D3D12 `GPU:` line because `live` requires `!Passthrough` (`:138`).
+
+### Dev switch `RENDERFORGE_FAKE_INIT`
+
+**Dev-only.** Injects an NGX failure while the device is alive — tests the post-only path
+without a non-NVIDIA GPU. Read once per process (`RfFakeInitCode`, `GetEnvironmentVariableA`,
+`native\RenderforgeNative.cpp:119-127`); cannot be armed mid-session.
+
+| Value | What it replaces | GPU requirement |
+|---|---|---|
+| `2` | `*_Init_with_ProjectID` is never called; `r = NVSDK_NGX_Result_FAIL_PlatformError` instead. The PRODUCTION failure branch runs unchanged. | any |
+| `3` | `SuperSampling_Available` query skipped, `available` stays 0. | NVIDIA (needs NGX up) |
+| `4` | `NeedsUpdatedDriver` query skipped, `needsDriver = 1` injected. | NVIDIA (needs NGX up) |
+
+Never overwrites a successful init — it **replaces the NGX call**, not the result, so no
+context leaks and `ngxInitialized` stays correct (`Device11.cpp:175-176`, `Device12.cpp:98-99`).
+
+Regression gate: `dlss_probe.exe <dir> --fake=2` in `build-native.ps1:90` (sinusoid pattern
+upload + readback: copy == input, sharpen != input, grade != input). `--fake=3|4` are manual,
+NVIDIA-only. Exit 3 of the ordinary probe now also covers a `DLSS_OK_POST_ONLY` init.
+
 ## Testing
 
 - `dlss_probe.exe` green on this machine (RTX 5070 Ti, driver 596.49) before any game work.
@@ -631,7 +699,8 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
 - Missing DLLs -> "DLL missing: <name> -- install the <Vendor> pack" (EN/RU).
 - `Availability.Reason(Feature.FrameGen)`: requires D3D12, requires an upscaler on.
 - Env knobs: `RENDERFORGE_FG_CHAIN=composition`, `RENDERFORGE_FSR_JITTER_SIGN`,
-  `RENDERFORGE_XESS_JITTER_SIGN`, `RENDERFORGE_D3D12_DEBUG`.
+  `RENDERFORGE_XESS_JITTER_SIGN`, `RENDERFORGE_D3D12_DEBUG`, `RENDERFORGE_FAKE_INIT` (§ Failure
+  handling → Dev switch).
 
 ### Known limits
 
