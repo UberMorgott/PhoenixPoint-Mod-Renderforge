@@ -11,9 +11,12 @@ extern "C" {
 #define DLSS_API __declspec(dllimport)
 #endif
 
-// Dlss_Init return codes.
+// Dlss_Init return codes. DLSS_OK_POST_ONLY: the upscaler is NOT available, but the D3D device survived the
+// failure, so the analytic post pass (Sharpen.cpp: NIS/RCAS, LUT grades, scene styles, colour vision) still runs
+// through the passthrough path. Dlss_PostOnlyReason() carries the original DLSS_ERR_* for diagnostics.
 enum { DLSS_OK = 0, DLSS_ERR_NO_DEVICE = 1, DLSS_ERR_INIT_FAILED = 2, DLSS_ERR_NOT_AVAILABLE = 3, DLSS_ERR_NEEDS_DRIVER = 4,
-       DLSS_ERR_NO_UNITY_IFACE = 5, DLSS_ERR_NO_PROVIDER_DLL = 6, DLSS_ERR_PROVIDER_UNSUPPORTED = 7 };
+       DLSS_ERR_NO_UNITY_IFACE = 5, DLSS_ERR_NO_PROVIDER_DLL = 6, DLSS_ERR_PROVIDER_UNSUPPORTED = 7,
+       DLSS_OK_POST_ONLY = 8 };
 
 // Upscaler provider chosen by Dlss_SetProvider BEFORE Dlss_Init. 0 = the default (NVIDIA NGX).
 enum { DLSS_PROVIDER_DLSS = 0, DLSS_PROVIDER_FSR = 1, DLSS_PROVIDER_XESS = 2 };
@@ -92,6 +95,9 @@ DLSS_API int __cdecl Dlss_LastError(void);
 DLSS_API int __cdecl Dlss_Sharpener(void);
 // Returns Dlss_Init code; fills last NGX results (as NVSDK_NGX_Result ints) and feature liveness.
 DLSS_API int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* featureAlive);
+// The DLSS_ERR_* the provider actually returned when Dlss_Init answered DLSS_OK_POST_ONLY; 0 otherwise.
+// The picker greys the upscaler row with THIS code, not with DLSS_OK_POST_ONLY.
+DLSS_API int __cdecl Dlss_PostOnlyReason(void);
 // D3D12 only, ~60-frame averages of the evaluate list: GPU ms of copy-in (Unity RTs -> twins), the
 // upscale (+ sharpen), copy-out (owned out -> Unity outRT), and the CPU ms the render thread waited for a ring slot's
 // fences. All 0 under D3D11 / before the first frame.

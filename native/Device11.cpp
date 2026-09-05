@@ -46,6 +46,7 @@ struct Device11 : IDevice
 
     int Api() const override { return 11; }
     bool FeatureAlive() const override { return feature != NULL; }
+    bool PostAlive() const override { return device != NULL; }
 
     void SharpenFail() { sharpenDead = 1; lastError = DLSS_ERR_SHARPEN; }
 

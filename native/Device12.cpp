@@ -56,6 +56,7 @@ struct Device12 : IDevice
 
     int Api() const override { return 12; }
     bool FeatureAlive() const override { return feature != NULL; }
+    bool PostAlive() const override { return device != NULL && g_unityD3D12 != NULL; }
     const OwnedSet12* Owned12() const override { return &owned; }
     const D3D12Ring* Ring12() const override { return &ring; }
 

@@ -76,6 +76,9 @@ struct IDevice
     virtual bool ReleaseFeature() = 0;                                  // render thread
     virtual bool Shutdown() = 0;                                        // main thread, render idle
     virtual bool FeatureAlive() const = 0;
+    // Can this backend still run the post pass after a failed Init? True only when the D3D device survived.
+    // NGX backends override it; FSR/XeSS release the device on every failure path they have, so they never do.
+    virtual bool PostAlive() const { return false; }
     // Writes the provider's version string into buf (NUL-terminated, at most cap bytes). Returns bytes written.
     // Default: nothing - the NGX backends report their runtime version on the managed side from nvngx_dlss.dll.
     virtual int ProviderVersion(char* buf, int cap) { (void)buf; (void)cap; return 0; }

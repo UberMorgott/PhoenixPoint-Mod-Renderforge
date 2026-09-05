@@ -90,8 +90,9 @@ static struct {
     int passthrough;
     int provider;                       // DLSS_PROVIDER_*, latched by Dlss_Init
     int wantProvider;                   // what Dlss_SetProvider asked for
+    int providerCode;                   // what the backend's Init() really returned (retained under POST_ONLY)
     float nearZ, farZ, fovY;            // Dlss_SetCamera cache, copied into every slot
-} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0.1f, 1000.0f, 1.0471976f };
+} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0, 0.1f, 1000.0f, 1.0471976f };
 
 static bool ShutdownBackend(void)
 {
@@ -100,6 +101,7 @@ static bool ShutdownBackend(void)
     S.dev = NULL;
     S.lastSlot = NULL;
     S.initCode = DLSS_ERR_NO_DEVICE;
+    S.providerCode = 0;
     return true;
 }
 
@@ -128,7 +130,7 @@ void SetPresetHints(NVSDK_NGX_Parameter* params)
 
 int __cdecl Dlss_Init(void* anyNativeResource, const wchar_t* dllDir, const wchar_t* logDir)
 {
-    if (S.dev && S.initCode == DLSS_OK) return S.initCode;
+    if (S.dev && (S.initCode == DLSS_OK || S.initCode == DLSS_OK_POST_ONLY)) return S.initCode;
     if (!anyNativeResource) return S.initCode = DLSS_ERR_NO_DEVICE;
 
     IDevice* d = NULL;
@@ -148,7 +150,13 @@ int __cdecl Dlss_Init(void* anyNativeResource, const wchar_t* dllDir, const wcha
     }
 
     S.dev = d;                       // kept even on failure so Dlss_Api()/Dlss_Status() still answer
-    return S.initCode = d->Init(anyNativeResource, dllDir, logDir);
+    S.providerCode = d->Init(anyNativeResource, dllDir, logDir);
+    // A dead upscaler with a live device is still a working post pass (Sharpen.cpp needs no NGX): report
+    // POST_ONLY and keep the real code for the picker's reason text.
+    if ((S.providerCode == DLSS_ERR_INIT_FAILED || S.providerCode == DLSS_ERR_NOT_AVAILABLE
+         || S.providerCode == DLSS_ERR_NEEDS_DRIVER) && d->PostAlive())
+        return S.initCode = DLSS_OK_POST_ONLY;
+    return S.initCode = S.providerCode;
 }
 
 int __cdecl Dlss_GetOptimal(unsigned outW, unsigned outH, int quality,
@@ -294,6 +302,8 @@ int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* feature
     if (featureAlive)     *featureAlive     = (S.dev && S.dev->FeatureAlive()) ? 1 : 0;
     return S.initCode;
 }
+
+int __cdecl Dlss_PostOnlyReason(void) { return S.initCode == DLSS_OK_POST_ONLY ? S.providerCode : 0; }
 
 void __cdecl Dlss_Timings(float* copyInMs, float* evalMs, float* copyOutMs, float* ringWaitMs)
 {
