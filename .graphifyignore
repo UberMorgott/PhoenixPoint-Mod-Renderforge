@@ -18,6 +18,10 @@ docs/procedural-head-prototype/*.gif
 docs/procedural-head-prototype/*.json
 docs/procedural-head-prototype/*.obj
 docs/procedural-head-prototype/*.bin
+docs/numeric-face-anatomy-prototype/*.png
+docs/numeric-face-anatomy-prototype/*.jpg
+docs/numeric-face-anatomy-prototype/*.gif
+docs/numeric-face-anatomy-prototype/*.json
 docs/face-regeneration-prototype/*.png
 docs/face-regeneration-prototype/*.jpg
 docs/face-regeneration-prototype/*.gif
