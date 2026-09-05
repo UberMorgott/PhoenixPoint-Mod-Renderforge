@@ -97,6 +97,8 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 - DLSS-G generates frames only while the game window is in the foreground and resumes when focus returns.
 - The Steam overlay touches the same presentation path used by frame generation; the current build guards against recursive hooks, but disabling the overlay is a useful first check if frame generation crashes.
 - Frame generation can add latency and may show artefacts during fast camera movement, so it is off by default.
+- Tactical missions under D3D12 were dark before 1.3.0; the mod now ships its own D3D12 copies of the auto-exposure shaders, so this is fixed.
+- **For other mod authors.** While an upscaler is active the game camera renders into a lower-resolution texture: `Camera.pixelWidth/pixelHeight` report the render resolution, while `Screen.width/height` and `Camera.WorldToScreenPoint` stay in backbuffer pixels. Overlays that mix the two (for example `GL.LoadPixelMatrix(0, cam.pixelWidth, ...)`) will be drawn at the wrong scale; use `Screen.*`. Immediate-mode `GL` geometry drawn during the camera pass (`OnPostRender` / `OnRenderObject`) carries no motion vectors and will ghost under DLSS/FSR/XeSS; draw such overlays from `OnGUI` or otherwise after the camera has finished.
 
 The discontinued DLSS 5 / face-reconstruction experiments are documented in the [retirement dossier](docs/research/2026-09-05-dlss5-retirement-dossier.md). Their runtime, controls and experimental face tools are removed. Older configuration files remain readable: obsolete experiment keys are ignored and disappear on the next normal settings save; unrelated settings are retained.
 
