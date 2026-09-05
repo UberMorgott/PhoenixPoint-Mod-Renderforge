@@ -358,6 +358,54 @@ Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xe
   TopCenter is empty in tactical and geoscape; TopLeft covers the objectives title and
   BottomCenter the ability-bar key labels in tactical — user's choice, not a default.
 
+### Colour vision (daltonization, 1.4.0)
+
+Fixed-strength daltonization stage in the analytic post shader, after `Grade()` and `Stylize()`:
+`ColorVision(Grade(Stylize(p,c)))` at `native\Sharpen.cpp:74`. Tactical missions only (same gate as the
+LUT: `ColorVisionPanel.Active` checks `RenderforgeMod.TacticalActive`).
+
+- **Formula.** `D = I + R·(I − S)`, applied column-vector in linear RGB (`v' = D·v`), stored row-major.
+  `S` = Machado, Oliveira & Fernandes 2009 simulation matrices at severity 1.0, from the authors' own
+  table (https://www.inf.ufrgs.br/~oliveira/pubs_files/CVD_Simulation/CVD_Simulation.html) — verified
+  exact match. `R` = error redistribution:
+  - **protanopia:** Fidaner, Lin & Ozguven 2005 `err2mod` (`conv_img.m`), which corrects `errorp` only.
+  - **deuteranopia:** the same `err2mod`, on the authority of `daltonize/daltonize.py:125` (maintained
+    Python port, https://github.com/joergdietrich/daltonize), where the single matrix is applied for
+    every `color_deficit` value; the type argument only selects the `simulate()` matrix (`:120`). The
+    ixora distinct deutan R (`1 0.7 0 / 0 0 0 / 0 0.7 1`) was rejected — it rests on the same
+    unverified secondary table as the tritan row.
+  - **tritanopia:** per-deficiency redistribution from the matrix table at
+    https://ixora.io/projects/colorblindness/color-blindness-simulation-research.html. **Secondary
+    source, coefficients NOT independently verified.** The page cites Simon-Liedtke & Farup (JVCI 2016)
+    as justification for using a per-type matrix; it is not the published origin of these numbers.
+    Used because `err2mod` would push the tritan error onto B — the channel a tritan cannot
+    discriminate.
+- **Matrices** live in `native\ColorVision.h` (constexpr `CvCorrection(mode)`). Every row of every `D`
+  sums to 1 within 1e-6, so neutral grey/white is a fixed point.
+- **Constant buffer.** `uint colorVision` at byte 40, `float4 cvRow0/cvRow1/cvRow2` at 48/64/80 of
+  the existing 256-byte block (`native\Sharpen.cpp`). The three float4 rows are 16-byte aligned; no
+  member straddles a register boundary.
+- **Two colour-space branches** in the HLSL, keyed on `styleLinear` (the same uniform the LUT and style
+  stages branch on):
+  - UNORM path (`styleLinear == 0`): `saturate` → exact piecewise sRGB decode → `D·v` → `saturate` in
+    linear → piecewise sRGB encode.
+  - FP16-linear path (`styleLinear != 0`, the D3D12 half-colour allocation): `max(0)` → `D·v` →
+    `max(0)`, no encode — overbrights preserved.
+  Mode 0 is a uniform-branch bit-exact bypass (no decode/encode, no clamp).
+- **Activation predicate.** `PostShaderEnabled(preset, strength, style, colorVision)` at
+  `native\Sharpen.h` replaces the former two-term `ColorGradeEnabled || SceneStyleEnabled` at all 11
+  native call sites (`Sharpen.cpp`, `Device11.cpp`, `D3D12Sharpen.h`, `Device12.cpp`, `Fsr12.cpp`,
+  `Xess12.cpp`). Without this, LUT=Off + style=Off + sharpness=0 would bypass the post pass and
+  silently skip the correction.
+- **Managed side.** `ColorVisionMode` enum (`src\DlssConfig.cs`), `Dlss_SetColorVision` native export
+  (`src\Native.cs`), `ColorVisionPanel` picker row (`src\ColorVisionPanel.cs`) cloned from the LUT
+  recipe, placed between LUT and Scene style in Options → Graphics. Console setter:
+  `RenderforgeMod.SetColorVision(<mode>)`.
+- **Probe.** `native\probe\colour_vision_probe.cpp` — D3D11 WARP, production HLSL, 3 modes, 4913-colour
+  cube + 196 sRGB-knee samples + 8 gamut corners on both colour-space paths, matrices verified against
+  the independent Python reference (`native\probe\colour_vision_ref.py`), LUT+style composition on
+  both paths.
+
 ### Data flow per frame
 
 ```

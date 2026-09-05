@@ -1,6 +1,6 @@
 # Colour Vision Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship section **B** of `docs\superpowers\specs\2026-09-05-quality-knobs-colour-vision-design.md` — a fixed-strength daltonization stage (`None / Deuteranopia / Protanopia / Tritanopia`) that runs **after** `Grade()` and the scene style inside the existing analytic post pass, composes with any LUT preset or style, and activates on its own with LUT=Off / style=Off / sharpness=0.
 
@@ -62,7 +62,7 @@ README.md, docs\DESIGN.md               EDIT - user-facing + design records
 
 **Files:** `native\probe\colour_vision_ref.py` (new)
 
-- [ ] Create `native\probe\colour_vision_ref.py` with exactly this content:
+- [x] Create `native\probe\colour_vision_ref.py` with exactly this content:
 
 ```python
 """Independent reference for the Renderforge colour-vision correction matrices.
@@ -126,7 +126,7 @@ if __name__ == "__main__":
         print("    row sums: " + ", ".join("%.9f" % sum(row) for row in d))
 ```
 
-- [ ] Run it and confirm the output matches, character for character, the block below:
+- [x] Run it and confirm the output matches, character for character, the block below:
 
 ```
 python E:\DEV\PhoenixPoint\Renderforge\native\probe\colour_vision_ref.py
@@ -152,8 +152,8 @@ Tritanopia
     row sums: 1.000000000, 1.000000000, 1.000000000
 ```
 
-- [ ] Note for later steps: every row sum is 1 to within 1e-6 (the residual is the rounding in the published `S` matrices), so neutral grey/white is preserved. Task 2's probe asserts this.
-- [ ] Commit:
+- [x] Note for later steps: every row sum is 1 to within 1e-6 (the residual is the rounding in the published `S` matrices), so neutral grey/white is preserved. Task 2's probe asserts this.
+- [x] Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add native/probe/colour_vision_ref.py
@@ -175,7 +175,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "test: add independent colour-v
 > matrices, no HLSL stage, no constant rows. The red is then an *assertion* failure: the run output does
 > not match the independent reference. 2b makes the CPU half green, 2c/2d make the GPU half green.
 
-- [ ] **Scaffolding 1/3** — create `native\ColorVision.h` as a stub that returns the identity for every
+- [x] **Scaffolding 1/3** — create `native\ColorVision.h` as a stub that returns the identity for every
   mode. Everything except the body of `CvCorrection` is final; 2b fills in the body.
 
 ```cpp
@@ -198,14 +198,14 @@ constexpr CvMatrix CvCorrection(int mode)
 }
 ```
 
-- [ ] **Scaffolding 2/3** — `native\Sharpen.h`: add the include next to the existing one (`:7`, after
+- [x] **Scaffolding 2/3** — `native\Sharpen.h`: add the include next to the existing one (`:7`, after
   `#include "SceneStyle.h"`):
 
 ```cpp
 #include "ColorVision.h"
 ```
 
-- [ ] **Scaffolding 2/3** — `native\Sharpen.h`: extend the `FillSharpenConstants` declaration (`:17-19`)
+- [x] **Scaffolding 2/3** — `native\Sharpen.h`: extend the `FillSharpenConstants` declaration (`:17-19`)
   with the new trailing parameter:
 
 ```cpp
@@ -214,7 +214,7 @@ void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, u
                           const SceneStyleParams& style = SceneStyleParams{}, int colorVision = 0);
 ```
 
-- [ ] **Scaffolding 2/3** — `native\Sharpen.h`: immediately after `ColorGradeEnabled` (`:21`), add:
+- [x] **Scaffolding 2/3** — `native\Sharpen.h`: immediately after `ColorGradeEnabled` (`:21`), add:
 
 ```cpp
 inline bool ColorVisionEnabled(int mode) { return mode >= RF_CV_DEUTERANOPIA && mode <= RF_CV_TRITANOPIA; }
@@ -228,7 +228,7 @@ inline bool PostShaderEnabled(int preset, float strength, const SceneStyleParams
 }
 ```
 
-- [ ] **Scaffolding 3/3** — `native\Sharpen.cpp`: widen the `FillSharpenConstants` **definition** only
+- [x] **Scaffolding 3/3** — `native\Sharpen.cpp`: widen the `FillSharpenConstants` **definition** only
   (`:132-136`) — the new parameter and the new predicate, and nothing else. The body keeps packing exactly
   what it packs today, which is what leaves the correction bypassed:
 
@@ -241,7 +241,7 @@ void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, u
     if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision)) {
 ```
 
-- [ ] Create `native\probe\colour_vision_probe.cpp`:
+- [x] Create `native\probe\colour_vision_probe.cpp`:
 
 ```cpp
 // Exercises the production colour-vision stage without Unity, NGX, a window or a LUT asset.
@@ -501,7 +501,7 @@ int main() {
 }
 ```
 
-- [ ] Register it in `native\CMakeLists.txt` after the `scene_style_probe` block (currently ends at `:109`):
+- [x] Register it in `native\CMakeLists.txt` after the `scene_style_probe` block (currently ends at `:109`):
 
 ```cmake
 add_executable(colour_vision_probe EXCLUDE_FROM_ALL probe/colour_vision_probe.cpp Sharpen.cpp)
@@ -510,8 +510,8 @@ target_link_libraries(colour_vision_probe PRIVATE d3d11 d3dcompiler)
 target_compile_definitions(colour_vision_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 ```
 
-- [ ] Add `ColorVision.h` to the `add_library(RenderforgeNative SHARED ...)` list in `native\CMakeLists.txt`, on the line after `Sharpen.h` (`:72`). The file exists by now (scaffolding 1/3), so CMake configures instead of aborting — that is the whole point of the ordering.
-- [ ] **Red run.** The probe must BUILD and then FAIL an assertion:
+- [x] Add `ColorVision.h` to the `add_library(RenderforgeNative SHARED ...)` list in `native\CMakeLists.txt`, on the line after `Sharpen.h` (`:72`). The file exists by now (scaffolding 1/3), so CMake configures instead of aborting — that is the whole point of the ordering.
+- [x] **Red run.** The probe must BUILD and then FAIL an assertion:
 
 ```powershell
 & 'C:\Program Files\CMake\bin\cmake.exe' --build E:\DEV\PhoenixPoint\Renderforge\build\native --config Release --target colour_vision_probe -- /verbosity:minimal
@@ -526,7 +526,7 @@ FAIL: Matrix differs from the Python reference
 
 with exit code 1 (`$LASTEXITCODE` = 1). A build error here means the scaffolding is incomplete — fix that, do not proceed. A `PASS` here means the stage already exists somewhere; stop and re-read the tree.
 
-- [ ] Also re-run `lut_probe` and `scene_style_probe` now, before touching anything else — they share
+- [x] Also re-run `lut_probe` and `scene_style_probe` now, before touching anything else — they share
 `FillSharpenConstants`, and this is the cheapest moment to catch a broken signature change:
 
 ```powershell
@@ -539,7 +539,7 @@ Expected: both still print their existing `PASS:` line, exit 0.
 
 ### 2b — the matrices (half the red goes green)
 
-- [ ] Replace the whole of `native\ColorVision.h` — the stub body and its `TODO` disappear:
+- [x] Replace the whole of `native\ColorVision.h` — the stub body and its `TODO` disappear:
 
 ```cpp
 // ColorVision.h - daltonization matrices for the analytic post pass. Mode ordinals cross the managed/native
@@ -626,7 +626,7 @@ constexpr CvMatrix CvCorrection(int mode)
 }
 ```
 
-- [ ] **Second red run** — the CPU half is now green and the GPU half is still bypassed, so the failure
+- [x] **Second red run** — the CPU half is now green and the GPU half is still bypassed, so the failure
 must have MOVED to the reference comparison:
 
 ```powershell
@@ -646,7 +646,7 @@ the constants or the shader are not what this plan thinks they are; stop and re-
 
 ### 2c — the HLSL stage
 
-- [ ] In `native\Sharpen.cpp`, replace the cbuffer line of `kColorGradeHlsl` (`:47`) with:
+- [x] In `native\Sharpen.cpp`, replace the cbuffer line of `kColorGradeHlsl` (`:47`) with:
 
 ```cpp
 "cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; uint styleMode; uint pixelSize; float styleStrength; uint styleLinear; uint colorVision; float pad0; float4 cvRow0; float4 cvRow1; float4 cvRow2; };\n"
@@ -654,7 +654,7 @@ the constants or the shader are not what this plan thinks they are; stop and re-
 
 Packing note (why this is safe): the first ten scalars fill bytes 0..39; `colorVision` takes 40..43 and `pad0` 44..47, completing the third 16-byte register. The three `float4` rows then start at 48, 64 and 80 — all 16-byte aligned, so no member straddles a register boundary. Total 96 of the 256 bytes the block already reserves; nothing else moves.
 
-- [ ] In `native\Sharpen.cpp`, insert the stage between `Grade()` and `main` (after `:64`, the closing `"}\n"` of `Grade`):
+- [x] In `native\Sharpen.cpp`, insert the stage between `Grade()` and `main` (after `:64`, the closing `"}\n"` of `Grade`):
 
 ```cpp
 // Daltonization, AFTER Grade() and Stylize() so it corrects whatever the player actually sees. The matrix is
@@ -673,7 +673,7 @@ Packing note (why this is safe): the first ten scalars fill bytes 0..39; `colorV
 "}\n"
 ```
 
-- [ ] In `native\Sharpen.cpp`, change the store line of `main` (`:74`) to wrap the existing chain:
+- [x] In `native\Sharpen.cpp`, change the store line of `main` (`:74`) to wrap the existing chain:
 
 ```cpp
 "  dst[id.xy]=float4(ColorVision(Grade(Stylize(p,c))),src.Load(int3(p,0)).a); }\n";
@@ -681,7 +681,7 @@ Packing note (why this is safe): the first ten scalars fill bytes 0..39; `colorV
 
 ### 2d — constant packing
 
-- [ ] In `native\Sharpen.cpp`, replace `FillSharpenConstants` (`:132-151`, already widened in 2a) with:
+- [x] In `native\Sharpen.cpp`, replace `FillSharpenConstants` (`:132-151`, already widened in 2a) with:
 
 ```cpp
 void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
@@ -714,11 +714,11 @@ void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, u
 }
 ```
 
-- [ ] Confirm the pass predicate at `:136` still reads `if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision)) {` — it was changed in 2a and this replacement must not have reverted it.
+- [x] Confirm the pass predicate at `:136` still reads `if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision)) {` — it was changed in 2a and this replacement must not have reverted it.
 
 ### 2e — green
 
-- [ ] Build and run:
+- [x] Build and run:
 
 ```powershell
 & 'C:\Program Files\CMake\bin\cmake.exe' --build E:\DEV\PhoenixPoint\Renderforge\build\native --config Release --target lut_probe scene_style_probe colour_vision_probe -- /verbosity:minimal
@@ -736,7 +736,7 @@ PASS: production HLSL on D3D11 WARP; 9 presets; 4913-color cube; alpha, finite r
 
 plus `scene_style_probe`'s own PASS line unchanged (the LUT and style probes must be re-run: they call the same shader and the same `FillSharpenConstants`, so they are the regression gate on the cbuffer change).
 
-- [ ] Commit:
+- [x] Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add native/ColorVision.h native/Sharpen.h native/Sharpen.cpp native/CMakeLists.txt native/probe/colour_vision_probe.cpp
@@ -749,20 +749,20 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(native): add colour-visio
 
 **Files:** `native\RenderforgeNative.h`, `native\RenderforgeNative.cpp`, `native\Device.h`, `native\Device11.cpp`, `native\D3D12Sharpen.h`, `native\Device12.cpp`, `native\Fsr12.cpp`, `native\Xess12.cpp`
 
-- [ ] `native\Device.h` — add the field to `FrameParams`, after `SceneStyleParams style;` (`:33`):
+- [x] `native\Device.h` — add the field to `FrameParams`, after `SceneStyleParams style;` (`:33`):
 
 ```cpp
     int colorVision;          // DLSS_CV_*; cleared by SetFrame, filled by SetColorVision before the event is queued
 ```
 
-- [ ] `native\RenderforgeNative.h` — after the `DLSS_LUT_*` enum (`:51`), add:
+- [x] `native\RenderforgeNative.h` — after the `DLSS_LUT_*` enum (`:51`), add:
 
 ```c
 // Colour-vision correction (daltonization) applied after the grade and the scene style. Ordinals cross the ABI.
 enum { DLSS_CV_OFF = 0, DLSS_CV_DEUTERANOPIA = 1, DLSS_CV_PROTANOPIA = 2, DLSS_CV_TRITANOPIA = 3 };
 ```
 
-- [ ] `native\RenderforgeNative.h` — after the `Dlss_SetSceneStyle` declaration (`:75`), add:
+- [x] `native\RenderforgeNative.h` — after the `Dlss_SetSceneStyle` declaration (`:75`), add:
 
 ```c
 // Main thread, after SetFrame (which clears the slot) and before queuing its event - same contract as
@@ -771,7 +771,7 @@ enum { DLSS_CV_OFF = 0, DLSS_CV_DEUTERANOPIA = 1, DLSS_CV_PROTANOPIA = 2, DLSS_C
 DLSS_API void __cdecl Dlss_SetColorVision(void* slot, int mode);
 ```
 
-- [ ] `native\RenderforgeNative.cpp` — after `Dlss_SetSceneStyle` (`:214`), add:
+- [x] `native\RenderforgeNative.cpp` — after `Dlss_SetSceneStyle` (`:214`), add:
 
 ```cpp
 void __cdecl Dlss_SetColorVision(void* slot, int mode)
@@ -782,7 +782,7 @@ void __cdecl Dlss_SetColorVision(void* slot, int mode)
 }
 ```
 
-- [ ] `native\Device11.cpp:87-92` — thread the mode into the D3D11 pass:
+- [x] `native\Device11.cpp:87-92` — thread the mode into the D3D11 pass:
 
 ```cpp
     void Sharpen(ID3D11DeviceContext* ctx, ID3D11Resource* output, float sharpness,
@@ -793,36 +793,36 @@ void __cdecl Dlss_SetColorVision(void* slot, int mode)
         if (!EnsureSharpenShader(grade)) return;
 ```
 
-- [ ] `native\Device11.cpp` — find the `FillSharpenConstants(...)` call inside that same `Sharpen` body (below the view setup) and append `, colorVision` as the last argument.
-- [ ] `native\Device11.cpp:254-255` — passthrough call site:
+- [x] `native\Device11.cpp` — find the `FillSharpenConstants(...)` call inside that same `Sharpen` body (below the view setup) and append `, colorVision` as the last argument.
+- [x] `native\Device11.cpp:254-255` — passthrough call site:
 
 ```cpp
                 if (fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision))
                     Sharpen(ctx, output, fp.sharpness, fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
 ```
 
-- [ ] `native\Device11.cpp:278-279` — DLSS call site:
+- [x] `native\Device11.cpp:278-279` — DLSS call site:
 
 ```cpp
             else if (fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision))
                 Sharpen(ctx, output, fp.sharpness, fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
 ```
 
-- [ ] `native\D3D12Sharpen.h:206-207` — `Run` signature gains the mode:
+- [x] `native\D3D12Sharpen.h:206-207` — `Run` signature gains the mode:
 
 ```cpp
     void Run(ID3D12GraphicsCommandList* cl, ID3D12Resource* output, float sharpness,
              int lutPreset, float lutStrength, int slot, const SceneStyleParams& style, int colorVision)
 ```
 
-- [ ] `native\D3D12Sharpen.h:217-218` — pass it to the packer:
+- [x] `native\D3D12Sharpen.h:217-218` — pass it to the packer:
 
 ```cpp
         FillSharpenConstants(cbCpu + 256 * (size_t)slot, owner->sharpener, sharpness, w, h,
                              lutPreset, lutStrength, psoHdr, style, colorVision);
 ```
 
-- [ ] `native\D3D12Sharpen.h:257-263` — `RunPassthrough` signature, predicate and inner call:
+- [x] `native\D3D12Sharpen.h:257-263` — `RunPassthrough` signature, predicate and inner call:
 
 ```cpp
     bool RunPassthrough(ID3D12GraphicsCommandList* cl, ID3D12Resource* color, ID3D12Resource* output,
@@ -833,13 +833,13 @@ void __cdecl Dlss_SetColorVision(void* slot, int mode)
         bool grade = PostShaderEnabled(lutPreset, lutStrength, style, colorVision);
 ```
 
-- [ ] `native\D3D12Sharpen.h:272` — the inner `Run` call inside `RunPassthrough`:
+- [x] `native\D3D12Sharpen.h:272` — the inner `Run` call inside `RunPassthrough`:
 
 ```cpp
         Run(cl, owned.out, sharpness, lutPreset, lutStrength, slot, style, colorVision);
 ```
 
-- [ ] `native\Device12.cpp:188-190`:
+- [x] `native\Device12.cpp:188-190`:
 
 ```cpp
             bool wantPost = fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
@@ -847,19 +847,19 @@ void __cdecl Dlss_SetColorVision(void* slot, int mode)
                                                       fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision))
 ```
 
-- [ ] `native\Device12.cpp:196`:
+- [x] `native\Device12.cpp:196`:
 
 ```cpp
             bool grade = PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
 ```
 
-- [ ] `native\Device12.cpp:220`:
+- [x] `native\Device12.cpp:220`:
 
 ```cpp
             else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision);
 ```
 
-- [ ] `native\Fsr12.cpp:289-291`:
+- [x] `native\Fsr12.cpp:289-291`:
 
 ```cpp
             bool wantPost = fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
@@ -867,19 +867,19 @@ void __cdecl Dlss_SetColorVision(void* slot, int mode)
                                                    fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision))
 ```
 
-- [ ] `native\Fsr12.cpp:297` — note FSR does its own RCAS, so `doPost` (`:298`) is driven by `grade` alone; extending `grade` is exactly what makes colour vision reach the FSR path:
+- [x] `native\Fsr12.cpp:297` — note FSR does its own RCAS, so `doPost` (`:298`) is driven by `grade` alone; extending `grade` is exactly what makes colour vision reach the FSR path:
 
 ```cpp
             bool grade = PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
 ```
 
-- [ ] `native\Fsr12.cpp:346`:
+- [x] `native\Fsr12.cpp:346`:
 
 ```cpp
             else if (doPost) post.Run(cl, owned.out, 0.0f, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision);
 ```
 
-- [ ] `native\Xess12.cpp:324-326`:
+- [x] `native\Xess12.cpp:324-326`:
 
 ```cpp
             bool wantPost = fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
@@ -887,19 +887,19 @@ void __cdecl Dlss_SetColorVision(void* slot, int mode)
                                                       fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision))
 ```
 
-- [ ] `native\Xess12.cpp:332`:
+- [x] `native\Xess12.cpp:332`:
 
 ```cpp
             bool grade = PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
 ```
 
-- [ ] `native\Xess12.cpp:364`:
+- [x] `native\Xess12.cpp:364`:
 
 ```cpp
             else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision);
 ```
 
-- [ ] Prove no predicate was missed. Before this task the old two-term disjunction appears at **11** sites (`Sharpen.cpp:136`, `Device11.cpp:91/254/278`, `D3D12Sharpen.h:261`, `Device12.cpp:188/196`, `Fsr12.cpp:289/297`, `Xess12.cpp:324/332`). Afterwards exactly **one** occurrence may remain — the body of `PostShaderEnabled` in `Sharpen.h`, which is the whole point of the refactor. The naive regex matches that body too, so it needs a lookahead that permits the three-term form and rejects every two-term one:
+- [x] Prove no predicate was missed. Before this task the old two-term disjunction appears at **11** sites (`Sharpen.cpp:136`, `Device11.cpp:91/254/278`, `D3D12Sharpen.h:261`, `Device12.cpp:188/196`, `Fsr12.cpp:289/297`, `Xess12.cpp:324/332`). Afterwards exactly **one** occurrence may remain — the body of `PostShaderEnabled` in `Sharpen.h`, which is the whole point of the refactor. The naive regex matches that body too, so it needs a lookahead that permits the three-term form and rejects every two-term one:
 
 ```powershell
 Select-String -Path E:\DEV\PhoenixPoint\Renderforge\native\*.cpp,E:\DEV\PhoenixPoint\Renderforge\native\*.h `
@@ -908,7 +908,7 @@ Select-String -Path E:\DEV\PhoenixPoint\Renderforge\native\*.cpp,E:\DEV\PhoenixP
 
 Expected: **no output at all** (`Select-String` prints nothing when nothing matches).
 
-- [ ] Positive control, so "no output" cannot mean "the regex is broken" — the one permitted definition must be found exactly once:
+- [x] Positive control, so "no output" cannot mean "the regex is broken" — the one permitted definition must be found exactly once:
 
 ```powershell
 @(Select-String -Path E:\DEV\PhoenixPoint\Renderforge\native\Sharpen.h `
@@ -917,7 +917,7 @@ Expected: **no output at all** (`Select-String` prints nothing when nothing matc
 
 Expected output: `1`.
 
-- [ ] Full native build (this is also the FG/Streamline regression gate):
+- [x] Full native build (this is also the FG/Streamline regression gate):
 
 ```powershell
 E:\DEV\PhoenixPoint\Renderforge\build-native.ps1
@@ -934,7 +934,7 @@ E:\DEV\PhoenixPoint\Renderforge\build\native\Release\scene_style_probe.exe
 
 Expected: three `PASS:` lines, exit 0 each.
 
-- [ ] Commit:
+- [x] Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add native
@@ -947,7 +947,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(native): export Dlss_SetC
 
 **Files:** `src\Native.cs`, `src\DlssConfig.cs`, `src\DlssDriver.cs`
 
-- [ ] `src\Native.cs` — after the `Dlss_SetSceneStyle` import (`:110-111`), add:
+- [x] `src\Native.cs` — after the `Dlss_SetSceneStyle` import (`:110-111`), add:
 
 ```csharp
         // Same slot contract as Dlss_SetSceneStyle: fill after Dlss_SetFrame, before the event is queued.
@@ -955,7 +955,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(native): export Dlss_SetC
         public static extern void Dlss_SetColorVision(IntPtr slot, int mode);
 ```
 
-- [ ] `src\DlssConfig.cs` — after the `LutPreset` enum (`:22`), add:
+- [x] `src\DlssConfig.cs` — after the `LutPreset` enum (`:22`), add:
 
 ```csharp
     /// <summary>Colour-vision correction (daltonization). Ordinals cross the managed/native ABI; append only.</summary>
@@ -970,7 +970,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(native): export Dlss_SetC
 > read the current text first, and add to it. If a snippet below shows a full replacement line and the
 > file already carries A's names, use the "quality knobs already landed" variant.
 
-- [ ] `src\DlssConfig.cs` — add the field name to `HiddenFromModSettings` (anchor: the initializer containing `nameof(CrispFonts)`).
+- [x] `src\DlssConfig.cs` — add the field name to `HiddenFromModSettings` (anchor: the initializer containing `nameof(CrispFonts)`).
 
 If the quality-knobs plan has **not** landed, the last line becomes:
 
@@ -987,27 +987,27 @@ If it **has** landed (its four names are already there), keep them and append ou
             nameof(ColorVision)
 ```
 
-- [ ] `src\DlssConfig.cs` — add the field immediately after the `PixelSize` field (`:51` pre-A; anchor: `public int PixelSize`). Pure insert — it never collides with A's fields, which go in after `CrispFonts`:
+- [x] `src\DlssConfig.cs` — add the field immediately after the `PixelSize` field (`:51` pre-A; anchor: `public int PixelSize`). Pure insert — it never collides with A's fields, which go in after `CrispFonts`:
 
 ```csharp
         [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Scene only; the interface is drawn after this pass. Also in Options → Graphics.")]
         public ColorVisionMode ColorVision = ColorVisionMode.None;
 ```
 
-- [ ] `src\DlssConfig.cs` — add the Russian entry to `Ru`, after the `nameof(PixelSize)` row (`:89` pre-A). Pure insert; A's four RU rows go in after the `FrameGen` row and do not conflict:
+- [x] `src\DlssConfig.cs` — add the Russian entry to `Ru`, after the `nameof(PixelSize)` row (`:89` pre-A). Pure insert; A's four RU rows go in after the `FrameGen` row and do not conflict:
 
 ```csharp
             { nameof(ColorVision), new[] { "Цветовое зрение", "Выкл, дейтеранопия, протанопия или тританопия. Перераспределяет неразличимые цвета на различимые каналы. Только сцена: интерфейс рисуется после этого прохода. Также в Настройки → Графика." } },
 ```
 
-- [ ] `src\DlssDriver.cs:197` — the pipeline must start for colour vision alone (upscaler Off, LUT Off, style Off):
+- [x] `src\DlssDriver.cs:197` — the pipeline must start for colour vision alone (upscaler Off, LUT Off, style Off):
 
 ```csharp
             bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg)
                 || ColorVisionPanel.Active(cfg);
 ```
 
-- [ ] **One gate, not two.** Activation (`:197`) and submission (`:504`, below) must ask the *same*
+- [x] **One gate, not two.** Activation (`:197`) and submission (`:504`, below) must ask the *same*
 question, or the geoscape gets a post pass that starts for colour vision and then never receives the
 mode — an uncorrected passthrough pass, pure cost and a real risk of a visual delta from a pass that
 should not be running at all. `lutPreset` is already tactical-gated at `:492` and `Dlss_SetColorVision`
@@ -1025,7 +1025,7 @@ up and cannot drift apart. In `src\ColorVisionPanel.cs` (Task 5) `Active` theref
 Known and deliberately untouched asymmetry: `SceneStylePanel.Active(cfg)` carries no tactical gate. That
 is existing behaviour of a shipped feature; do not "fix" it inside this plan.
 
-- [ ] `src\DlssDriver.cs:504-506` — send the mode on the same slot, right after the scene-style send. The tactical gate lives inside `ColorVisionPanel.Active`, so this call site and `:197` are literally the same predicate — do **not** re-spell it here:
+- [x] `src\DlssDriver.cs:504-506` — send the mode on the same slot, right after the scene-style send. The tactical gate lives inside `ColorVisionPanel.Active`, so this call site and `:197` are literally the same predicate — do **not** re-spell it here:
 
 ```csharp
                 if (SceneStylePanel.Active(cfg))
@@ -1035,7 +1035,7 @@ is existing behaviour of a shipped feature; do not "fix" it inside this plan.
                     Native.Dlss_SetColorVision(slot, (int)cfg.ColorVision);
 ```
 
-- [ ] This task does not build on its own — `ColorVisionPanel` arrives in Task 5. Do not run `dotnet build` here; go straight to Task 5 and commit both together at the end of it.
+- [x] This task does not build on its own — `ColorVisionPanel` arrives in Task 5. Do not run `dotnet build` here; go straight to Task 5 and commit both together at the end of it.
 
 ---
 
@@ -1043,7 +1043,7 @@ is existing behaviour of a shipped feature; do not "fix" it inside this plan.
 
 **Files:** `src\ColorVisionPanel.cs` (new), `src\GraphicsPanel.cs`, `src\Pickers.cs`, `src\RenderforgeMod.cs`
 
-- [ ] Create `src\ColorVisionPanel.cs` — the `LutPanel` picker recipe with the strength slider removed (the spec fixes the correction at full strength; there is no v1 slider):
+- [x] Create `src\ColorVisionPanel.cs` — the `LutPanel` picker recipe with the strength slider removed (the spec fixes the correction at full strength; there is no v1 slider):
 
 ```csharp
 using System;
@@ -1144,7 +1144,7 @@ namespace Renderforge
 > block wholesale. `QualityPanel.*` exists only after `2026-09-05-quality-knobs.md` has landed; omit
 > those lines if it has not, and add them without touching ours if it lands later.
 
-- [ ] `src\GraphicsPanel.cs:43` — hide it with the others when the rows are turned off (anchor: the `LutPanel.Hide` line inside the `ShowInGraphicsOptions == false` branch). Insert exactly one line; the `QualityPanel.Hide` line is A's and is present only if A landed:
+- [x] `src\GraphicsPanel.cs:43` — hide it with the others when the rows are turned off (anchor: the `LutPanel.Hide` line inside the `ShowInGraphicsOptions == false` branch). Insert exactly one line; the `QualityPanel.Hide` line is A's and is present only if A landed:
 
 ```csharp
                     LutPanel.Hide(src.transform.parent);
@@ -1153,7 +1153,7 @@ namespace Renderforge
                     QualityPanel.Hide(src.transform.parent);              // quality-knobs plan; omit if not landed
 ```
 
-- [ ] `src\GraphicsPanel.cs:61-62` — build it directly after the LUT rows. `SceneStylePanel.Build` returns the last row it made (`src\SceneStylePanel.cs:30`), so chaining `after =` through it is safe whether or not anything follows:
+- [x] `src\GraphicsPanel.cs:61-62` — build it directly after the LUT rows. `SceneStylePanel.Build` returns the last row it made (`src\SceneStylePanel.cs:30`), so chaining `after =` through it is safe whether or not anything follows:
 
 ```csharp
                 after = LutPanel.Build(__instance, sharp != null ? sharp.transform.parent : picker.transform, mod.Cfg);
@@ -1166,7 +1166,7 @@ If the quality-knobs plan has not landed, the last line is dropped and the `Scen
 its original `SceneStylePanel.Build(__instance, after, mod.Cfg);` form — but writing `after =` now costs
 nothing and is what A's Task 5 step 2 expects to find.
 
-- [ ] `src\Pickers.cs:89-90` — drop the cached controller with the others. One line; leave any `QualityPanel.Clear()` that is already there:
+- [x] `src\Pickers.cs:89-90` — drop the cached controller with the others. One line; leave any `QualityPanel.Clear()` that is already there:
 
 ```csharp
             LutPanel.Clear();
@@ -1174,7 +1174,7 @@ nothing and is what A's Task 5 step 2 expects to find.
             SceneStylePanel.Clear();
 ```
 
-- [ ] `src\RenderforgeMod.cs` — after `SetLut` (`:338`), add the PPCLI setter, same shape as `SetLut`/`SetSceneStyle`. No `AttachAndApply`: the driver reads the value every frame and no temporal feature is recreated.
+- [x] `src\RenderforgeMod.cs` — after `SetLut` (`:338`), add the PPCLI setter, same shape as `SetLut`/`SetSceneStyle`. No `AttachAndApply`: the driver reads the value every frame and no temporal feature is recreated.
 
 ```csharp
         /// <summary>PPCLI/live A-B surface: mode = None/Deuteranopia/Protanopia/Tritanopia.</summary>
@@ -1192,7 +1192,7 @@ nothing and is what A's Task 5 step 2 expects to find.
         }
 ```
 
-- [ ] Build the managed side:
+- [x] Build the managed side:
 
 ```powershell
 dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release '/p:PPRoot=D:\PP-Instance3' -v:q
@@ -1200,7 +1200,7 @@ dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release '/p:P
 
 Expected: `Build succeeded.` with **0 Warning(s), 0 Error(s)**.
 
-- [ ] Commit Tasks 4 and 5 together (the managed side does not compile split across them):
+- [x] Commit Tasks 4 and 5 together (the managed side does not compile split across them):
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add src
@@ -1213,7 +1213,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat: add colour vision settin
 
 Instance3 only. Never `D:\PP-Instance2`, never `D:\Steam\steamapps\common\Phoenix Point`.
 
-- [ ] Deploy:
+- [x] Deploy:
 
 ```powershell
 E:\DEV\PhoenixPoint\Renderforge\deploy.ps1 -PPRoot 'D:\PP-Instance3'
@@ -1221,13 +1221,13 @@ E:\DEV\PhoenixPoint\Renderforge\deploy.ps1 -PPRoot 'D:\PP-Instance3'
 
 Expected: no `REFUSED` (close the Instance3 game first if it is running), `dotnet build` succeeds, the DLLs land in `D:\PP-Instance3\Mods\Renderforge`, and `RenderforgeNative.dll` is staged into `D:\PP-Instance3\PhoenixPointWin64_Data\Plugins\x86_64`.
 
-- [ ] Update PPCLI first — the `-Window` capture below only exists from commit `f5878b7`:
+- [x] Update PPCLI first — the `-Window` capture below only exists from commit `f5878b7`:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\PPCLI pull
 ```
 
-- [ ] Launch Instance3 into a tactical mission and wait until PPCLI actually answers before sending anything else. Every command in this task carries `-PPRoot 'D:\PP-Instance3'` so it can never reach Instance2 or the user's Steam install:
+- [x] Launch Instance3 into a tactical mission and wait until PPCLI actually answers before sending anything else. Every command in this task carries `-PPRoot 'D:\PP-Instance3'` so it can never reach Instance2 or the user's Steam install:
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -1265,7 +1265,7 @@ not (`:303`, `:311-314`, `:329`). A knob flipped after the generation was built,
 D3D11 and never rebuilt, leaves the two disagreeing. **`DlssDriver.Status` does not print `liveHalfColor` at
 all**, so `GetStatus` alone can never prove which branch the shader took.
 
-- [ ] Read the LIVE allocation off the render targets themselves. `Instance` is a public static property
+- [x] Read the LIVE allocation off the render targets themselves. `Instance` is a public static property
 (`src\DlssDriver.cs:13`); `colorRT` / `outRT` / `liveHalfColor` are private (`:19`, `:41`) and PPCLI's
 reflection reaches private members (`PPCLI\docs\REFERENCE.md:505`). Each `get` on a non-scalar returns a
 handle — feed it to the next call as `target`:
@@ -1300,7 +1300,7 @@ re-creates them), then re-read steps 2–4 before capturing:
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetD3D12HalfColor","args":[true]}' -PPRoot 'D:\PP-Instance3'
 ```
 
-- [ ] **Frame generation: `lastError=0` proves nothing.** `Dlss_LastError` is the upscaler's error slot; it
+- [x] **Frame generation: `lastError=0` proves nothing.** `Dlss_LastError` is the upscaler's error slot; it
 stays `0` when FG never started, when the provider was rejected, and when the chain detached mid-run. The
 FG state is the `fg=` token, which is `FrameGen.Status()` = `live `/`off ` + the native `Fg_Status()` line
 (`src\FrameGen.cs:176`, `RenderforgeMod.cs:490`). That line is formatted at `native\FgHost.cpp:601-608`:
@@ -1389,7 +1389,7 @@ case (ids from `native\RenderforgeNative.h:142` — `enum { FG_PROVIDER_NONE = 0
 FG_PROVIDER_XESS = 2, FG_PROVIDER_DLSS = 3 };`), `Fg_Reason` = `""`. `Fg_Alive=0` on a case 7–9 capture means that capture is **not** FG evidence —
 fix it or mark the case failed; do not report it as passing because `lastError` was `0`.
 
-- [ ] Record, verbatim, for each of the two launches (6c pass 1 and pass 2): `api=` / `provider=` /
+- [x] Record, verbatim, for each of the two launches (6c pass 1 and pass 2): `api=` / `provider=` /
 `d3d12HalfColor=` (requested) / `liveHalfColor` (latched) / `colorRT.graphicsFormat` / `outRT.graphicsFormat`,
 and — for cases 7–9 — the `fg=` line plus `Fg_Alive` / `Fg_Provider`. A case whose readback does not match
 its intended renderer, colour format or FG state is **not evidence** — relaunch or fix, do not report it.
@@ -1535,7 +1535,7 @@ finally {
 Files this produces per case (list them in the record): `cv-<case>-control-a-off.png`,
 `cv-<case>-control-b-off.png`, `cv-<case>-set-deut.png`, `cv-<case>-set-prot.png`, `cv-<case>-set-trit.png`.
 
-- [ ] Write the comparison script **once**, to `C:\Temp\rf-cv\cmp.py`. It reports mean |Δ| per channel over
+- [x] Write the comparison script **once**, to `C:\Temp\rf-cv\cmp.py`. It reports mean |Δ| per channel over
       two regions: a stable scene box and a HUD box that our pass must never touch.
 
 ```python
@@ -1568,7 +1568,7 @@ for name, f in (("scene", SCENE), ("hud", HUD)):
           (label, name, st.mean[0], st.mean[1], st.mean[2], mx))
 ```
 
-- [ ] Run it per case — control floor first, then each mode, then mode-vs-mode:
+- [x] Run it per case — control floor first, then each mode, then mode-vs-mode:
 
 ```powershell
 $case = 'd3d11-off'
@@ -1625,7 +1625,7 @@ Example of setting a case (case 3):
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetSceneStyle","args":["Cartoon",70,4]}' -PPRoot 'D:\PP-Instance3'
 ```
 
-- [ ] **FG transition test** (cases 7–9, one extra step each). With colour vision left ON at `Deuteranopia`, walk frame generation `X2 → Off → X2` and capture after each step; the correction must be present in all three:
+- [x] **FG transition test** (cases 7–9, one extra step each). With colour vision left ON at `Deuteranopia`, walk frame generation `X2 → Off → X2` and capture after each step; the correction must be present in all three:
 
 The three legs are `X2 → Off → X2`, so the two X2 legs would collide on one filename. The step label is
 therefore part of the name (`fg1-x2`, `fg2-off`, `fg3-x2`), never the FG value alone.
@@ -1684,7 +1684,7 @@ Acceptance, per leg:
   upscaler's error slot (`Native.Dlss_LastError()`) and stays `0` when FG never started at all. Judge FG by
   the tokens above, and `lastError` only as a "the upscale pass did not break" check.
 
-- [ ] After every case, restore the state you changed. The `timeScale` is already back — the `finally` above
+- [x] After every case, restore the state you changed. The `timeScale` is already back — the `finally` above
   restored the value read before the pause — so only the feature state is left:
 
 ```powershell
@@ -1693,13 +1693,15 @@ Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGe
 Rf-Call '{"op":"get","type":"UnityEngine.Time","member":"timeScale"}'   # confirm it is back at $prevScale, not hard-coded 1
 ```
 
-- [ ] Record, for every case: the full 6a readback — `api=` / `provider=` / `d3d12HalfColor=` (requested) /
+- [x] Record, for every case: the full 6a readback — `api=` / `provider=` / `d3d12HalfColor=` (requested) /
 `liveHalfColor` (latched) / `colorRT.graphicsFormat` / `outRT.graphicsFormat`, plus `fg=` + `Fg_Alive` /
 `Fg_Provider` for cases 7–9 — the control floor, the three scene/HUD deltas, and **the list of capture
 filenames** (`cv-<case>-<step>-<mode>.png`) the case produced. Those numbers go into the doc in Task 7. A
 case reported without its readback, or with two captures sharing a filename, is not evidence.
-- [ ] If PPCLI itself misbehaves at any point, append an entry to `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity) and work around it. Do not edit PPCLI source.
-- [ ] Nothing to commit in this task unless a fix was needed; if the live run forced a code change, re-run Task 2e's probes and commit the fix on its own.
+- [x] If PPCLI itself misbehaves at any point, append an entry to `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity) and work around it. Do not edit PPCLI source.
+- [x] Nothing to commit in this task unless a fix was needed; if the live run forced a code change, re-run Task 2e's probes and commit the fix on its own.
+
+**Note (Task 6):** the `d3d11-off` case (case 1) initially failed — a D3D12-only upscaler (XeSS) left pinned in the config disabled the post pass entirely on D3D11, so the colour-vision correction never ran. Fixed in `a57bef4` (upscaler falls back to Auto on D3D11); the case passed after that commit.
 
 ---
 
@@ -1707,20 +1709,20 @@ case reported without its readback, or with two captures sharing a filename, is 
 
 **Files:** `README.md`, `docs\DESIGN.md`
 
-- [ ] `README.md` — add a bullet to **What it does**, after the Scene styles bullet (`:16`):
+- [x] `README.md` — add a bullet to **What it does**, after the Scene styles bullet (`:16`):
 
 ```markdown
 - **Colour vision correction** offers Deuteranopia, Protanopia and Tritanopia daltonization for tactical missions, at full fixed strength, composed on top of any LUT filter or scene style. It redistributes the colours the eye cannot separate onto the channels it can, using the Machado et al. (2009) simulation matrices. The correction applies to the **scene only** — the interface is composited after this pass and is not corrected.
 ```
 
-- [ ] `README.md` — add a row to the settings table, after the Scene style row (`:82`):
+- [x] `README.md` — add a row to the settings table, after the Scene style row (`:82`):
 
 ```markdown
 | Colour vision | Off | Deuteranopia, Protanopia or Tritanopia correction for tactical missions, at full strength. Scene only: the HUD and menus are drawn after this pass and stay uncorrected. |
 ```
 
-- [ ] `docs\DESIGN.md` — add a `### Colour vision` subsection under `### Renderforge.dll (C#, ~700 LOC)`'s neighbourhood (place it before `### Data flow per frame`, `:361`), recording: the stage order (after `Grade()` and `Stylize()`); `D = I + R·(I − S)` with all three sources from the provenance table at the top of this plan — protan `R` from Fidaner's `conv_img.m` (which corrects `errorp` only), deutan `R` the same matrix on the authority of `daltonize/daltonize.py:125`, tritan `R` from the ixora matrix table at `https://ixora.io/projects/colorblindness/color-blindness-simulation-research.html`, flagged as an unverified secondary source whose Simon-Liedtke & Farup 2016 reference justifies the per-type approach but is not the origin of the numbers, and the note that ixora's differing deuteranopia `R` was rejected; the constant-buffer extension (`colorVision` at byte 40, `cvRow0..2` at 48/64/80 of the 256-byte block); the two colour-space branches keyed on `styleLinear`; `PostShaderEnabled` as the single activation seam replacing the old two-term disjunction at all 11 native call sites; and the measured live deltas from Task 6.
-- [ ] Commit:
+- [x] `docs\DESIGN.md` — add a `### Colour vision` subsection under `### Renderforge.dll (C#, ~700 LOC)`'s neighbourhood (place it before `### Data flow per frame`, `:361`), recording: the stage order (after `Grade()` and `Stylize()`); `D = I + R·(I − S)` with all three sources from the provenance table at the top of this plan — protan `R` from Fidaner's `conv_img.m` (which corrects `errorp` only), deutan `R` the same matrix on the authority of `daltonize/daltonize.py:125`, tritan `R` from the ixora matrix table at `https://ixora.io/projects/colorblindness/color-blindness-simulation-research.html`, flagged as an unverified secondary source whose Simon-Liedtke & Farup 2016 reference justifies the per-type approach but is not the origin of the numbers, and the note that ixora's differing deuteranopia `R` was rejected; the constant-buffer extension (`colorVision` at byte 40, `cvRow0..2` at 48/64/80 of the 256-byte block); the two colour-space branches keyed on `styleLinear`; `PostShaderEnabled` as the single activation seam replacing the old two-term disjunction at all 11 native call sites; and the measured live deltas from Task 6.
+- [x] Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add README.md docs/DESIGN.md

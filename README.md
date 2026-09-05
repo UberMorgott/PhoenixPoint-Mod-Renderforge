@@ -14,6 +14,7 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **Tactical LUT filters** add nine original live colour grades after temporal reconstruction: Realistic Desaturated, Neutral, Cinematic Bleach, Vivid, B&W Cinema, Noir, Amber Film, Arctic, and Vintage Sepia, with a 0–100 strength control and no bundled third-party assets. Geoscape and non-tactical screens remain ungraded.
 - **Automatic mip bias** keeps textures appropriately detailed when the game renders below the output resolution.
 - **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to 4-pixel blocks and a moderate palette; block size remains adjustable from 2 to 16 actual output pixels. The filters run after reconstruction and preserve the output-resolution interface.
+- **Colour vision correction** offers Deuteranopia, Protanopia and Tritanopia daltonization for tactical missions, at full fixed strength, composed on top of any LUT filter or scene style. It redistributes the colours the eye cannot separate onto the channels it can, using the Machado et al. (2009) simulation matrices. The correction applies to the **scene only** — the interface is composited after this pass and is not corrected.
 - **Crisp fonts** improve supported dynamic interface text while retaining the original letter positions and layout. Unsupported or mismatched text uses the original rendering.
 - **Frame-rate control** removes the vanilla 60 FPS pin and can optionally apply a 30–300 FPS limit.
 - **Benchmark overlay** toggles with `Ctrl+Alt+O` and shows the renderer, upscaler, mode, resolution, frame time, real FPS, and presented FPS when frame generation is active.
@@ -36,7 +37,7 @@ The tactical and geoscape scenes are reconstructed; the interface remains at the
 | FSR Frame Generation 2x | Any modern GPU | D3D12 |
 | XeSS upscaling | Any modern GPU | D3D12 |
 | XeSS-FG frame generation 2x | Any modern GPU | D3D12 |
-| NIS sharpening, LUT filters, mip bias, FPS controls, overlay | Any supported GPU | D3D11 or D3D12 |
+| NIS sharpening, LUT filters, colour vision, mip bias, FPS controls, overlay | Any supported GPU | D3D11 or D3D12 |
 
 Phoenix Point starts in D3D11 by default. To use D3D12, choose **DirectX 12 (experimental)** under **Options → Graphics → Renderer**, press **Apply**, and accept the restart. Renderforge preserves the existing command line and relaunches the game with `-force-d3d12`. With PPModEnabler on GOG or Epic, the relaunch also resets Doorstop's inherited process marker so the mod loader and enabled mods start normally.
 
@@ -68,7 +69,7 @@ Start Phoenix Point with mod support enabled, open **Main menu → Mods**, enabl
 
 ## Settings
 
-The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, and scene styles are under **Options → Graphics**; the FPS limiter and crisp fonts are under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
+The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, scene styles, and colour vision are under **Options → Graphics**; the FPS limiter and crisp fonts are under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
 
 | Setting | Default | Notes |
 |---|---:|---|
@@ -81,6 +82,7 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | LUT strength | 100 | Live 0–100 blend from the original image to the selected grade. |
 | Scene style | Off | Cartoon or PixelArt; live 0–100 strength, default 100. This is screen filtering, not a geometry replacement. |
 | Pixel block size | 2 | Actual output pixels; adjustable from 2 to 16. |
+| Colour vision | Off | Deuteranopia, Protanopia or Tritanopia correction for tactical missions, at full strength. Scene only: the HUD and menus are drawn after this pass and stay uncorrected. |
 | Vignette | Vanilla | Vanilla keeps the mission's own vignette; Off removes the darkened frame edges. |
 | Shadow resolution | Vanilla | Vanilla keeps the graphics preset's value; Very High raises the shadow map size. |
 | Anisotropic filtering | Vanilla | Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture. |
@@ -115,6 +117,7 @@ The frame-time and VRAM cost of Very High shadows and LOD detail 4.0 has not bee
 - The Steam overlay touches the same presentation path used by frame generation; the current build guards against recursive hooks, but disabling the overlay is a useful first check if frame generation crashes.
 - Frame generation can add latency and may show artefacts during fast camera movement, so it is off by default.
 - Tactical missions under D3D12 were dark before 1.3.0; the mod now ships its own D3D12 copies of the auto-exposure shaders, so this is fixed.
+- A D3D12-only upscaler (FSR or XeSS) left selected while running D3D11 used to disable the entire post pass (LUT, scene styles, colour vision) until the upscaler was changed; fixed in 1.4.0 by falling back to Auto on D3D11.
 - **For other mod authors.** While an upscaler is active the game camera renders into a lower-resolution texture: `Camera.pixelWidth/pixelHeight` report the render resolution, while `Screen.width/height` and `Camera.WorldToScreenPoint` stay in backbuffer pixels. Overlays that mix the two (for example `GL.LoadPixelMatrix(0, cam.pixelWidth, ...)`) will be drawn at the wrong scale; use `Screen.*`. Immediate-mode `GL` geometry drawn during the camera pass (`OnPostRender` / `OnRenderObject`) carries no motion vectors and will ghost under DLSS/FSR/XeSS; draw such overlays from `OnGUI` or otherwise after the camera has finished.
 
 The discontinued DLSS 5 / face-reconstruction experiments are documented in the [retirement dossier](docs/research/2026-09-05-dlss5-retirement-dossier.md). Their runtime, controls and experimental face tools are removed. Older configuration files remain readable: obsolete experiment keys are ignored and disappear on the next normal settings save; unrelated settings are retained.
