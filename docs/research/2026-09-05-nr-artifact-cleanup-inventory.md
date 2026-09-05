@@ -59,3 +59,9 @@
 - Preserve ordinary LUT/style validation: `docs/lut-cinema-pack`, `docs/scene-stylization`, their Markdown reports, `D:\RenderforgeWork\lut-pack` and `D:\Renderforge-work\scene-style`. The hyphenated `Renderforge-work` and `RenderforgeWork` are distinct roots.
 - Preserve game saves/configurations, user inputs, source art, current ordinary-provider builds and unrelated tool caches. `D:\RenderforgeWork\deploy-b62d161` is a mixed rollback backup, not wholesale NR junk.
 - Provenance sources: original pasted task attachment; character/mask, albedo, toolchain, micro-normal, numeric anatomy and rest-mesh reports linked in the dossier; exact file extension/name/script-reference inventory. No game call, build or global settings mutation was performed for this documentation task.
+
+## Execution receipt after dossier commit
+
+- Completed distinct authorized batch:2290 files /8,565,395,555 bytes removed; five non-build candidate roots plus45 explicitly selected docs files. Receipt: `D:\RenderforgeWork\nr-retirement-inventory\cleanup-receipt.json`; status `complete`, retained font hash unchanged.
+- Remaining generated candidate inventory under build-owner hold:719 files /621,376,933 bytes. Additional41 flat build diagnostics, refs/build-output runtimes and installed runtime were excluded and untouched. Retention entries above remain in force.
+- The original inventory totals are an audit snapshot, not a current existence claim. No automatic-review rejection was bypassed; no alternate deletion was attempted against held targets.

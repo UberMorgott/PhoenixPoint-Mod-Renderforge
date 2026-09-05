@@ -1,8 +1,10 @@
 # Numerical facial anatomy experiment, 2026-09-05
 
+> Archived experiment: NR and face enhancement were retired on2026-09-05. Generated screenshots, obsolete docs probes and abandoned D: workspaces were removed at the user's request. Commands below record historical verification and must not be run against the current mod; its diagnostic APIs were removed. Compact JSON/results remain. See the [retirement dossier](research/2026-09-05-dlss5-retirement-dossier.md).
+
 - **Rejected as a human-quality improvement.** A single shared numerical profile changed the upper eyelids on fixed Sophia and ordinary Yael. It opened the eyes slightly, sometimes making the expression more startled. The same waxy anatomy and skin response remain; configured NR Auto did not turn this into natural face reconstruction.
 - This is useful evidence that compact code can change actual facial geometry through the existing rig. It does not establish that a small generic numerical profile can replace missing art/anatomy. No production hook or new settings entry was added; no per-face images, model weights, backend or downloads are runtime dependencies. Shutdown remains cancelled.
-- Review: [Sophia](numeric-face-anatomy-prototype/sofia-comparison.jpg), [Yael](numeric-face-anatomy-prototype/yael-comparison.jpg), [capture/restoration evidence](numeric-face-anatomy-prototype/evidence.json).
+- Review: [archived result: Sophia](research/2026-09-05-dlss5-retirement-dossier.md), [archived result: Yael](research/2026-09-05-dlss5-retirement-dossier.md), [capture/restoration evidence](numeric-face-anatomy-prototype/evidence.json).
 
 ## Grounded profile
 
@@ -28,10 +30,10 @@
 - Final live handoff: Sophia selected, helmet visible, `timeScale=1`, NR Auto `0.99 / 0.89 / 0.82 / 0.26`, DLAA, FG X2, ShowOverlay false; `GameObject.Find("Renderforge mask diagnostic")` returned null. No game restart, runtime deployment, game save, push or shutdown occurred.
 - Ordinary hair changes were not repeated in this experiment. The shared eyelid/eyelash/eye-shadow relationships were inventoried on Yael's current hair. This proves the tested fixed and ordinary heads only, not all customization variants or tactical animation.
 
-## Reproduction and verification
+## Historical reproduction and verification
 
-- [Isolated source](numeric-face-anatomy-prototype/AnatomyProbe.cs), [project](numeric-face-anatomy-prototype/Probe.csproj). These compile alongside the existing diagnostic source; the rejected extension stays under `docs/` and adds zero bytes to the production DLL. Raw images and experimental build outputs are on `D:\RenderforgeWork\numeric-anatomy`.
+- [archived result: Isolated source](research/2026-09-05-dlss5-retirement-dossier.md), [archived result: project](research/2026-09-05-dlss5-retirement-dossier.md). These compiled alongside the then-existing diagnostic source; the rejected extension added zero bytes to the production DLL. Probe source/projects and the D: numeric-anatomy workspace were subsequently removed; source is recoverable from commit `82efe8` history.
 - Build: `dotnet build docs\numeric-face-anatomy-prototype\Probe.csproj -c Release /p:PPRoot="D:\Steam\steamapps\common\Phoenix Point" /p:BaseIntermediateOutputPath="D:\RenderforgeWork\numeric-anatomy\checked-obj\"`. Result: **0 warnings, 0 errors**.
-- Load the resulting `RenderforgeAnatomyProbe2.dll` through PPCLI `connect call` using `System.Reflection.Assembly.LoadFrom`. Re-resolve the current camera and selected actor first. `InspectAnatomy(cameraId,prefab,absoluteDirectory)` exports the read-only weighted-region/renderer inventory. `CaptureAnatomy(cameraId,prefab,absoluteDirectory,yaw,corrected)` requires frozen simulation; `corrected=false` is the original control. `CancelHead()` uses the existing guarded cancellation path.
+- Historical invocation, no longer supported: load the resulting `RenderforgeAnatomyProbe2.dll` through PPCLI `connect call` using `System.Reflection.Assembly.LoadFrom`. Re-resolve the current camera and selected actor first. `InspectAnatomy(cameraId,prefab,absoluteDirectory)` exports the read-only weighted-region/renderer inventory. `CaptureAnatomy(cameraId,prefab,absoluteDirectory,yaw,corrected)` requires frozen simulation; `corrected=false` is the original control. `CancelHead()` uses the existing guarded cancellation path.
 - Packaging assertion output: `PASS: 16 captures, original bone transform delta=0, materials/mesh unchanged, applied-position drift=0.` Both cancellation records are included separately in the evidence JSON. Existing source, actual installed Unity/game DLLs, prior bindpose/weight exports and Context7 Unity documentation grounded the implementation.
 - Removing this documentation commit removes the experiment; there is no production feature to disable. A future attempt at natural anatomy needs a materially better, evidence-backed correction, not automatic application of this rejected eyelid profile.

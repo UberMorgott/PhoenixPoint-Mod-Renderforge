@@ -1,5 +1,7 @@
 # Editable head mesh: bounded live gates stopped safely
 
+> Archived experiment: NR and face enhancement were retired on2026-09-05. Generated screenshots, obsolete docs probes and abandoned D: workspaces were removed at the user's request. Commands below record historical verification and must not be run against the current mod; its diagnostic APIs were removed. Compact JSON/results remain. See the [retirement dossier](2026-09-05-dlss5-retirement-dossier.md).
+
 - Scope: reconstruct an unchanged readable head mesh using measured native skinning operators. No anatomical enhancement, generated face assets, model downloads or production face hook. Human-quality faces were **not achieved**. Further face experiments are paused following the user's direction.
 - Runtime: existing PID44280, user's manually loaded `22222.zsav`, geoscape `Playing`, Sophia's original `Tutorial_Head_Female` renderer ID-207306 / mesh ID1562772. No restart, deploy, save load/write or actor selection change occurred during this probe.
 
