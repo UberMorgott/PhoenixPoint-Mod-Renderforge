@@ -133,7 +133,8 @@ namespace Renderforge
 
         public void Apply(RenderforgeMode mode, DebugView view)
         {
-            wantMode = mode;
+            // Post-only: there is no upscaler to ask for a mode. Every generation is a passthrough one.
+            wantMode = RenderforgeMod.PostOnly ? RenderforgeMode.Off : mode;
             wantView = view;
             if (gen == Gen.Live && liveMode == wantMode && liveView != wantView && SameSizeClass(liveView, wantView))
             {
@@ -194,8 +195,9 @@ namespace Renderforge
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
             bool lutActive = RenderforgeMod.TacticalActive && cfg != null && cfg.Lut != LutPreset.Off && cfg.LutStrength > 0;
+            // Sharpness is its own reason to run: with the upscaler Off the NIS pass is the only thing on the frame.
             bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg)
-                || ColorVisionPanel.Active(cfg);
+                || ColorVisionPanel.Active(cfg) || (cfg != null && cfg.Sharpness > 0);
             switch (gen)
             {
                 case Gen.Idle:
@@ -211,6 +213,10 @@ namespace Renderforge
                         if (!FrameGen.Release() || Native.Dlss_Shutdown() == 0) break;
                         UpscalerKind k = switchTo; switchTo = UpscalerKind.Off;
                         RenderforgeMod.ReinitNative(k);
+                        // ReinitNative may have just left post-only (or entered it): Apply is the single funnel that
+                        // maps Cfg.Mode through RenderforgeMod.PostOnly, so re-run it before StartGeneration.
+                        Apply(RenderforgeMod.Instance?.Cfg?.Mode ?? RenderforgeMode.Off, wantView);
+                        break;   // needsPipeline was computed above with the stale mode; re-enter Idle next frame
                     }
                     if (needsPipeline && cam != null && cam.isActiveAndEnabled && RenderforgeMod.Available) StartGeneration();
                     break;
@@ -488,7 +494,9 @@ namespace Renderforge
                 // MV: Unity's texture is (current - previous) in UV space (PPv2 TAA fetches history at uv - mv); DLSS wants
                 // current -> previous in pixels, hence InMVScale = (-renderW, -renderH).
                 // Sharpness = our RCAS pass in the shim (NGX InSharpness is deprecated in SDK 310), read live: slider/100.
-                float sharp = passthrough ? 0f : Mathf.Clamp01((RenderforgeMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
+                // Zero only for the debug Passthrough VIEW (an untouched reference frame). An Off-mode generation
+                // is a passthrough too, and there the NIS pass is exactly what the player asked for.
+                float sharp = liveView == DebugView.Passthrough ? 0f : Mathf.Clamp01((RenderforgeMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
                 var cfg = RenderforgeMod.Instance?.Cfg;
                 int lutPreset = RenderforgeMod.TacticalActive && cfg != null ? Mathf.Clamp((int)cfg.Lut, 0, (int)LutPreset.VintageSepia) : 0;
                 float lutStrength = lutPreset == 0 ? 0f : Mathf.Clamp01((cfg?.LutStrength ?? 0) / 100f);
