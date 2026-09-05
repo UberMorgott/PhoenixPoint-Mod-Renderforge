@@ -58,12 +58,10 @@ git push origin main --tags        # USER-GATED - pushing is never automatic
 
 ## 7. GitHub release — **USER-GATED**
 
+Since 1.2.1 only the **Full** zip is uploaded (single-zip policy — one archive, nothing to pick).
+
 ```powershell
 gh release create v<x.y.z> `
-  build\release\Renderforge-Core-<x.y.z>.zip `
-  build\release\Renderforge-NVIDIA-<x.y.z>.zip `
-  build\release\Renderforge-AMD-<x.y.z>.zip `
-  build\release\Renderforge-Intel-<x.y.z>.zip `
   build\release\Renderforge-Full-<x.y.z>.zip `
   build\release\SHA256SUMS.txt `
   --title "Renderforge <x.y.z>" --notes-file docs\release-notes-<x.y.z>.md

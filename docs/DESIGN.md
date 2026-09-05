@@ -500,6 +500,15 @@ databases and ship the newest NVIDIA-signed build, never the SDK copy blindly.
   shader). SAO decision: AO kept, not disabled — the SAO tactical shot matches D3D11 (dark cave + fog of war)
   and `Player.log` has no kernel errors; `D3D12Fix.DisableAo` stays as the PPCLI-switchable fallback.
   Shots: `docs\shots\d3d12-tactical.png` vs `docs\shots\d3d11-tactical.png`.
+- **D3D12 exposure restoration** (`assets/rf-exposure-d3d12.bundle`, 20992 B, shipped in the Core
+  pack beside `Renderforge.dll`): PPv2 `AutoExposure` + `ExposureHistogram` compute shaders target
+  renderer 2 (D3D11 only) and have no kernels on D3D12, leaving `autoExposureTexture` = White (1.0)
+  vs the measured D3D11 value of 22.6273518 (+4.5 EV) — tactical scenes near-black. The bundle
+  carries the same two shaders with identical DXBC/bindings, only `targetRenderer` 2 -> 18. Loader:
+  `D3D12Fix.FixExposure` loads the bundle once from `RenderforgeMod.ModDir` and assigns the shaders
+  only when the stock ones lack kernels AND the bundle ones report all 4 kernels. Safe failure = one
+  WARN line, existing `HasKernel` guard path. Full evidence:
+  `docs/research/2026-09-05-d3d12-exposure-restoration.md`.
 - Under D3D12 the mod stays fully active (pickers, overlay, PPv2 fix) but the NGX init is skipped; the
   overlay says `Upscaler: off (DLSS on D3D12 comes in Phase 2)`.
 
@@ -594,8 +603,8 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
   `<Phoenix Point>\Mods\`. Core + any vendor packs overlay into a single `Mods\Renderforge\` in any
   order. (1.0.0's zip was flat and extracted INTO `Mods\Renderforge\`; 1.1.0 changed it, because an
   overlay cannot work without the prefix.)
-- Pack contents: **Core** = `Renderforge.dll`, `RenderforgeNative.dll`, `meta.json`, `README.md`,
-  `LICENSE`, `LICENSE-NIS.txt`. **NVIDIA** = `nvngx_dlss.dll` + `LICENSE-NVIDIA.txt` (with
+- Pack contents: **Core** = `Renderforge.dll`, `RenderforgeNative.dll`, `rf-exposure-d3d12.bundle`,
+  `meta.json`, `README.md`, `LICENSE`, `LICENSE-NIS.txt`. **NVIDIA** = `nvngx_dlss.dll` + `LICENSE-NVIDIA.txt` (with
   `-WithFrameGen`: `nvngx_dlssg.dll` 310.7.129 and `sl.{interposer,common,dlss,dlss_g,reflex,pcl}.dll`
   2.12.0). **AMD** = `amd_fidelityfx_{loader,upscaler}_dx12.dll` + `LICENSE-AMD.txt` (with
   `-WithFrameGen`: `amd_fidelityfx_framegeneration_dx12.dll`). **Intel** = `libxess.dll` +

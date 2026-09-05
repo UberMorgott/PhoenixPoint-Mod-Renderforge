@@ -36,10 +36,11 @@
 - Four existing compute blobs created PSOs on D3D12 WARP. This proves bytecode acceptance only. Unity bundle loading, kernel availability, dispatch, numerical paired comparison and production integration have NOT run.
 - Harness is isolated and source-grounded; its comparator requires the measured D3D11 histogram/exposure reference, including progressive adaptation. Final fixture review reported no blockers; user reply is pending. Offline allocation/comparator checks are not shader execution proof.
 
-## Next bounded steps
+## Resolution 2026-09-05
 
-1. Read the prototype README and final artifact provenance. Await the user's restart-availability response; preserve new progress before any approved graceful transition. Keep instance `59916` untouched.
-2. Under explicit exclusive runtime ownership, collect the original D3D11 fixture and install the source-coherent final pair for the controlled D3D12 candidate fixture. Verify actual API, GOG mod initialization, loaded DLL hashes and unchanged intended configuration.
-3. Require Unity load/kernel/dispatch success and paired numerical acceptance before any production exposure integration. Then verify actual exposure in this mission and scene output; do not tune brightness from unmatched PNGs.
-4. Prove safe FG teardown/re-enable and the previously reported LUT/style-to-Off transition with the new lifetime fix; preserve DLAA/FG and validate bounded tactical filters/fonts acceptance. No crash-free claim from offline probes alone.
-5. Record limits and final evidence, refresh the graph at the final commit, and perform the already authorized push only after verification. No PC shutdown.
+- Root cause confirmed and fixed: `rf-exposure-d3d12.bundle` restores the two PPv2 compute shaders with `targetRenderer` 18 (D3D12). Full write-up: [D3D12 exposure restoration](2026-09-05-d3d12-exposure-restoration.md).
+- Installed pair: managed `Renderforge.dll` SHA256 `833B715EBDD385EC037043FDA943C956513176DF4B587D0FB0A2B56ED185EB1C`; native `RenderforgeNative.dll` SHA256 `4ECAFD82D56E2AB57D15CB31104745C394FD55E64B07E08AF5B956F862507E66`.
+- Paired fixture proof (D3D11 vs D3D12, 64x64 uniform inputs, 4x128 bins, 36 exposure values) PASS within 1e-4 tolerance.
+- Live verification on the same Fort Liberty mission: exposure 22.627, world normally lit, zero exceptions.
+- Bounded acceptance: FG X2 on/off, LUT Vivid, styles Cartoon/PixelArt/Off, all clean; config restored byte-equal.
+- Remaining unverified: the earlier UnityPlayer access-violation crash is unattributed. Exception onset and crash are distinct findings.
