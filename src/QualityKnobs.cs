@@ -194,7 +194,7 @@ namespace Renderforge
             cfg.LodBias = lodBias > 0f ? Mathf.Clamp(lodBias, 1f, 4f) : 0f;
             ApplyAll();
             RenderforgeMod.SaveConfig();
-            // QualityPanel.Sync();  // Task 5
+            QualityPanel.Sync();
             return Status();
         }
 

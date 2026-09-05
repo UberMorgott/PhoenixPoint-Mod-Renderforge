@@ -88,6 +88,7 @@ namespace Renderforge
             onChanged = null;
             LutPanel.Clear();
             SceneStylePanel.Clear();
+            QualityPanel.Clear();
         }
 
         internal static void Hide(Transform content)
