@@ -100,6 +100,17 @@ namespace Renderforge
             }
         }
 
+        /// <summary>Re-index a built row without un-hiding it: Init() ends in SetEnabled(true), which does
+        /// gameObject.SetActive(true) (ArrowPickerController.cs:59, :65). A row hidden by GraphicsPanel.Postfix
+        /// (ShowInGraphicsOptions off) must stay hidden when a PPCLI/console setter re-syncs it. CurrentIndex's setter
+        /// is private, so Init is the only writer; it is idempotent.</summary>
+        internal static void ReInit(ArrowPickerController p, int range, int index, Action<int> onChanged)
+        {
+            bool shown = p.gameObject.activeSelf;
+            p.Init(range, index, onChanged);
+            p.gameObject.SetActive(shown);
+        }
+
         private static ArrowPickerController Row(ArrowPickerController src, string name, string title, int siblingIndex)
         {
             var found = src.transform.parent.Find(name);

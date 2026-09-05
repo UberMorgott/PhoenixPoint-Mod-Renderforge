@@ -90,7 +90,7 @@ namespace Renderforge
             int index = Mathf.Clamp((int)cfg.SceneStyle, 0, 2);
             if (picker != null)
             {
-                picker.Init(Labels.Length, index, OnStyle);   // CurrentIndex setter is private; Init is idempotent
+                Pickers.ReInit(picker, Labels.Length, index, OnStyle);
                 GraphicsPanel.SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[index]);
                 GraphicsPanel.Tip(picker.CentralButton.gameObject, DlssConfig.Loc(
                     "Cartoon: colour bands and contrast outlines. Pixel art: 4-pixel blocks by default, a gentle palette reduction, no extra outlines. Adjust block size from 2 to 16.",

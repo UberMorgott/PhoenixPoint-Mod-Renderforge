@@ -124,13 +124,12 @@ namespace Renderforge
             ShowLod(cfg.LodBias);
         }
 
-        /// <summary>Label AND CurrentIndex: the setter is private, Init is the only writer and is idempotent
-        /// (ArrowPickerController.cs:32), so a config change from PPCLI/console cannot leave a stale index.</summary>
+        /// <summary>Label AND CurrentIndex (Pickers.ReInit), so a config change from PPCLI/console cannot leave a stale index.</summary>
         private static void Show(ArrowPickerController row, string[] labels, int index, Action<int> onChanged)
         {
             if (row == null) return;
             index = Mathf.Clamp(index, 0, labels.Length - 1);
-            row.Init(labels.Length, index, onChanged);
+            Pickers.ReInit(row, labels.Length, index, onChanged);
             GraphicsPanel.SetRaw(row.CurrentItem, row.CurrentItemText, labels[index]);
             GraphicsPanel.Grey(row.CurrentItem.gameObject, false);
         }

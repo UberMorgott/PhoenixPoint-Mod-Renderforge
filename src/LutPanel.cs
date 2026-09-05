@@ -99,7 +99,7 @@ namespace Renderforge
             int index = Mathf.Clamp((int)cfg.Lut, 0, Labels.Length - 1);
             if (picker != null)
             {
-                picker.Init(Labels.Length, index, OnPreset);   // CurrentIndex setter is private; Init is idempotent
+                Pickers.ReInit(picker, Labels.Length, index, OnPreset);
                 GraphicsPanel.SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[index]);
                 GraphicsPanel.Grey(picker.CurrentItem.gameObject, false);
                 GraphicsPanel.Tip(picker.CentralButton.gameObject,
