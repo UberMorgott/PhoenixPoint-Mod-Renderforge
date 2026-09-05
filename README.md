@@ -13,7 +13,7 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **NVIDIA Image Scaling sharpening** adds a separate 0–100 sharpness control, with 0 disabling the pass.
 - **Tactical LUT filters** add nine original live colour grades after temporal reconstruction: Realistic Desaturated, Neutral, Cinematic Bleach, Vivid, B&W Cinema, Noir, Amber Film, Arctic, and Vintage Sepia, with a 0–100 strength control and no bundled third-party assets. Geoscape and non-tactical screens remain ungraded.
 - **Automatic mip bias** keeps textures appropriately detailed when the game renders below the output resolution.
-- **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to small 2-pixel blocks and a moderate palette; larger blocks are optional. The filters run after reconstruction and preserve the output-resolution interface.
+- **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to 4-pixel blocks and a moderate palette; block size remains adjustable from 2 to 16 actual output pixels. The filters run after reconstruction and preserve the output-resolution interface.
 - **Crisp fonts** improve supported dynamic interface text while retaining the original letter positions and layout. Unsupported or mismatched text uses the original rendering.
 - **Frame-rate control** removes the vanilla 60 FPS pin and can optionally apply a 30–300 FPS limit.
 - **Benchmark overlay** toggles with `Ctrl+Alt+O` and shows the renderer, upscaler, mode, resolution, frame time, real FPS, and presented FPS when frame generation is active.

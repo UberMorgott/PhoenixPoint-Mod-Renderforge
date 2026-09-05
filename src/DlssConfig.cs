@@ -47,8 +47,8 @@ namespace Renderforge
         public SceneStyle SceneStyle = SceneStyle.Off;
         [ConfigField("Style strength", "0 = original image, 100 = full style. Applied live.")]
         public int SceneStyleStrength = 100;
-        [ConfigField("Pixel block size", "PixelArt: default 2 actual output pixels for readability. Increase up to 16 for a stronger effect.")]
-        public int PixelSize = 2;
+        [ConfigField("Pixel block size", "PixelArt: default 4 actual output pixels. Adjust from 2 to 16 for finer or stronger pixelation.")]
+        public int PixelSize = 4;
         [ConfigField("Crisp fonts", "Sharper supported interface text with its original layout. Also in Options → Screen.")]
         public bool CrispFonts = true;
         [ConfigField("Show DLSS in Graphics options")]
@@ -86,7 +86,7 @@ namespace Renderforge
             { nameof(LutStrength), new[] { "Сила LUT", "0 = оригинал … 100 = полный эффект. Применяется сразу." } },
             { nameof(SceneStyle), new[] { "Стиль сцены", "Выкл, мультфильм или пиксель-арт. Стилизация кодом после реконструкции." } },
             { nameof(SceneStyleStrength), new[] { "Сила стилизации", "0 = оригинал, 100 = полный эффект. Применяется сразу." } },
-            { nameof(PixelSize), new[] { "Размер пикселя", "По умолчанию 2 пикселя экрана: мелкие детали остаются различимы. До 16 для более сильного эффекта." } },
+            { nameof(PixelSize), new[] { "Размер пикселя", "По умолчанию 4 пикселя экрана. Диапазон 2–16: от мелкой до крупной пикселизации." } },
             { nameof(CrispFonts), new[] { "Чёткие шрифты", "Повышает чёткость поддерживаемого текста интерфейса, сохраняя расположение букв. Также в Настройки → Экран." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
