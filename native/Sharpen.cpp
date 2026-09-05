@@ -44,7 +44,7 @@ static const char kRcasHlsl[] =
 static const char kColorGradeHlsl[] =
 "Texture2D<float4> src : register(t0);\n"
 "RWTexture2D<float4> dst : register(u0);\n"
-"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; uint styleMode; uint pixelSize; float styleStrength; uint styleLinear; float2 pad; };\n"
+"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; uint styleMode; uint pixelSize; float styleStrength; uint styleLinear; uint colorVision; float pad0; float4 cvRow0; float4 cvRow1; float4 cvRow2; };\n"
 "float3 L(int2 p) { p=clamp(p,int2(0,0),int2(int(W)-1,int(H)-1)); return src.Load(int3(p,0)).rgb; }\n"
 RF_SCENE_STYLE_HLSL
 "float3 Grade(float3 c) {\n"
@@ -62,6 +62,20 @@ RF_SCENE_STYLE_HLSL
 "  else if (preset==9) { float z=saturate(y); float film=0.035+0.93*y; g=film.xxx+z*(1.0-z)*float3(0.24,0.025,-0.26); }\n"
 "  return lerp(c,max(g,0.0),strength);\n"
 "}\n"
+// Daltonization, AFTER Grade() and Stylize() so it corrects whatever the player actually sees. The matrix is
+// precomputed on the CPU (ColorVision.h) and arrives row-major in cvRow0..2; the shader only transforms.
+// The exact piecewise sRGB curve is used, not pow(2.2): the error of the approximation is ~2/255 in the
+// darks, which is the same order as the correction itself on near-neutral colours.
+"float3 CvSrgbToLinear(float3 c) { c = saturate(c); return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }\n"
+"float3 CvLinearToSrgb(float3 c) { c = saturate(c); return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }\n"
+"float3 ColorVision(float3 c) {\n"
+"  if (colorVision == 0) return c;\n"                      // uniform branch: mode 0 is a bit-exact bypass
+"  float3 v = styleLinear != 0 ? max(c, 0.0) : CvSrgbToLinear(c);\n"
+"  float3 d = float3(dot(cvRow0.xyz, v), dot(cvRow1.xyz, v), dot(cvRow2.xyz, v));\n"
+// FP16 linear output keeps overbrights (only negatives are clipped, as everywhere else in this shader);
+// the UNORM path clamps in LINEAR light before encoding, so the encode never sees an out-of-range value.
+"  return styleLinear != 0 ? max(d, 0.0) : CvLinearToSrgb(d);\n"
+"}\n"
 "[numthreads(8,8,1)] void main(uint3 id:SV_DispatchThreadID) {\n"
 "  if(id.x>=W||id.y>=H)return; int2 p=int2(id.xy); float3 e=L(p), c=e;\n"
 "  if(sharpness>0.0){ float3 b=L(p+int2(0,-1)),d=L(p+int2(-1,0)),f=L(p+int2(1,0)),h=L(p+int2(0,1));\n"
@@ -71,7 +85,7 @@ RF_SCENE_STYLE_HLSL
 "    float3 mn4=min(min(b,d),min(f,h)),mx4=max(max(b,d),max(f,h));\n"
 "    float3 hitMin=mn4/max(4.0*mx4,1e-5),hitMax=(1.0-mx4)/min(4.0*mn4-4.0,-1e-5);\n"
 "    float3 lr=max(-hitMin,hitMax); float l=max(-0.1875,min(max(max(lr.r,lr.g),lr.b),0.0))*con*nz; c=(l*(b+d+f+h)+e)/(4.0*l+1.0); }\n"
-"  dst[id.xy]=float4(Grade(Stylize(p,c)),src.Load(int3(p,0)).a); }\n";
+"  dst[id.xy]=float4(ColorVision(Grade(Stylize(p,c))),src.Load(int3(p,0)).a); }\n";
 
 // NIS sharpen-only: the NIS_Main.hlsl example's bindings + NVSharpen entry. Block/group sizes = NISOptimizer(isUpscaling=false,
 // NVIDIA_Generic) in NIS_Config.h (32 x 32, 128 threads). NIS_HDR_MODE 0: the DLSS output is display-referred LDR;
@@ -130,15 +144,23 @@ ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr, bool colorGrade)
 }
 
 void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
-                          int lutPreset, float lutStrength, bool hdr, const SceneStyleParams& style)
+                          int lutPreset, float lutStrength, bool hdr, const SceneStyleParams& style,
+                          int colorVision)
 {
     memset(dst256, 0, 256);
-    if (ColorGradeEnabled(lutPreset, lutStrength) || SceneStyleEnabled(style)) {
+    if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision)) {
         float* fp = (float*)dst256; unsigned* up = (unsigned*)dst256;
         fp[0] = sharpness; fp[1] = lutStrength; up[2] = w; up[3] = h; up[4] = (unsigned)lutPreset;
         fp[5] = exp2f(-2.0f * (1.0f - sharpness));
         up[6] = style.mode; up[7] = style.pixelSize;
         fp[8] = style.strength; up[9] = hdr ? 1u : 0u;
+        up[10] = ColorVisionEnabled(colorVision) ? (unsigned)colorVision : 0u;
+        // fp[11] is the cbuffer's pad0. The three float4 rows start at float index 12 (byte 48); their w
+        // components stay zero from the memset above, which is what the shader's .xyz swizzle expects.
+        CvMatrix d = CvCorrection(colorVision);
+        for (int row = 0; row < 3; ++row)
+            for (int col = 0; col < 3; ++col)
+                fp[12 + row * 4 + col] = d.m[row * 3 + col];
     } else if (kind == DLSS_SHARPEN_NIS) {
         NISConfig cfg = {};
         NVSharpenUpdateConfig(cfg, sharpness, 0, 0, w, h, w, h, 0, 0, hdr ? NISHDRMode::Linear : NISHDRMode::None);

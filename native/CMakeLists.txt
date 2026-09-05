@@ -70,6 +70,7 @@ add_library(RenderforgeNative SHARED
     FfxLoader.cpp
     Xess12.cpp
     Sharpen.h
+    ColorVision.h
     Sharpen.cpp
     Fg.h
     FgHook.cpp
@@ -107,6 +108,11 @@ add_executable(scene_style_probe EXCLUDE_FROM_ALL probe/scene_style_probe.cpp Sh
 target_include_directories(scene_style_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(scene_style_probe PRIVATE d3d11 d3dcompiler)
 target_compile_definitions(scene_style_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+
+add_executable(colour_vision_probe EXCLUDE_FROM_ALL probe/colour_vision_probe.cpp Sharpen.cpp)
+target_include_directories(colour_vision_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(colour_vision_probe PRIVATE d3d11 d3dcompiler)
+target_compile_definitions(colour_vision_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 # Actual host/ring source with vendor/window seams mocked; real WARP resource and fence ownership.
 add_executable(retirement_probe EXCLUDE_FROM_ALL probe/retirement_probe.cpp)
