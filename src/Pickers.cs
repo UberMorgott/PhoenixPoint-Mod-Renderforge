@@ -145,7 +145,8 @@ namespace Renderforge
         {
             UpscalerKind want = UpscalerAt(pendingUpscaler);
             UpscalerKind resolved = Upscalers.Resolve(want);
-            string reason = resolved == UpscalerKind.Off ? null : Availability.Reason(Upscalers.FeatureOf(resolved));
+            UpscalerKind ask = want == UpscalerKind.Auto ? resolved : want;   // grey the PIN (FSR on D3D11), not what it resolves to
+            string reason = ask == UpscalerKind.Off ? null : Availability.Reason(Upscalers.FeatureOf(ask));
             string label = UpscalerLabels[pendingUpscaler];
             if (want == UpscalerKind.Auto && resolved != UpscalerKind.Off) label += " (" + resolved + ")";
             GraphicsPanel.SetRaw(upscaler.CurrentItem, upscaler.CurrentItemText, label);

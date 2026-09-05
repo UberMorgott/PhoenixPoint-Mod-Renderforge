@@ -30,9 +30,13 @@ namespace Renderforge
         /// <summary>Auto order (spec, D3D12): NVIDIA -> DLSS, Intel -> XeSS, else FSR, else XeSS (cross-vendor DP4a
         /// fallback), else off. D3D11: DLSS or off. Decided from HARDWARE facts only (vendor, API, DLLs on disk)
         /// because it runs BEFORE Dlss_Init, when Availability.Reason still says "init failed"; once the shim is up,
-        /// Running is the answer. A concrete choice is returned as-is even when unavailable — the picker greys it.</summary>
+        /// Running is the answer. A concrete choice is returned as-is even when unavailable — the picker greys it —
+        /// EXCEPT a D3D12-only vendor pinned under D3D11, which resolves like Auto (the picker still greys the pin).</summary>
         internal static UpscalerKind Resolve(UpscalerKind want)
         {
+            // FSR/XeSS cannot init on D3D11: Dlss_Init returns DLSS_ERR_PROVIDER_UNSUPPORTED, Available stays false and
+            // DlssDriver never starts a pipeline — LUT, scene style and colour vision die with it, not just the upscaler.
+            if (Availability.IsD3D11 && (want == UpscalerKind.FSR || want == UpscalerKind.XeSS)) want = UpscalerKind.Auto;
             if (want != UpscalerKind.Auto) return want;
             if (Running != UpscalerKind.Off) return Running;
             if (Availability.IsD3D11) return Availability.IsNvidia ? UpscalerKind.DLSS : UpscalerKind.Off;
