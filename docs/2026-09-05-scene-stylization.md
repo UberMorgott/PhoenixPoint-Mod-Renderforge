@@ -20,8 +20,9 @@
 - `D:\Renderforge-work\scene-style\native\Release\lut_probe.exe`: **PASS** all nine production LUTs: 4,913-color cube, 1,025-step ramps, alpha, blend endpoints, B&W channel equality, floating-point overbrights.
 - [Same-input contact sheet](scene-stylization/contact-sheet.png) runs the actual production shader against a saved screenshot using WARP. It is not a new in-game capture. [Manifest](scene-stylization/contact-sheet.json) records input/probe hashes, crop and limitations; [script](scene-stylization/make-preview.py) reproduces it. Screenshot-baked markers are filtered in this fixture; UI isolation requires the runtime check below.
 - Native DLL: **237,568 bytes**, versus **235,008 bytes** at the preceding LUT commit (**+2,560 bytes**). Managed DLL: **146,432 bytes**. No model/texture payload is added to the mod; the 1.18 MB comparison PNG lives only in docs.
-- Ready artifacts remain under `D:\Renderforge-work\scene-style\`. Managed SHA256: `80A7B307C428349AB05A0FE88CA62111A5C37CFD683CC87299E44FB940168D43`; native SHA256: `981AB304EF60A51D7413A60B36D7386BC296D028E401F4DFC1CE994D6EF76664`.
+- Ready artifacts remain under `D:\Renderforge-work\scene-style\`. Managed SHA256: `61EBFF1FA2E901646A6EB98ACB1851602485966416408A4D2BAB8570EFBD7618`; native SHA256: `981AB304EF60A51D7413A60B36D7386BC296D028E401F4DFC1CE994D6EF76664`.
 - The running game was not controlled, restarted or deployed to. Live temporal stability, FG interaction, UI layout and performance remain unverified.
+- Integration audit also fixed the managed frame submission's old LUT upper bound (`4` → `LutPreset.VintageSepia`), so all nine registered LUTs reach native unchanged. The final managed hash above includes that fix; the Release rebuild passed with 0 warnings/errors.
 
 ## Runtime verification required
 

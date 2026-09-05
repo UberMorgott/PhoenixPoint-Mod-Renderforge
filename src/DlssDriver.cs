@@ -451,7 +451,7 @@ namespace Renderforge
                 // Sharpness = our RCAS pass in the shim (NGX InSharpness is deprecated in SDK 310), read live: slider/100.
                 float sharp = passthrough ? 0f : Mathf.Clamp01((RenderforgeMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
                 var cfg = RenderforgeMod.Instance?.Cfg;
-                int lutPreset = RenderforgeMod.TacticalActive && cfg != null ? Mathf.Clamp((int)cfg.Lut, 0, 4) : 0;
+                int lutPreset = RenderforgeMod.TacticalActive && cfg != null ? Mathf.Clamp((int)cfg.Lut, 0, (int)LutPreset.VintageSepia) : 0;
                 float lutStrength = lutPreset == 0 ? 0f : Mathf.Clamp01((cfg?.LutStrength ?? 0) / 100f);
                 // FSR needs the camera frustum (cameraNear/Far/FovAngleVertical); NGX ignores it. Cached in the
                 // shim and copied into the frame slot, so the ABI of Dlss_SetFrame stays untouched.
