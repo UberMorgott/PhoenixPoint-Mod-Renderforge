@@ -110,6 +110,10 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_SetSceneStyle(IntPtr slot, int mode, float strength, int pixelSize);
 
+        // Same slot contract as Dlss_SetSceneStyle: fill after Dlss_SetFrame, before the event is queued.
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Dlss_SetColorVision(IntPtr slot, int mode);
+
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetRenderEventFunc();
 

@@ -21,6 +21,9 @@ namespace Renderforge
     /// <summary>Original analytic colour grades. Ordinals cross the managed/native ABI; append only.</summary>
     public enum LutPreset { Off, RealisticDesaturated, Neutral, CinematicBleach, Vivid, BlackAndWhiteCinema, Noir, AmberFilm, Arctic, VintageSepia }
 
+    /// <summary>Colour-vision correction (daltonization). Ordinals cross the managed/native ABI; append only.</summary>
+    public enum ColorVisionMode { None, Deuteranopia, Protanopia, Tritanopia }
+
     /// <summary>Tactical vignette. Vanilla = whatever the level's volume shipped with (captured per volume);
     /// Off = the mod writes enabled.value = false on the runtime profile.</summary>
     public enum VignetteMode { Vanilla, Off }
@@ -45,7 +48,8 @@ namespace Renderforge
             nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen),
             nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
             nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts),
-            nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias)
+            nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias),
+            nameof(ColorVision)
         };
 
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance")]
@@ -62,6 +66,8 @@ namespace Renderforge
         public int SceneStyleStrength = 100;
         [ConfigField("Pixel block size", "PixelArt: default 4 actual output pixels. Adjust from 2 to 16 for finer or stronger pixelation.")]
         public int PixelSize = 4;
+        [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Scene only; the interface is drawn after this pass. Also in Options → Graphics.")]
+        public ColorVisionMode ColorVision = ColorVisionMode.None;
         [ConfigField("Crisp fonts", "Sharper supported interface text with its original layout. Also in Options → Screen.")]
         public bool CrispFonts = true;
         [ConfigField("Show DLSS in Graphics options")]
@@ -108,6 +114,7 @@ namespace Renderforge
             { nameof(SceneStyle), new[] { "Стиль сцены", "Выкл, мультфильм или пиксель-арт. Стилизация кодом после реконструкции." } },
             { nameof(SceneStyleStrength), new[] { "Сила стилизации", "0 = оригинал, 100 = полный эффект. Применяется сразу." } },
             { nameof(PixelSize), new[] { "Размер пикселя", "По умолчанию 4 пикселя экрана. Диапазон 2–16: от мелкой до крупной пикселизации." } },
+            { nameof(ColorVision), new[] { "Цветовое зрение", "Выкл, дейтеранопия, протанопия или тританопия. Перераспределяет неразличимые цвета на различимые каналы. Только сцена: интерфейс рисуется после этого прохода. Также в Настройки → Графика." } },
             { nameof(CrispFonts), new[] { "Чёткие шрифты", "Повышает чёткость поддерживаемого текста интерфейса, сохраняя расположение букв. Также в Настройки → Экран." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

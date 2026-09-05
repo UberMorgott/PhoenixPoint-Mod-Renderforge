@@ -194,7 +194,8 @@ namespace Renderforge
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
             bool lutActive = RenderforgeMod.TacticalActive && cfg != null && cfg.Lut != LutPreset.Off && cfg.LutStrength > 0;
-            bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg);
+            bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg)
+                || ColorVisionPanel.Active(cfg);
             switch (gen)
             {
                 case Gen.Idle:
@@ -504,6 +505,8 @@ namespace Renderforge
                 if (SceneStylePanel.Active(cfg))
                     Native.Dlss_SetSceneStyle(slot, (int)cfg.SceneStyle,
                         Mathf.Clamp01(cfg.SceneStyleStrength / 100f), Mathf.Clamp(cfg.PixelSize, 2, 16));
+                if (ColorVisionPanel.Active(cfg))
+                    Native.Dlss_SetColorVision(slot, (int)cfg.ColorVision);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
                 if (FrameGen.Live && !FrameGen.HoldPrepare)
