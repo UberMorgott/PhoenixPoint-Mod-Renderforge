@@ -338,6 +338,21 @@ namespace Renderforge
             return "lut=" + value + " strength=" + m.Cfg.LutStrength + " | " + GetStatus();
         }
 
+        /// <summary>PPCLI/live A-B surface: mode = None/Deuteranopia/Protanopia/Tritanopia. No AttachAndApply: the
+        /// driver reads the value every frame and no temporal feature is recreated.</summary>
+        public static string SetColorVision(string mode)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            ColorVisionMode value;
+            if (!Enum.TryParse(mode, true, out value) || !Enum.IsDefined(typeof(ColorVisionMode), value))
+                return "bad colour vision mode '" + mode + "'";
+            m.Cfg.ColorVision = value;
+            SaveConfig();
+            ColorVisionPanel.Sync();
+            return "colorVision=" + value;
+        }
+
         /// <summary>PPCLI: {"member":"SetFrameGen","args":["X2"]} - Off / X2 / X3 / X4. Live next frame + saved.</summary>
         public static string SetFrameGen(string mode)
         {

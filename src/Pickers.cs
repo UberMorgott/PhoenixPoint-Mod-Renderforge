@@ -87,6 +87,7 @@ namespace Renderforge
             renderer = upscaler = frameGen = null;
             onChanged = null;
             LutPanel.Clear();
+            ColorVisionPanel.Clear();
             SceneStylePanel.Clear();
             QualityPanel.Clear();
         }
