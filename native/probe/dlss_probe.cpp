@@ -1,13 +1,16 @@
 // dlss_probe.cpp - offline check of RenderforgeNative.dll: init -> optimal -> create -> 3x evaluate -> passthrough -> release.
-// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12] [--fsr|--xess]. Exit 0 only if
-// every result succeeded; 1 = a call failed, 2 = usage, 3 (--fsr / --xess only) = that provider cannot run on this GPU/driver
-// (build warning, not an error).
+// Usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12] [--fsr|--xess] [--fake=2|3|4].
+// Exit 0 only if every result succeeded; 1 = a call failed, 2 = usage, 3 = that provider cannot run on this GPU/driver
+// (build warning, not an error) - for the DLSS runs that includes a DLSS_OK_POST_ONLY init (NGX refused, device kept).
+// --fake=N sets RENDERFORGE_FAKE_INIT=N (an injected NGX failure) and checks the post-only mapping + the post pass on D3D11.
 #include <d3d11.h>
 #include <d3d12.h>
 #include <stdio.h>
 #include <wchar.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
+#include <vector>
 #include "RenderforgeNative.h"
 #include "unity/IUnityInterface.h"
 #include "unity/IUnityGraphicsD3D12.h"
@@ -57,8 +60,13 @@ static int RunD3D11(const wchar_t* dllDir, const wchar_t* cwd)
     printf("Dlss_Init      code=%d (0=ok 1=noDevice 2=initFailed 3=notAvailable 4=needsDriver 5=noUnityIface) api=%d lastResult=0x%08X %s\n",
            init, Dlss_Api(), (unsigned)c, init == DLSS_ERR_INIT_FAILED ? Dlss_ResultString(c) : "");
     // NGX refuses on a non-RTX / non-NVIDIA GPU or an old driver: not a defect of ours (3, like --fsr / --xess).
-    if (init == DLSS_ERR_NOT_AVAILABLE || init == DLSS_ERR_NEEDS_DRIVER) { printf("NGX unsupported here (code %d): DLSS untested on this machine\n", init); return 3; }
-    if (init != DLSS_OK) { printf("NGX init not ok, see nvngx.log in %ls\n", cwd); return 1; }
+    // Code 8 is the same refusal with the device retained - the post pass is gated separately by --fake=2 below.
+    if (init == DLSS_OK_POST_ONLY || init == DLSS_ERR_NOT_AVAILABLE || init == DLSS_ERR_NEEDS_DRIVER) {
+        printf("NGX unsupported here (code %d, retained reason %d): DLSS untested on this machine\n", init, Dlss_PostOnlyReason());
+        Dlss_Shutdown(); any->Release(); ctx->Release(); dev->Release();
+        return 3;
+    }
+    if (init != DLSS_OK) { printf("NGX init not ok, see nvngx.log in %ls\n", cwd); Dlss_Shutdown(); any->Release(); ctx->Release(); dev->Release(); return 1; }
     if (Dlss_Api() != 11) { printf("Dlss_Api()=%d, expected 11\n", Dlss_Api()); return 1; }
 
     unsigned rw = 0, rh = 0, mnw = 0, mnh = 0, mxw = 0, mxh = 0;
@@ -120,6 +128,149 @@ static int RunD3D11(const wchar_t* dllDir, const wchar_t* cwd)
 
     Dlss_Shutdown();
     color->Release(); depth->Release(); mv->Release(); out->Release(); any->Release();
+    ctx->Release(); dev->Release();
+    return g_failed ? 1 : 0;
+}
+
+// ---------------------------------------------------------------- post-only (--fake=N, D3D11)
+
+// R8G8B8A8_UNORM is a first-class sharpen view format (SharpenViewFormat default arm, native\Sharpen.cpp:175) and
+// is trivially comparable on the CPU, unlike the FP16 the D3D11 game path uses.
+static ID3D11Texture2D* MakeTexInit(ID3D11Device* dev, unsigned w, unsigned h, const void* pixels, UINT bind)
+{
+    D3D11_TEXTURE2D_DESC d = {};
+    d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = bind;
+    D3D11_SUBRESOURCE_DATA data = { pixels, w * 4u, 0 };
+    ID3D11Texture2D* t = NULL;
+    HRESULT hr = dev->CreateTexture2D(&d, &data, &t);
+    if (FAILED(hr)) { printf("CreateTexture2D(init) %ux%u failed hr=0x%08X\n", w, h, (unsigned)hr); g_failed = 1; }
+    return t;
+}
+
+// Deterministic and non-uniform: a smooth 2D sinusoid (period ~18 px, amplitude 100) so interior pixels sit
+// strictly BETWEEN their neighbours - NIS and RCAS clamp their USM to the local min/max, which makes a hard step
+// edge (a checker) invariant, measured: 0 pixels moved at sharpness 1. A horizontal ramp on G gives a grade
+// something to bend. A flat fill would pass even if no pass ever ran.
+static void FillPattern(std::vector<unsigned>& px, unsigned w, unsigned h)
+{
+    px.resize(size_t(w) * h);
+    for (unsigned y = 0; y < h; ++y)
+        for (unsigned x = 0; x < w; ++x) {
+            unsigned wave = (unsigned)(128.0f + 100.0f * sinf(x * 0.35f) * cosf(y * 0.35f));
+            unsigned ramp = 16u + (x * 200u) / (w - 1);
+            px[size_t(y) * w + x] = 0xFF000000u | (wave << 16) | (ramp << 8) | (wave ^ 0xFFu);
+        }
+}
+
+// Staging CopyResource + Map, the shape GradeProbe::Run uses (native\probe\lut_probe.cpp:39-70).
+static bool ReadBack(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* src,
+                     unsigned w, unsigned h, std::vector<unsigned>& out)
+{
+    D3D11_TEXTURE2D_DESC d = {};
+    src->GetDesc(&d);
+    d.BindFlags = 0; d.MiscFlags = 0; d.Usage = D3D11_USAGE_STAGING; d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Texture2D* stage = NULL;
+    if (FAILED(dev->CreateTexture2D(&d, NULL, &stage))) { printf("readback staging texture failed\n"); return false; }
+    ctx->CopyResource(stage, src);
+    D3D11_MAPPED_SUBRESOURCE m = {};
+    HRESULT hr = ctx->Map(stage, 0, D3D11_MAP_READ, 0, &m);
+    if (FAILED(hr)) { printf("readback Map failed hr=0x%08X\n", (unsigned)hr); stage->Release(); return false; }
+    out.resize(size_t(w) * h);
+    for (unsigned y = 0; y < h; ++y)
+        memcpy(out.data() + size_t(y) * w, (const char*)m.pData + size_t(y) * m.RowPitch, w * sizeof(unsigned));
+    ctx->Unmap(stage, 0);
+    stage->Release();
+    return true;
+}
+
+// Pixels differing by more than one 8-bit step in any of R/G/B: a copy through the compute pass may round, an
+// effect may not.
+static size_t DiffCount(const std::vector<unsigned>& a, const std::vector<unsigned>& b)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+        for (int c = 0; c < 3; ++c) {
+            int d = int((a[i] >> (c * 8)) & 0xFFu) - int((b[i] >> (c * 8)) & 0xFFu);
+            if (d > 1 || d < -1) { ++n; break; }
+        }
+    return n;
+}
+
+// --fake=N: RENDERFORGE_FAKE_INIT injected an NGX failure while the device stayed alive. Dlss_Init must answer
+// DLSS_OK_POST_ONLY, remember the retained code, and the analytic post pass must still produce real pixels.
+static int RunPostOnly11(const wchar_t* dllDir, const wchar_t* cwd, int fake)
+{
+    ID3D11Device* dev = NULL; ID3D11DeviceContext* ctx = NULL; D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
+    HRESULT hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, &fl, 1, D3D11_SDK_VERSION, &dev, NULL, &ctx);
+    if (FAILED(hr)) { printf("D3D11CreateDevice failed hr=0x%08X\n", (unsigned)hr); return 1; }
+
+    ID3D11Texture2D* any = MakeTex(dev, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE);
+    int init = Dlss_Init(any, dllDir, cwd);
+    int reason = Dlss_PostOnlyReason();
+    // fake=2 replaces the NGX init CALL, so it lands on every GPU. fake=3|4 reach the capability branches only
+    // where NGX itself came up; elsewhere the real handler answers 2 first - still POST_ONLY, still the point.
+    printf("Dlss_Init      fake=%d code=%d (expect %d) api=%d (expect 11) postOnlyReason=%d (expect %d%s)\n",
+           fake, init, DLSS_OK_POST_ONLY, Dlss_Api(), reason, fake, fake == 2 ? "" : " or 2");
+    if (init != DLSS_OK_POST_ONLY || Dlss_Api() != 11
+        || !(reason == fake || (fake != 2 && reason == DLSS_ERR_INIT_FAILED))) g_failed = 1;
+
+    // Idempotence: a retry must replay POST_ONLY, not re-enter Init() on the retained device.
+    if (Dlss_Init(any, dllDir, cwd) != DLSS_OK_POST_ONLY) { printf("re-init did not replay POST_ONLY\n"); g_failed = 1; }
+    if (g_failed) { Dlss_Shutdown(); any->Release(); ctx->Release(); dev->Release(); return 1; }
+
+    const unsigned W = 256, H = 128;
+    std::vector<unsigned> src, plain, sharpened, graded;
+    FillPattern(src, W, H);
+    ID3D11Texture2D* color = MakeTexInit(dev, W, H, src.data(), D3D11_BIND_SHADER_RESOURCE);
+    ID3D11Texture2D* out   = MakeTex(dev, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS);
+    if (g_failed) { Dlss_Shutdown(); if (color) color->Release(); if (out) out->Release(); any->Release(); ctx->Release(); dev->Release(); return 1; }
+
+    RenderEventAndDataFn evd = (RenderEventAndDataFn)Dlss_GetRenderEventAndDataFunc();
+    Dlss_Passthrough(1);
+    int c = 0, e = 0, alive = 0;
+
+    // 1) Nothing enabled: the passthrough copy must reproduce the upload.
+    void* slot = Dlss_GetFrameSlot();
+    Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 1, 16.6f, W, H, 1.0f, 0.0f, DLSS_LUT_OFF, 0.0f);
+    evd(DLSS_EV_EVALUATE, slot);
+    Dlss_Status(&c, &e, &alive);
+    Report("PostOnly copy", e);
+    if (!ReadBack(dev, ctx, out, W, H, plain)) g_failed = 1;
+
+    // 2) NIS sharpen alone must move the checker edges.
+    slot = Dlss_GetFrameSlot();
+    Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, W, H, 1.0f, 1.0f, DLSS_LUT_OFF, 0.0f);
+    evd(DLSS_EV_EVALUATE, slot);
+    Dlss_Status(&c, &e, &alive);
+    Report("PostOnly sharp", e);
+    if (!ReadBack(dev, ctx, out, W, H, sharpened)) g_failed = 1;
+
+    // 3) LUT + scene style + colour vision with sharpness 0: the analytic effects on their own.
+    slot = Dlss_GetFrameSlot();
+    Dlss_SetFrame(slot, color, NULL, NULL, out, 0, 0, 0, 0, 0, 16.6f, W, H, 1.0f, 0.0f, DLSS_LUT_VIVID, 1.0f);
+    Dlss_SetSceneStyle(slot, 1, 1.0f, 4);
+    Dlss_SetColorVision(slot, DLSS_CV_DEUTERANOPIA);
+    evd(DLSS_EV_EVALUATE, slot);
+    Dlss_Status(&c, &e, &alive);
+    Report("PostOnly grade", e);
+    if (!ReadBack(dev, ctx, out, W, H, graded)) g_failed = 1;
+    ctx->Flush();
+
+    size_t copyDiff = DiffCount(plain, src), sharpDiff = DiffCount(sharpened, src);
+    size_t gradeDiff = DiffCount(graded, src), crossDiff = DiffCount(sharpened, graded);
+    printf("PostOnly pixels copy=%zu (expect 0) sharp=%zu (expect >0) grade=%zu (expect >0) sharp-vs-grade=%zu (expect >0)\n",
+           copyDiff, sharpDiff, gradeDiff, crossDiff);
+    if (copyDiff != 0 || sharpDiff == 0 || gradeDiff == 0 || crossDiff == 0) g_failed = 1;
+
+    printf("Sharpen        shader=%d (1=NIS 2=RCAS) lastError=%d (expect 0) featureAlive=%d (expect 0)\n",
+           Dlss_Sharpener(), Dlss_LastError(), alive);
+    if (Dlss_Sharpener() == DLSS_SHARPEN_FAILED || Dlss_Sharpener() == DLSS_SHARPEN_NONE
+        || Dlss_LastError() != 0 || alive != 0) g_failed = 1;
+
+    Dlss_Passthrough(0);
+    Dlss_Shutdown();
+    color->Release(); out->Release(); any->Release();
     ctx->Release(); dev->Release();
     return g_failed ? 1 : 0;
 }
@@ -272,8 +423,12 @@ static int RunD3D12(const wchar_t* dllDir, const wchar_t* cwd)
     int c = 0, e = 0, alive = 0; Dlss_Status(&c, &e, &alive);
     printf("Dlss_Init      code=%d (0=ok 1=noDevice 2=initFailed 3=notAvailable 4=needsDriver 5=noUnityIface) api=%d lastResult=0x%08X %s\n",
            init, Dlss_Api(), (unsigned)c, init == DLSS_ERR_INIT_FAILED ? Dlss_ResultString(c) : "");
-    if (init == DLSS_ERR_NOT_AVAILABLE || init == DLSS_ERR_NEEDS_DRIVER) { printf("NGX unsupported here (code %d): DLSS D3D12 untested on this machine\n", init); return 3; }
-    if (init != DLSS_OK) { printf("NGX D3D12 init not ok, see nvngx.log in %ls\n", cwd); return 1; }
+    if (init == DLSS_OK_POST_ONLY || init == DLSS_ERR_NOT_AVAILABLE || init == DLSS_ERR_NEEDS_DRIVER) {
+        printf("NGX unsupported here (code %d, retained reason %d): DLSS D3D12 untested on this machine\n", init, Dlss_PostOnlyReason());
+        Dlss_Shutdown(); any->Release(); g_fence->Release(); g_queue->Release(); g_dev12->Release();
+        return 3;
+    }
+    if (init != DLSS_OK) { printf("NGX D3D12 init not ok, see nvngx.log in %ls\n", cwd); Dlss_Shutdown(); any->Release(); g_fence->Release(); g_queue->Release(); g_dev12->Release(); return 1; }
     if (Dlss_Api() != 12) { printf("Dlss_Api()=%d, expected 12\n", Dlss_Api()); return 1; }
 
     unsigned rw = 0, rh = 0, mnw = 0, mnh = 0, mxw = 0, mxh = 0;
@@ -645,18 +800,24 @@ static int RunXess(const wchar_t* dllDir, const wchar_t* cwd)
 
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc < 2) { fprintf(stderr, "usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12] [--fsr|--xess]\n"); return 2; }
-    int want12 = 0, wantFsr = 0, wantXess = 0;
+    if (argc < 2) { fprintf(stderr, "usage: dlss_probe.exe <dir with nvngx_dlss.dll / amd_fidelityfx_*.dll / libxess.dll> [--d3d12] [--fsr|--xess] [--fake=2|3|4]\n"); return 2; }
+    int want12 = 0, wantFsr = 0, wantXess = 0, fake = 0;
     for (int i = 2; i < argc; ++i) {
         if (wcscmp(argv[i], L"--d3d12") == 0) want12 = 1;
         else if (wcscmp(argv[i], L"--fsr") == 0) wantFsr = 1;
         else if (wcscmp(argv[i], L"--xess") == 0) wantXess = 1;
+        else if (wcsncmp(argv[i], L"--fake=", 7) == 0 && argv[i][7] >= L'2' && argv[i][7] <= L'4' && argv[i][8] == 0) {
+            char v[2] = { (char)argv[i][7], 0 };
+            _putenv_s("RENDERFORGE_FAKE_INIT", v);      // read once inside the DLL on the first Dlss_Init
+            fake = v[0] - '0';
+        }
         else { fwprintf(stderr, L"unknown probe option: %ls\n", argv[i]); return 2; }
     }
     wchar_t cwd[MAX_PATH]; _wgetcwd(cwd, MAX_PATH);
-    printf("== dlss_probe %s ==\n", wantXess ? "XeSS (D3D12)" : wantFsr ? "FSR" : want12 ? "D3D12" : "D3D11");
+    printf("== dlss_probe %s ==\n", fake ? "post-only (D3D11, --fake)" : wantXess ? "XeSS (D3D12)" : wantFsr ? "FSR" : want12 ? "D3D12" : "D3D11");
 
-    int rc = wantXess ? RunXess(argv[1], cwd) : wantFsr ? RunFsr(argv[1], cwd) : want12 ? RunD3D12(argv[1], cwd) : RunD3D11(argv[1], cwd);
+    int rc = fake ? RunPostOnly11(argv[1], cwd, fake)
+           : wantXess ? RunXess(argv[1], cwd) : wantFsr ? RunFsr(argv[1], cwd) : want12 ? RunD3D12(argv[1], cwd) : RunD3D11(argv[1], cwd);
     printf(rc ? "PROBE FAILED\n" : "PROBE OK\n");
     return rc;
 }

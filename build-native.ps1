@@ -87,6 +87,8 @@ try {
     $rcFsr = $LASTEXITCODE
     & (Join-Path $outDir 'dlss_probe.exe') $outDir --xess
     $rcXess = $LASTEXITCODE
+    & (Join-Path $outDir 'dlss_probe.exe') $outDir --fake=2
+    $rcFake = $LASTEXITCODE
 } finally { Pop-Location }
 # Exit 3 = the machine cannot run that provider (probe could not init: no NVIDIA RTX, no DP4a, ...): the DLLs still
 # ship, so warn only. Anything else non-zero is a real create/dispatch failure and gates the build.
@@ -98,4 +100,7 @@ if ($rcFsr -eq 3) { Write-Warning "dlss_probe (FSR): no D3D12 upscale provider o
 elseif ($rcFsr -ne 0) { throw "dlss_probe (FSR) failed ($rcFsr)" }
 if ($rcXess -eq 3) { Write-Warning "dlss_probe (XeSS): this GPU/driver cannot run XeSS (SM 6.4 + DP4a) - XeSS untested, build continues" }
 elseif ($rcXess -ne 0) { throw "dlss_probe (XeSS) failed ($rcXess)" }
+# Post-only must work on EVERY GPU, so exit 3 is not tolerated here: --fake=2 replaces the NGX init call and is
+# therefore deterministic on any device. (--fake=3|4 need a working NGX init, so they stay a manual run.)
+if ($rcFake -ne 0) { throw "dlss_probe (--fake=2, post-only) failed ($rcFake)" }
 Write-Host "build-native: OK"
