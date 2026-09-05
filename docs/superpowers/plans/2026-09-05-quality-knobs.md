@@ -4,7 +4,7 @@
 
 **Goal:** Ship section **A. Quality knobs** of `docs\superpowers\specs\2026-09-05-quality-knobs-colour-vision-design.md` — four graphics knobs the vanilla game never exposes (vignette off, very-high shadow maps, forced 16x anisotropic filtering, LOD bias), each with a true `Vanilla` position that writes the game's own captured baseline back, surfaced as native rows in Options → Graphics and hidden from the Mods menu.
 
-**Architecture:** One new state/patch file `src\QualityKnobs.cs` + one new UI file `src\QualityPanel.cs` (mirrors `LutPanel.cs` / `SceneStylePanel.cs`, the repo's established row-builder shape). Vanilla writes `QualitySettings` inside `OptionsManager.UsePreset`, which nests `ChangeGraphicsQuality` → `OnGraphicsSettingsChangedEvent` → `LightingManager.ApplyPostProcessOptions` (`OptionsManager.cs:384,391,406`; `LightingManager.cs:53-55`). So the mod brackets `UsePreset` with a prefix/`HarmonyFinalizer` guard: every nested seam is suppressed while the guard is up, and when it comes down the mod snapshots what vanilla actually left behind and re-applies its own values on top. Three seams keep the knobs alive: the `UsePreset` finalizer (scalars + vignette), a postfix on `LightingManager.ApplyPostProcessOptions` (vignette only — the volume is a per-level runtime clone), and `RenderforgeMod.OnLevelStart` (everything).
+**Architecture:** One new state/patch file `src\QualityKnobs.cs` + one new UI file `src\QualityPanel.cs` (mirrors `LutPanel.cs` / `SceneStylePanel.cs`, the repo's established row-builder shape). Vanilla writes `QualitySettings` inside `OptionsManager.UsePreset`, which nests `ChangeGraphicsQuality` → `OnGraphicsSettingsChangedEvent` → `LightingManager.ApplyPostProcessOptions` (`OptionsManager.cs:384,391,406`; `LightingManager.cs:53-55`). So the mod brackets `UsePreset` with a prefix/`HarmonyFinalizer` guard: every nested seam is suppressed while the guard is up, and when it comes down the mod re-applies its own values on top — snapshotting what vanilla left behind **only if `UsePreset` completed without throwing**, since it can throw before it writes anything (`OptionsManager.cs:377,447`). Three seams keep the knobs alive: the `UsePreset` finalizer (scalars + vignette), a postfix on `LightingManager.ApplyPostProcessOptions` (vignette only — the volume is a per-level runtime clone), and `RenderforgeMod.OnLevelStart` (everything).
 
 **Tech Stack:** C# `net472`, Harmony (`0Harmony.dll`), Unity 2019.4 (`UnityEngine.CoreModule`), Unity PostProcessing v2 (`Unity.Postprocessing.Runtime` — already referenced at `Renderforge.csproj:75-78`, so no csproj change is needed). Build `dotnet build`, deploy `deploy.ps1`, acceptance via PPCLI against `D:\PP-Instance3`.
 
@@ -16,7 +16,8 @@ Read before writing code; every line below was verified in source for this plan.
 
 | Fact | Source |
 |---|---|
-| `UsePreset(int presetIndex, bool hasOverrides)`; calls `QualitySettings.SetQualityLevel(num, applyExpensiveChanges: true)` then, when `!hasOverrides`, `ChangeGraphicsQuality(...)` | `OptionsManager.cs:375-393` |
+| `public void UsePreset(int presetIndex, bool hasOverrides)` — public instance method, patchable by name; calls `QualitySettings.SetQualityLevel(num, applyExpensiveChanges: true)` then, when `!hasOverrides`, `ChangeGraphicsQuality(...)` | `OptionsManager.cs:375-393` |
+| **`UsePreset` can throw before it writes anything:** its first statement is `DefinedPresetIndexToQualityIndex(presetIndex)` (`:377`), which indexes `OptionsManagerDef.DefinedPresets[definedQualityIndex]` unguarded (`:447`) → an out-of-range index throws before `SetQualityLevel` (`:384`). So the finalizer MUST NOT snapshot on the exception path — vanilla left nothing behind, and the live values are still the mod's own overrides | `OptionsManager.cs:377,384,447` |
 | `ChangeGraphicsQuality` fires `OnGraphicsSettingsChangedEvent` **before** assigning `_currentPreset` | `OptionsManager.cs:406-407` |
 | That event is bound to `ApplyPostProcessOptions(newPreset)` in `LightingManager.Initialize` | `LightingManager.cs:51-57` |
 | The PPv2 invalidation vanilla does — **exact call**: `PostProcessManager.NeedUpdateSettings = true;` | `LightingManager.cs:167` |
@@ -172,13 +173,19 @@ namespace Renderforge
         internal static void EnterUsePreset() { usePresetDepth++; }
 
         /// <summary>Guard down, take the fresh baseline, put our values back on top. Called from a HarmonyFinalizer, so a
-        /// throw inside UsePreset cannot leave the guard latched and the knobs frozen.</summary>
-        internal static void LeaveUsePreset()
+        /// throw inside UsePreset cannot leave the guard latched and the knobs frozen.
+        ///
+        /// <paramref name="succeeded"/> is false when UsePreset threw. That path must NOT snapshot: UsePreset's first
+        /// statement is DefinedPresetIndexToQualityIndex (OptionsManager.cs:377), which indexes DefinedPresets unguarded
+        /// (:447), so an invalid preset index throws BEFORE QualitySettings.SetQualityLevel (:384) — vanilla wrote
+        /// nothing, and the live QualitySettings are still OUR overrides. Snapshotting there would record the mod's own
+        /// values as "Vanilla" and the baseline would be lost for good. Unwind the guard always, capture only on success.</summary>
+        internal static void LeaveUsePreset(bool succeeded)
         {
             if (usePresetDepth > 0) usePresetDepth--;
             if (usePresetDepth > 0) return;
-            Snapshot();
-            ApplyAll();
+            if (succeeded) Snapshot();
+            ApplyAll();   // re-assert our values either way: a partial apply may have clobbered them
         }
 
         /// <summary>Every seam that needs the full set: OnLevelStart, OnConfigChanged, the UI rows, the UsePreset unwind.</summary>
@@ -302,11 +309,15 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(quality): add QualityKnob
 - [ ] 1. Append the two patch classes to `src\QualityKnobs.cs`, after the closing brace of `QualityKnobs` and inside `namespace Renderforge`:
 
 ```csharp
-    /// <summary>OptionsManager.UsePreset (OptionsManager.cs:375) is where vanilla writes the quality level and, through
-    /// ChangeGraphicsQuality (:391), nests the LightingManager callback. Prefix raises the guard so every nested seam
-    /// writes nothing of ours; the Finalizer lowers it, snapshots what vanilla left, and re-applies the knobs. A
-    /// Finalizer rather than a Postfix because a throw inside UsePreset must not leave the guard latched
-    /// (same shape as ModSettingsFilter.cs:18-29).</summary>
+    /// <summary>OptionsManager.UsePreset (public void UsePreset(int, bool), OptionsManager.cs:375) is where vanilla writes
+    /// the quality level and, through ChangeGraphicsQuality (:391), nests the LightingManager callback. Prefix raises the
+    /// guard so every nested seam writes nothing of ours; the Finalizer lowers it — ALWAYS, so a throw cannot latch the
+    /// guard and freeze the knobs (same shape as ModSettingsFilter.cs:18-29) — but takes the baseline only when the
+    /// original method actually completed.
+    ///
+    /// __exception is Harmony's "the original threw" channel: non-null = it threw. Returning it UNCHANGED rethrows the
+    /// original exception with its own type and message; returning null would swallow it, which would hide a real
+    /// OptionsManager failure from the game. So: always unwind, snapshot only on __exception == null, return as-is.</summary>
     [HarmonyPatch(typeof(OptionsManager), "UsePreset")]
     internal static class OptionsManager_UsePreset_Patch
     {
@@ -316,8 +327,8 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(quality): add QualityKnob
         [HarmonyFinalizer]
         private static Exception Finalizer(Exception __exception)
         {
-            QualityKnobs.LeaveUsePreset();
-            return __exception;
+            QualityKnobs.LeaveUsePreset(__exception == null);
+            return __exception;   // preserve/rethrow the original; never swallow
         }
     }
 
@@ -519,8 +530,11 @@ namespace Renderforge
             return row.transform;
         }
 
-        /// <summary>LOD detail slider. Whole numbers 0..40 = bias x10: 0 is Vanilla, and 1..9 snap up to 10, because the
-        /// spec's range is "0 = vanilla, otherwise 1.0 … 4.0" - there is no valid bias between them.</summary>
+        /// <summary>LOD detail slider. The spec's range is "0 = Vanilla, otherwise 1.0 … 4.0" (spec §A table row LodBias),
+        /// so the valid values are NOT contiguous on a bias axis - but the slider positions must be, or keyboard/controller
+        /// decrement gets trapped. Positions are therefore CONTIGUOUS and mapped, not scaled: 0 = Vanilla, 1..31 = 1.0,
+        /// 1.1, … 4.0 (value = 1.0 + (pos - 1) * 0.1). Decrementing from position 1 (bias 1.0) lands on position 0 =
+        /// Vanilla, and every arrow press moves exactly one step in both directions.</summary>
         private static Transform BuildLodSlider(UIModuleGraphicsOptionsPanel panel, Transform after, DlssConfig cfg)
         {
             var srcSlider = panel.ShadowDistanceSlider;
@@ -544,12 +558,27 @@ namespace Renderforge
             lod.gameObject.SetActive(true);
             lod.wholeNumbers = true;
             lod.minValue = 0;
-            lod.maxValue = 40;
-            lod.SetValueWithoutNotify(cfg.LodBias > 0f ? Mathf.Clamp(cfg.LodBias, 1f, 4f) * 10f : 0f);
+            lod.maxValue = 31;                       // 0 = Vanilla, 1..31 = 1.0 .. 4.0 in 0.1 steps
+            lod.SetValueWithoutNotify(PosFromBias(cfg.LodBias));
             ShowLod(cfg.LodBias);
             lod.onValueChanged.RemoveAllListeners();
             lod.onValueChanged.AddListener(OnLod);
             return row;
+        }
+
+        /// <summary>Position -> bias. 0 = Vanilla (0f), 1..31 = 1.0 + (pos - 1) * 0.1, rounded to one decimal so
+        /// float accumulation cannot produce 3.9999997.</summary>
+        private static float BiasFromPos(int pos)
+        {
+            if (pos <= 0) return 0f;
+            return Mathf.Round((1f + (Mathf.Min(pos, 31) - 1) * 0.1f) * 10f) / 10f;
+        }
+
+        /// <summary>Bias -> position, the exact inverse of BiasFromPos.</summary>
+        private static float PosFromBias(float bias)
+        {
+            if (bias <= 0f) return 0f;
+            return Mathf.Clamp(Mathf.RoundToInt((Mathf.Clamp(bias, 1f, 4f) - 1f) * 10f) + 1, 1, 31);
         }
 
         internal static void Sync()
@@ -559,7 +588,7 @@ namespace Renderforge
             Show(vignette, VignetteLabels, (int)cfg.Vignette);
             Show(shadow, ShadowLabels, (int)cfg.ShadowResolution);
             Show(aniso, AnisoLabels, (int)cfg.Anisotropic);
-            if (lod != null) lod.SetValueWithoutNotify(cfg.LodBias > 0f ? Mathf.Clamp(cfg.LodBias, 1f, 4f) * 10f : 0f);
+            if (lod != null) lod.SetValueWithoutNotify(PosFromBias(cfg.LodBias));
             ShowLod(cfg.LodBias);
         }
 
@@ -593,11 +622,12 @@ namespace Renderforge
         private static void OnShadow(int index) => Change(cfg => cfg.ShadowResolution = (ShadowResolutionMode)Mathf.Clamp(index, 0, 1));
         private static void OnAniso(int index) => Change(cfg => cfg.Anisotropic = (AnisotropicMode)Mathf.Clamp(index, 0, 1));
 
+        /// <summary>No snapping: every position is valid, so a decrement from position 1 (bias 1.0) reaches position 0 =
+        /// Vanilla instead of being bounced back up.</summary>
         private static void OnLod(float raw)
         {
-            int steps = (int)raw;
-            if (steps > 0 && steps < 10) { steps = 10; if (lod != null) lod.SetValueWithoutNotify(10f); }
-            Change(cfg => cfg.LodBias = steps / 10f);
+            float bias = BiasFromPos(Mathf.RoundToInt(raw));
+            Change(cfg => cfg.LodBias = bias);
         }
 
         private static void Change(Action<DlssConfig> edit)
@@ -629,6 +659,15 @@ namespace Renderforge
                 QualityPanel.Build(__instance, after, mod.Cfg);
                 SyncQuality();
 ```
+
+**Row order, and coexistence with the sibling plan.** The intended order in Options → Graphics is
+**LUT → Colour vision → Scene style → Quality rows** (vignette, shadow resolution, anisotropic, LOD detail); the sibling
+plan `docs\superpowers\plans\2026-09-05-colour-vision.md` Task 5 inserts its `ColorVisionPanel.Build(...)` between
+`LutPanel.Build` and `SceneStylePanel.Build` in the very same `GraphicsPanel.cs:61-63` block and adds its own
+`ColorVisionPanel.Hide` / `ColorVisionPanel.Clear` lines and its own `DlssConfig` field, so **whichever plan lands
+second must keep the other's rows and config fields instead of replacing the block wholesale** — chain onto the existing
+`after` (`after = ColorVisionPanel.Build(__instance, after, mod.Cfg);` stays, `QualityPanel.Build` goes last) and append,
+never overwrite, in `HiddenFromModSettings`, the `Ru` table, `GraphicsPanel.Hide` and `Pickers.Clear`.
 
 - [ ] 3. Hide them with the rest — add one line to the `ShowInGraphicsOptions == false` branch, after `SceneStylePanel.Hide(src.transform.parent);` (`src\GraphicsPanel.cs:43`):
 
@@ -726,7 +765,26 @@ Expected after every preset: `live aniso=ForceEnable lodBias=4 shadowRes=VeryHig
 
 Expected: identical `live` values in both replies, `inUsePreset=False` in both.
 
-- [ ] 8. **Vanilla round-trip** — every knob back to Vanilla must restore the snapshot exactly:
+- [ ] 8. **Failure path — an invalid preset index must not poison the baseline.** `UsePreset` throws at
+`OptionsManager.cs:377/447` before it writes anything, so the finalizer must unwind the guard, skip the snapshot and
+rethrow. Turn the knobs on first, so a wrong snapshot would be obvious (it would record `ForceEnable / 4 / VeryHigh`
+as "Vanilla"):
+
+```powershell
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Off","VeryHigh","Force16",4.0]}'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"Status"}'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"UsePreset","args":[99]}'
+$LASTEXITCODE
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"Status"}'
+```
+
+Expected: the `args:[99]` call FAILS (`ok:false`, `code`/`error` naming an index/range exception, exit code `1`) — that
+failure is the point, not a defect. The `Status` before and after must be **identical in the `base …` triple** (still the
+current preset's own values, never `aniso=ForceEnable lodBias=4 shadowRes=VeryHigh`), `base have=True`, and
+`inUsePreset=False` afterwards — proving the guard unwound on the throw path and no snapshot was taken. Then re-run a
+valid `UsePreset` (`args:[3]`) and confirm the knobs still win, i.e. the guard is not latched.
+
+- [ ] 9. **Vanilla round-trip** — every knob back to Vanilla must restore the snapshot exactly:
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Vanilla","Vanilla","Vanilla",0]}'
@@ -737,7 +795,7 @@ Expected: identical `live` values in both replies, `inUsePreset=False` in both.
 
 Expected: the three raw `QualitySettings` reads equal the `base …` triple from step 5 for the currently applied preset, and `vignette live` equals `vignette base`.
 
-- [ ] 9. **Survives `OnLevelStart`** — tactical → geoscape → tactical. Set the knobs on, then run a mission cold-start plan and read back inside the mission:
+- [ ] 10. **Survives `OnLevelStart`** — tactical → geoscape → tactical. Set the knobs on, then run a mission cold-start plan and read back inside the mission:
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Off","VeryHigh","Force16",2.0]}'
@@ -748,7 +806,7 @@ Expected: the three raw `QualitySettings` reads equal the `base …` triple from
 
 Expected inside the mission: `live aniso=ForceEnable lodBias=2 shadowRes=VeryHigh`, `vignette live=False`, and `vignette base=` a value (not `?`) — a fresh baseline for the level's new volume clone. Repeat the transition once more and confirm the values are unchanged.
 
-- [ ] 10. **Vignette screenshot crop.** With the camera untouched between the two captures:
+- [ ] 11. **Vignette screenshot crop.** With the camera untouched between the two captures:
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Vanilla","Vanilla","Vanilla",0]}'
@@ -772,9 +830,27 @@ function Mean($path, $x, $y, $s) {
 
 Expected: the **corner** means differ measurably (off is brighter — the darkened frame edge is gone); the **centre** means are equal to within rounding. Adjust the centre coordinates to the actual capture size if it is not 2560x1440.
 
-- [ ] 11. Log any PPCLI defect hit during this run as an entry in `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity). Do not fix PPCLI.
+- [ ] 12. **LOD slider navigation — decrement from 1.0 must reach Vanilla** (the contiguous-position mapping of Task 5
+step 1; a scaled 0..40 slider would trap the selection at 1.0). Set the bias, open the panel, and step down at the
+keyboard/controller — PPCLI has no key-injection verb, so the arrow presses are made at the machine and PPCLI is used
+for the readback:
 
-- [ ] 12. Record the readback table (preset index → base triple, knobs-on live triple, vignette corner/centre means) in the commit body. Commit:
+```powershell
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Vanilla","Vanilla","Vanilla",1.0]}'
+# In game: Esc -> Options -> Graphics, focus the "LOD DETAIL" row, press Left once.
+.\ppcli.ps1 connect screenshot '{"path":"C:\\Temp\\claude\\lod-vanilla.png"}'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"Status"}'
+# Press Right once (back to 1.0), then Right twice more.
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"Status"}'
+```
+
+Expected: one Left press from `1.0` shows the readout `Vanilla` / `Как в игре` in `lod-vanilla.png` and `Status` reports
+`cfg … lodBias=0` with `live lodBias` equal to `base lodBias`; the following Right presses read `1.0`, `1.1`, `1.2` —
+one step per press, no jump to `4.0` and no bounce back to `1.0`.
+
+- [ ] 13. Log any PPCLI defect hit during this run as an entry in `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity). Do not fix PPCLI.
+
+- [ ] 14. Record the readback table (preset index → base triple, knobs-on live triple, invalid-index base-unchanged check, vignette corner/centre means) in the commit body. Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -789,7 +865,15 @@ If nothing changed in the working tree, skip the commit and carry the numbers in
 
 **Files:** none. Measurement only, on the user's rig (RTX 5070 Ti, 1440p 240 Hz borderless, vsync off) against `D:\PP-Instance3`.
 
-The only in-mod perf facility is the benchmark **`Overlay`** (`src\Overlay.cs`): its FPS line prints frame time in ms averaged over a 0.5 s window of `Time.unscaledDeltaTime` (`Overlay.cs:155-159`), and it adds a GPU line from `Dlss_Timings` **only** when the process is D3D12 with a live upscaler (`Overlay.cs:170,175-179`). There is **no VRAM readout anywhere in the mod** — use `nvidia-smi`, which ships with the driver. Do not add a VRAM facility for this measurement.
+**The overlay cannot answer this question.** `Overlay`'s FPS line is a CPU-side frame-time average over a 0.5 s window of
+`Time.unscaledDeltaTime` (`Overlay.cs:155-159`) — presentation cadence, not GPU time — and its `GPU:` line is
+`Dlss_Timings`, which covers only the native upscale commands (copy-in / evaluate / copy-out / wait,
+`Overlay.cs:170,174-179`) and appears only under D3D12 with a live upscaler. Shadow-map rendering and LOD geometry work
+are **not** in either number, and those are exactly the two knobs being measured. So the whole-frame GPU time is measured
+**externally with PresentMon**, and the overlay figures are kept only as a secondary column for cross-checking.
+
+There is **no VRAM readout anywhere in the mod** — use `nvidia-smi`, which ships with the driver. Do not add a VRAM or a
+GPU-timing facility to the mod for this measurement.
 
 - [ ] 1. Turn the overlay on and park the camera on a fixed tactical view (do not move it between the runs):
 
@@ -800,41 +884,93 @@ cd E:\DEV\PhoenixPoint\PPCLI
 
 Expected: `overlay=True at TopCenter`.
 
-- [ ] 2. Start the VRAM sampler in a second shell and leave it running through all three measurements:
+- [ ] 2. **Get PresentMon.** It is not installed on this machine (checked: `Get-Command presentmon*` returns nothing).
+Download the official Intel GameTechDev CLI into the scratchpad — the standalone `.exe`, not the `.msi` installer:
 
 ```powershell
-nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader -l 1 | Tee-Object -FilePath C:\Temp\claude\vram.log
+$pm = 'C:\Temp\claude\PresentMon-2.5.1-x64.exe'
+New-Item -ItemType Directory -Force 'C:\Temp\claude' | Out-Null
+Invoke-WebRequest -Uri 'https://github.com/GameTechDev/PresentMon/releases/download/v2.5.1/PresentMon-2.5.1-x64.exe' -OutFile $pm
+& $pm --help          # confirm the flag and column names of THIS build before trusting the lines below
 ```
 
-- [ ] 3. Measure the **Vanilla** baseline: set all knobs to Vanilla, let the scene settle 30 s, then capture the overlay.
+Notes that decide whether the numbers are real:
+- PresentMon captures ETW events and **must run elevated** — start that shell with "Run as administrator", or every
+  capture comes back empty.
+- Column names differ by major version: PresentMon **2.x** writes `FrameTime` and `GPUBusy` (ms); **1.x** writes
+  `MsBetweenPresents` and `MsGPUActive`. The script below reads whichever pair the CSV actually has. `GPUBusy` /
+  `MsGPUActive` is the whole-frame GPU time — that is the figure this task exists to produce.
+
+- [ ] 3. **Start the VRAM sampler with timestamps** in a second shell and leave it running through all five
+measurements, so each run can be aligned to its own window by wall clock:
 
 ```powershell
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Vanilla","Vanilla","Vanilla",0]}'
-Start-Sleep 30
-.\ppcli.ps1 connect screenshot '{"path":"C:\\Temp\\claude\\perf-vanilla.png"}'
+nvidia-smi --query-gpu=memory.used,timestamp --format=csv -l 1 | Tee-Object -FilePath C:\Temp\claude\vram.csv
 ```
 
-Read the ms value off the FPS line of the screenshot; note the peak `memory.used` over that window from `vram.log`.
-
-- [ ] 4. Measure **ShadowResolution = VeryHigh** alone, same camera, same 30 s settle:
+- [ ] 4. **One helper, used identically for all five configurations.** Paste it into the elevated shell once:
 
 ```powershell
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Vanilla","VeryHigh","Vanilla",0]}'
-Start-Sleep 30
-.\ppcli.ps1 connect screenshot '{"path":"C:\\Temp\\claude\\perf-shadow.png"}'
+$pm = 'C:\Temp\claude\PresentMon-2.5.1-x64.exe'
+function Measure-Cfg {
+  param([string]$Tag, [string]$Vig, [string]$Shadow, [string]$Aniso, [double]$Lod)
+  Push-Location E:\DEV\PhoenixPoint\PPCLI
+  .\ppcli.ps1 connect call ('{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["' + $Vig + '","' + $Shadow + '","' + $Aniso + '",' + $Lod + ']}')
+  Start-Sleep 30                                   # settle: streaming, shadow maps and LODs must stop churning
+  $t0 = Get-Date
+  & $pm --process_name PhoenixPointWin64.exe --output_file "C:\Temp\claude\pm-$Tag.csv" `
+        --timed 30 --terminate_after_timed --stop_existing_session --no_top
+  $t1 = Get-Date
+  .\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\claude\\perf-' + $Tag + '.png"}')
+  Pop-Location
+  "$Tag window $($t0.ToString('HH:mm:ss')) .. $($t1.ToString('HH:mm:ss'))" |
+    Tee-Object -FilePath C:\Temp\claude\pm-windows.txt -Append
+}
 ```
 
-- [ ] 5. Measure **LodBias = 4.0** alone, same camera, same 30 s settle:
+- [ ] 5. Run the five configurations back to back, **camera untouched between them** (same tactical view, same turn,
+nothing selected — a moved camera invalidates the comparison):
 
 ```powershell
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Vanilla","Vanilla","Vanilla",4.0]}'
-Start-Sleep 30
-.\ppcli.ps1 connect screenshot '{"path":"C:\\Temp\\claude\\perf-lod.png"}'
+Measure-Cfg -Tag vanilla -Vig Vanilla -Shadow Vanilla  -Aniso Vanilla -Lod 0
+Measure-Cfg -Tag shadow  -Vig Vanilla -Shadow VeryHigh -Aniso Vanilla -Lod 0
+Measure-Cfg -Tag lod     -Vig Vanilla -Shadow Vanilla  -Aniso Vanilla -Lod 4.0
+Measure-Cfg -Tag aniso   -Vig Vanilla -Shadow Vanilla  -Aniso Force16 -Lod 0
+Measure-Cfg -Tag vigoff  -Vig Off     -Shadow Vanilla  -Aniso Vanilla -Lod 0
 ```
 
-- [ ] 6. Stop the sampler. Build the table (frame time ms, delta vs Vanilla, peak VRAM MiB, delta vs Vanilla) for Vanilla / VeryHigh / LOD 4.0. **No threshold gate** — the numbers are reported, not enforced — but they are the source for the README cost sentence in Task 8.
+(Anisotropic and Vignette get their own runs because Task 8 must state their cost from a measurement instead of
+asserting they are free.)
 
-- [ ] 7. If the run is under D3D12 with a live upscaler, also record the GPU line (`in / eval / out / wait` ms) from each screenshot; under D3D11 that line is absent by design and the CPU frame time is the only figure — say so in the report rather than leaving a blank.
+- [ ] 6. Stop the `nvidia-smi` sampler (Ctrl+C). Reduce every capture to **medians** — a median is the figure to report;
+a mean is skewed by the loading/streaming outliers a 30 s window always contains:
+
+```powershell
+function Stat($tag) {
+  $rows = Import-Csv "C:\Temp\claude\pm-$tag.csv"
+  $ft = if ($rows[0].PSObject.Properties.Name -contains 'FrameTime') { 'FrameTime' } else { 'MsBetweenPresents' }
+  $gp = if ($rows[0].PSObject.Properties.Name -contains 'GPUBusy')   { 'GPUBusy' }   else { 'MsGPUActive' }
+  $med = { param($v) $s = @($v | Sort-Object); [math]::Round($s[[int]($s.Count/2)], 3) }
+  [pscustomobject]@{
+    Config   = $tag
+    Frames   = $rows.Count
+    FrameMs  = & $med ($rows.$ft | ForEach-Object { [double]$_ })
+    GpuMs    = & $med ($rows.$gp | ForEach-Object { [double]$_ })
+  }
+}
+'vanilla','shadow','lod','aniso','vigoff' | ForEach-Object { Stat $_ } | Format-Table -AutoSize
+Get-Content C:\Temp\claude\pm-windows.txt
+```
+
+For VRAM, take the **peak** `memory.used` from `C:\Temp\claude\vram.csv` inside each run's timestamp window printed by
+`pm-windows.txt` (the nvidia-smi `timestamp` column is what makes that alignment possible).
+
+- [ ] 7. Build the report table: per configuration — **median GPU busy ms** (primary), median frame time ms, peak VRAM
+MiB, each with its delta vs Vanilla, plus a **secondary column** with the overlay's own CPU frame-time ms read off
+`perf-<tag>.png`. Under D3D12 with a live upscaler also note the overlay `GPU:` line (`in / eval / out / wait` ms) and
+label it explicitly as *upscale commands only, not whole-frame*; under D3D11 that line is absent by design — say so
+rather than leaving a blank. **No threshold gate** — the numbers are reported, not enforced — but they are the source for
+the README cost table in Task 8 step 1.
 
 - [ ] 8. Commit the numbers as a research note only if a doc changed; otherwise carry them straight into Task 8.
 
@@ -844,7 +980,11 @@ Start-Sleep 30
 
 **Files:** `README.md`, `docs\DESIGN.md`
 
-- [ ] 1. Add a user-facing block to `README.md` beside the other Options → Graphics rows, using the real numbers from Task 7 (replace `<…>` with the measured values):
+- [ ] 1. Add a user-facing block to `README.md` beside the other Options → Graphics rows. **Every number below is a
+placeholder to be filled from the Task 7 step 7 report table** — median GPU busy ms delta vs Vanilla, and peak VRAM MiB
+delta vs Vanilla, for the `shadow`, `lod`, `aniso` and `vigoff` runs. No cost may be described in words ("free",
+"negligible", "no impact") — if a knob measured at or below the run-to-run noise, write the measured delta and say
+`within measurement noise`. Do not ship the block with a `<…>` left in it.
 
 ```markdown
 ### Quality knobs
@@ -860,9 +1000,20 @@ not leave the mod's value behind, and changing the graphics preset does not lose
 | Anisotropic filtering | Vanilla / 16x | Forces 16 samples on every texture — sharper ground and walls at grazing angles. |
 | LOD detail | 0 (Vanilla) / 1.0 … 4.0 | Keeps higher-detail models at distance. |
 
-Cost on an RTX 5070 Ti at 1440p: Very High shadows `<+X.X ms, +YYY MiB VRAM>`, LOD 4.0
-`<+X.X ms, +YYY MiB VRAM>` against Vanilla. Anisotropic 16x and Vignette Off are free.
+Measured cost on an RTX 5070 Ti at 1440p, in a tactical mission with a fixed camera — median whole-frame GPU time over
+30 s (PresentMon) and peak VRAM, against Vanilla:
+
+| Setting | GPU time | VRAM |
+|---|---|---|
+| Shadow resolution: Very High | `<+X.X ms>` | `<+YYY MiB>` |
+| LOD detail: 4.0 | `<+X.X ms>` | `<+YYY MiB>` |
+| Anisotropic filtering: 16x | `<+X.X ms>` | `<+YYY MiB>` |
+| Vignette: Off | `<+X.X ms>` | `<+YYY MiB>` |
 ```
+
+Fill the four rows from **Task 7 step 7** (`shadow`, `lod`, `aniso`, `vigoff` — the `GpuMs` delta vs the `vanilla` row,
+and the peak-VRAM delta from `vram.csv` inside each run's window). Your own rig is not the reference: if the measurement
+was made anywhere other than the RTX 5070 Ti / 1440p rig, change the sentence to name the hardware actually used.
 
 - [ ] 2. Add the design rows to `docs\DESIGN.md` (place them with the other feature sections):
 
@@ -877,8 +1028,12 @@ Cost on an RTX 5070 Ti at 1440p: Very High shadows `<+X.X ms, +YYY MiB VRAM>`, L
 - **Baseline capture.** Vanilla writes `QualitySettings` inside `OptionsManager.UsePreset`
   (`OptionsManager.cs:384`), which nests `ChangeGraphicsQuality` (`:391`) → `OnGraphicsSettingsChangedEvent`
   (`:406`) → `LightingManager.ApplyPostProcessOptions` (`LightingManager.cs:53-55`). A Harmony prefix
-  raises `inUsePreset`, a `HarmonyFinalizer` lowers it, snapshots `{anisotropicFiltering, lodBias,
-  shadowResolution}` and re-applies the knobs. Finalizer, not postfix: a throw must not latch the guard.
+  raises `inUsePreset`, a `HarmonyFinalizer` lowers it — always — and re-applies the knobs; it snapshots
+  `{anisotropicFiltering, lodBias, shadowResolution}` **only when the original method did not throw**
+  (`__exception == null`), and returns `__exception` unchanged so the failure is rethrown, not swallowed. Finalizer, not
+  postfix: a throw must not latch the guard. Success-gated snapshot, because `UsePreset` can throw at
+  `DefinedPresetIndexToQualityIndex` (`OptionsManager.cs:377,447`) *before* `SetQualityLevel` (`:384`) — at that point the
+  live `QualitySettings` are still the mod's own overrides, and snapshotting them would record them as "Vanilla".
 - **Fallback capture.** If no snapshot exists at the first mod write (preset applied before Harmony was
   installed), the current values are captured right before that write. An uninitialised snapshot is never restored.
 - **Vignette** is captured per volume, before the first override, and written on `profile` — the runtime
@@ -891,6 +1046,10 @@ Cost on an RTX 5070 Ti at 1440p: Very High shadows `<+X.X ms, +YYY MiB VRAM>`, L
   the engine default. Coexistence with another mod's limits is not attempted.
 - **Seams:** `OptionsManager.UsePreset` finalizer (scalars + vignette), `LightingManager.ApplyPostProcessOptions`
   postfix (vignette only — scalars are suppressed while `inUsePreset`), `RenderforgeMod.OnLevelStart` (everything).
+- **LOD slider positions are contiguous, values are not.** Valid biases are `0` (Vanilla) and `1.0 … 4.0`, so the slider
+  runs `0..31` and maps position → value (`1.0 + (pos - 1) * 0.1`) instead of scaling. A scaled `0..40` slider would snap
+  positions 1–9 back to 10 and trap keyboard/controller decrement at `1.0`.
+- **Row order in Options → Graphics:** LUT → Colour vision → Scene style → Quality rows.
 - **No "Extreme" shadow tier.** Unity 2019.4 caps custom shadow maps at 4096 dir / 2048 spot / 1024 point,
   so a tier above `VeryHigh` would be meaningless. 11 of 71 lights cast shadows, all `FromQualitySettings`.
 ```
@@ -914,9 +1073,9 @@ Check each row before declaring the plan implemented.
 | `Vignette` Vanilla/Off → `profile.Vignette.enabled.value = false` | Task 4 step 2 |
 | `ShadowResolution` Vanilla/VeryHigh → `QualitySettings.shadowResolution` | Task 2 step 1 (`ApplyScalars`) |
 | `Anisotropic` Vanilla/Force16 → `ForceEnable` + `SetGlobalAnisotropicFilteringLimits(16,16)` | Task 2 step 1 |
-| `LodBias` 0 = Vanilla, else 1.0–4.0 → `QualitySettings.lodBias` | Task 2 step 1 (clamp), Task 5 step 1 (slider snap) |
+| `LodBias` 0 = Vanilla, else 1.0–4.0 → `QualitySettings.lodBias` | Task 2 step 1 (clamp), Task 5 step 1 (contiguous slider positions 0..31, `BiasFromPos`/`PosFromBias`) |
 | **Vanilla means "write the captured baseline back", never "skip"** | Task 2 step 1 — every branch writes; `else` writes `base*` |
-| Snapshot after vanilla finished applying a preset | Task 2 step 1 `LeaveUsePreset` → `Snapshot()` then `ApplyAll()` |
+| Snapshot after vanilla finished applying a preset — and **only** if it finished (`__exception == null`) | Task 2 step 1 `LeaveUsePreset(bool succeeded)`, Task 3 step 1 finalizer; verified Task 6 step 8 |
 | Prefix sets `inUsePreset`, suppressing all scalar writes from nested seams | Task 2 (`ApplyScalars` early-returns on `InUsePreset`), Task 3 step 1 |
 | `finally`-safe pattern (Harmony `Finalizer`) | Task 3 step 1 `[HarmonyFinalizer]` |
 | Snapshot refreshed on every preset change | Task 3 step 1 (the finalizer runs per `UsePreset`); verified Task 6 step 6 |
@@ -933,10 +1092,12 @@ Check each row before declaring the plan implemented.
 | en + ru labels | Task 1 step 4 (config), Task 5 step 1 (rows) |
 | Acceptance: readback per preset (all 6) | Task 6 steps 5-6 |
 | Acceptance: same-preset reapply | Task 6 step 7 |
-| Acceptance: Vanilla round-trip restores the snapshot | Task 6 step 8 |
-| Acceptance: survives `OnLevelStart` (tactical → geoscape → tactical) | Task 6 step 9 |
-| Acceptance: vignette fixed-camera screenshot crop, edges differ / centre identical | Task 6 step 10 |
-| Perf: GPU frame time + peak VRAM, VeryHigh and LOD 4.0 vs Vanilla, no threshold gate, README states cost | Task 7, Task 8 step 1 |
+| Acceptance: failed `UsePreset` (invalid index) leaves the baseline untouched and the guard down | Task 6 step 8 |
+| Acceptance: Vanilla round-trip restores the snapshot | Task 6 step 9 |
+| Acceptance: survives `OnLevelStart` (tactical → geoscape → tactical) | Task 6 step 10 |
+| Acceptance: vignette fixed-camera screenshot crop, edges differ / centre identical | Task 6 step 11 |
+| Acceptance: LOD slider decrement from 1.0 reaches Vanilla, one step per press | Task 6 step 12 |
+| Perf: whole-frame GPU time (PresentMon median) + peak VRAM, VeryHigh / LOD 4.0 / 16x / Vignette Off vs Vanilla, no threshold gate, README table filled from the measurement | Task 7 steps 2-7, Task 8 step 1 |
 | Tests on Instance3, not Instance2, not Steam | Task 6 step 1-2 (`-PPRoot 'D:\PP-Instance3'` everywhere) |
 
 **Out of scope, do not implement:** section B (Colour vision) and section C (Reflex standalone). Also excluded by the spec's own "Out of scope" list: crisp UI work, a UI scale slider, motion blur / grain toggles, a shadow "Extreme" tier, HUD colour-blind palettes.

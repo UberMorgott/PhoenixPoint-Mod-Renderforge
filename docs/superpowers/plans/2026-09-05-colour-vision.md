@@ -17,11 +17,13 @@
 | `S` deuteranopia 1.0 | `0.367322 0.860646 -0.227968 / 0.280085 0.672501 0.047413 / -0.011820 0.042940 0.968881` | Machado, Oliveira & Fernandes 2009, authors' own table — https://www.inf.ufrgs.br/~oliveira/pubs_files/CVD_Simulation/CVD_Simulation.html — **verified exact match** |
 | `S` protanopia 1.0 | `0.152286 1.052583 -0.204868 / 0.114503 0.786281 0.099216 / -0.003882 -0.048116 1.051998` | same page — **verified exact match** |
 | `S` tritanopia 1.0 | `1.255528 -0.076749 -0.178779 / -0.078411 0.930809 0.147602 / 0.004733 0.691367 0.303900` | same page — **verified exact match** |
-| `R` deut + prot | `0 0 0 / 0.7 1 0 / 0.7 0 1` | Fidaner, Lin & Ozguven 2005, `err2mod` verbatim in their MATLAB — https://github.com/joergdietrich/daltonize/blob/main/doc/conv_img.m ; report http://acorn.stanford.edu/psych221/projects/2005/ofidaner/colorblindness_project.htm . One matrix for **both** types (they do not publish a per-type pair). |
-| `R` tritan | `1 0 0.7 / 0 1 0.7 / 0 0 0` | http://ixora.io/projects/colorblindness/daltonization.html — per-deficiency redistribution, error pushed onto the channels a tritan can still discriminate. **Secondary source** (blog, attributing the per-type principle to Simon-Liedtke & Farup, JVCI 2016), not a peer-reviewed table. |
+| `R` **protan** | `0 0 0 / 0.7 1 0 / 0.7 0 1` | Fidaner, Lin & Ozguven 2005, `err2mod` verbatim in their MATLAB — https://github.com/joergdietrich/daltonize/blob/main/doc/conv_img.m : `err2mod = [0 0 0; .7 1 0; .7 0 1];`, applied as `ERR(i,j,:) = err2mod * err;` with `err = errorp(i,j,:)`. Report: http://acorn.stanford.edu/psych221/projects/2005/ofidaner/colorblindness_project.htm |
+| `R` **deutan** | same matrix as protan | The MATLAB above corrects **only** the protan error (`errorp`); its deuteranopia output is the plain simulation, so it is *not* a citation for a deutan `R`. The citation that is: the maintained Python port of the same method, https://github.com/joergdietrich/daltonize — `daltonize/daltonize.py:125` defines the single `err2mod = np.array([[0, 0, 0], [0.7, 1, 0], [0.7, 0, 1]])` and applies it for **every** `color_deficit` value (`d`, `p`, `t`); the type argument only selects the simulation matrix passed to `simulate()` at `:120`. Reusing the protan `R` on deutan is therefore that implementation's published behaviour, not our invention. |
+| `R` tritan | `1 0 0.7 / 0 1 0.7 / 0 0 0` | https://ixora.io/projects/colorblindness/color-blindness-simulation-research.html — the page's own daltonization-matrix table (protan `0 0 0 / 0.7 1 0 / 0.7 0 1`, deutan `1 0.7 0 / 0 0 0 / 0 0.7 1`, tritan as above). **Secondary source, coefficients NOT independently verified.** The page's author cites Simon-Liedtke & Farup (JVCI 2016) as the *justification* for using a per-deficiency matrix at all; the numbers themselves are not transcribed from that paper here and must not be presented as if they were. |
 
-**Tritan status: SHIPPING, flagged.** The spec's fallback ("if no reference is found, defer tritan") does not fire — a citable matrix exists. It is a weaker citation than the deut/prot pair, so the provenance comment in `ColorVision.h` and the DESIGN note both say so.
-Note the deliberate deviation: ixora also publishes a *different* deuteranopia `R` (`1 0.7 0 / 0 0 0 / 0 0.7 1`). The spec mandates the Fidaner matrix for deut/prot; Fidaner wins, ixora is used only where Fidaner has nothing.
+**Deutan `R` — the decision, stated once.** The spec (§B) says "`R` = the per-type error-redistribution matrix" but does not mandate that deut and prot share one. Two candidates existed: the shared `err2mod` (daltonize.py, above) and ixora's distinct deutan `1 0.7 0 / 0 0 0 / 0 0.7 1`. **Chosen: the shared `err2mod`**, because it is the matrix an actively maintained implementation of the cited method actually applies to `d`, while ixora's deutan variant rests on the same unverified secondary table as its tritan row. Recorded in `ColorVision.h` and in DESIGN so it is not silently re-litigated.
+
+**Tritan status: SHIPPING, flagged.** The spec's fallback ("if no reference is found, defer tritan") does not fire — a citable matrix exists. Its citation is strictly weaker than the deut/prot one, so `ColorVision.h` and the DESIGN note both say so. Deliberate deviation from `daltonize.py`, which would give tritan the same `err2mod`: that matrix pushes the error onto G and **B**, and B is exactly the channel a tritan cannot discriminate — so the per-deficiency tritan matrix is used instead, at the cost of the weaker citation.
 
 The colorspace R-package vignette (https://colorspace.r-forge.r-project.org/articles/color_vision_deficiency.html) cites Machado 2009 but prints no numeric table — it could not serve as the cross-check; the authors' own page did.
 
@@ -70,10 +72,16 @@ D = I + R*(I - S), column-vector linear RGB (v' = D*v), printed row-major.
 S = Machado, Oliveira & Fernandes 2009 simulation matrices at severity 1.0, transcribed from the
     authors' own table: https://www.inf.ufrgs.br/~oliveira/pubs_files/CVD_Simulation/CVD_Simulation.html
 R = error redistribution.
-    deuteranopia / protanopia: Fidaner, Lin & Ozguven 2005, "Analysis of Color Blindness" (`err2mod`,
-        https://github.com/joergdietrich/daltonize/blob/main/doc/conv_img.m). One matrix for both types.
-    tritanopia: per-deficiency redistribution from http://ixora.io/projects/colorblindness/daltonization.html
-        (secondary source; no peer-reviewed table publishes one).
+    protanopia: Fidaner, Lin & Ozguven 2005, "Analysis of Color Blindness" - `err2mod` verbatim in their
+        MATLAB (https://github.com/joergdietrich/daltonize/blob/main/doc/conv_img.m), which applies it to
+        the protan error only.
+    deuteranopia: the SAME err2mod. Citation: daltonize/daltonize.py:125 in the maintained Python port
+        (https://github.com/joergdietrich/daltonize), where the one err2mod is applied for every
+        color_deficit value; the type only selects the simulate() matrix (:120).
+    tritanopia: per-deficiency redistribution from the matrix table at
+        https://ixora.io/projects/colorblindness/color-blindness-simulation-research.html - a SECONDARY
+        source whose coefficients are not independently verified (its Simon-Liedtke & Farup 2016 citation
+        justifies the per-type approach, it is not the source of these numbers).
 
 Deliberately stdlib-only and written from the published numbers, not from the C++ header, so that
 colour_vision_probe.cpp compares two independent derivations rather than one value against itself.
@@ -158,7 +166,80 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "test: add independent colour-v
 
 **Files:** `native\ColorVision.h` (new), `native\probe\colour_vision_probe.cpp` (new), `native\Sharpen.h`, `native\Sharpen.cpp`, `native\CMakeLists.txt`
 
-### 2a — the probe, written before the shader exists
+### 2a — compilable scaffolding, then the probe, and it must fail for the right reason
+
+> **Ordering rule (do not "optimise" it away).** A probe that cannot *build* is not a red test — CMake
+> aborts before a single assertion runs and nothing is proven. So this section first lands the smallest
+> scaffolding that makes the probe **compile and run** with the correction **bypassed**: an identity
+> `ColorVision.h`, the `Sharpen.h` predicate/signature, and the widened `FillSharpenConstants` — no
+> matrices, no HLSL stage, no constant rows. The red is then an *assertion* failure: the run output does
+> not match the independent reference. 2b makes the CPU half green, 2c/2d make the GPU half green.
+
+- [ ] **Scaffolding 1/3** — create `native\ColorVision.h` as a stub that returns the identity for every
+  mode. Everything except the body of `CvCorrection` is final; 2b fills in the body.
+
+```cpp
+// ColorVision.h - daltonization matrices for the analytic post pass. Mode ordinals cross the managed/native
+// ABI (DLSS_CV_* in RenderforgeNative.h, ColorVisionMode in src\DlssConfig.cs); append only.
+// Provenance and the full source discussion arrive with the real matrices in Task 2b.
+#pragma once
+
+// Mirrored by DLSS_CV_* (RenderforgeNative.h) and ColorVisionMode (src\DlssConfig.cs).
+enum { RF_CV_NONE = 0, RF_CV_DEUTERANOPIA = 1, RF_CV_PROTANOPIA = 2, RF_CV_TRITANOPIA = 3 };
+
+struct CvMatrix { float m[9]; };   // row-major: m[row * 3 + col]
+
+// TASK 2b REPLACES THIS BODY. Identity for every mode, so the probe links, runs, and fails its
+// reference comparison instead of failing to build.
+constexpr CvMatrix CvCorrection(int mode)
+{
+    (void)mode;
+    return CvMatrix{ { 1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 1.0f } };
+}
+```
+
+- [ ] **Scaffolding 2/3** — `native\Sharpen.h`: add the include next to the existing one (`:7`, after
+  `#include "SceneStyle.h"`):
+
+```cpp
+#include "ColorVision.h"
+```
+
+- [ ] **Scaffolding 2/3** — `native\Sharpen.h`: extend the `FillSharpenConstants` declaration (`:17-19`)
+  with the new trailing parameter:
+
+```cpp
+void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
+                          int lutPreset = 0, float lutStrength = 0.0f, bool hdr = false,
+                          const SceneStyleParams& style = SceneStyleParams{}, int colorVision = 0);
+```
+
+- [ ] **Scaffolding 2/3** — `native\Sharpen.h`: immediately after `ColorGradeEnabled` (`:21`), add:
+
+```cpp
+inline bool ColorVisionEnabled(int mode) { return mode >= RF_CV_DEUTERANOPIA && mode <= RF_CV_TRITANOPIA; }
+
+// The analytic post shader (RCAS + grade + scene style + colour vision) is compiled INSTEAD of NIS/RCAS
+// whenever any of its stages is active. Colour vision lives only in that shader, so every "is the post pass
+// needed" test must go through here - otherwise LUT=Off + style=Off silently bypasses the correction.
+inline bool PostShaderEnabled(int preset, float strength, const SceneStyleParams& style, int colorVision)
+{
+    return ColorGradeEnabled(preset, strength) || SceneStyleEnabled(style) || ColorVisionEnabled(colorVision);
+}
+```
+
+- [ ] **Scaffolding 3/3** — `native\Sharpen.cpp`: widen the `FillSharpenConstants` **definition** only
+  (`:132-136`) — the new parameter and the new predicate, and nothing else. The body keeps packing exactly
+  what it packs today, which is what leaves the correction bypassed:
+
+```cpp
+void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
+                          int lutPreset, float lutStrength, bool hdr, const SceneStyleParams& style,
+                          int colorVision)
+{
+    memset(dst256, 0, 256);
+    if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision)) {
+```
 
 - [ ] Create `native\probe\colour_vision_probe.cpp`:
 
@@ -199,6 +280,44 @@ static const float kReference[3][9] = {
 
 static float SrgbToLinear(float c) { return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f); }
 static float LinearToSrgb(float c) { return c <= 0.0031308f ? c * 12.92f : 1.055f * powf(c, 1.0f / 2.4f) - 0.055f; }
+static float Clamp01(float c) { return c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c; }
+
+// CPU model of the shader's ColorVision() stage, driven by kReference (the PYTHON numbers) rather than by
+// ColorVision.h. This is the only check that can catch a transposed matrix, a swapped channel or a
+// mis-indexed cvRow: every other assertion here is satisfied by any well-behaved 3x3.
+// UNORM path: saturate, decode sRGB, apply D, clamp in linear, encode. FP16 path: max(0), apply D, max(0).
+static Pixel ReferenceApply(const Pixel& in, int mode, bool hdr)
+{
+    if (mode < RF_CV_DEUTERANOPIA || mode > RF_CV_TRITANOPIA) return in;
+    const float* d = kReference[mode - 1];
+    float v[3];
+    for (int c = 0; c < 3; ++c) v[c] = hdr ? (in[c] < 0.0f ? 0.0f : in[c]) : SrgbToLinear(Clamp01(in[c]));
+    Pixel out = in;
+    for (int r = 0; r < 3; ++r) {
+        float x = d[r * 3 + 0] * v[0] + d[r * 3 + 1] * v[1] + d[r * 3 + 2] * v[2];
+        out[r] = hdr ? (x < 0.0f ? 0.0f : x) : LinearToSrgb(Clamp01(x));
+    }
+    return out;
+}
+
+// GPU pow() vs CPU powf() on WARP differ by ~1e-6 relative; 1.5/255 is loose for that and still tight
+// enough that any channel-order or transposition error (which moves cube samples by 0.1..0.6) is caught.
+// The tight numeric gate is the encoded/linear parity check further down.
+static const float kRefTol = 1.5f / 255.0f;
+
+static void RequireMatchesReference(const std::vector<Pixel>& got, const std::vector<Pixel>& in,
+                                    int mode, bool hdr, const char* what)
+{
+    for (size_t i = 0; i < in.size(); ++i) {
+        Pixel want = ReferenceApply(in[i], mode, hdr);
+        for (int c = 0; c < 3; ++c)
+            if (!(std::abs(got[i][c] - want[c]) <= kRefTol)) {
+                fprintf(stderr, "  %s: mode %d %s sample %zu ch %d: in %.6f got %.6f want %.6f\n",
+                        what, mode, hdr ? "linear" : "encoded", i, c, in[i][c], got[i][c], want[c]);
+                throw std::runtime_error("GPU output differs from the reference model");
+            }
+    }
+}
 
 struct CvProbe {
     ComPtr<ID3D11Device> device;
@@ -213,8 +332,11 @@ struct CvProbe {
         Require(blob.Get() != nullptr, "Production post HLSL did not compile");
         Check(device->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &shader));
     }
-    // LUT off, style off, sharpness 0: only the colour-vision stage may touch the pixels.
-    std::vector<Pixel> Run(const std::vector<Pixel>& pixels, unsigned width, unsigned height, int mode, bool hdr) {
+    // Defaults = LUT off, style off, sharpness 0: only the colour-vision stage may touch the pixels.
+    // The LUT/style arguments exist for the composition test, which needs the other stages switched ON.
+    std::vector<Pixel> Run(const std::vector<Pixel>& pixels, unsigned width, unsigned height, int mode, bool hdr,
+                           int lutPreset = DLSS_LUT_OFF, float lutStrength = 0.0f,
+                           const SceneStyleParams& style = SceneStyleParams{}) {
         Require(pixels.size() == size_t(width) * height, "Input dimensions mismatch");
         D3D11_TEXTURE2D_DESC td = {};
         td.Width = width; td.Height = height; td.MipLevels = td.ArraySize = td.SampleDesc.Count = 1;
@@ -231,8 +353,8 @@ struct CvProbe {
         Check(device->CreateShaderResourceView(src.Get(), nullptr, &srv));
         Check(device->CreateUnorderedAccessView(dst.Get(), nullptr, &uav));
         alignas(16) unsigned char constants[256];
-        FillSharpenConstants(constants, DLSS_SHARPEN_RCAS, 0, width, height, DLSS_LUT_OFF, 0, hdr,
-                             SceneStyleParams{}, mode);
+        FillSharpenConstants(constants, DLSS_SHARPEN_RCAS, 0, width, height, lutPreset, lutStrength, hdr,
+                             style, mode);
         D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = sizeof(constants); bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         D3D11_SUBRESOURCE_DATA initial = { constants, 0, 0 };
         ComPtr<ID3D11Buffer> cb;
@@ -280,6 +402,16 @@ int main() {
         const std::vector<Pixel> primaries = {
             {1,0,0,1}, {0,1,0,1}, {0,0,1,1}, {1,1,0,1}, {0,1,1,1}, {1,0,1,1}, {1,1,1,1}, {0,0,0,1}};
 
+        // Both sRGB transfer breakpoints, crossed so every channel sees both sides of both knees.
+        // 0.04045 is the DECODE knee; it is also exactly 12.92 * 0.0031308, so on the encoded path it
+        // decodes onto the ENCODE knee - one value exercises both branches. On the linear path the same
+        // numbers are fed as linear light and straddle 0.0031308 directly.
+        const float kKnees[] = { 0.0f, 0.0015f, 0.0031f, 0.0031308f, 0.00314f, 0.0045f, 0.012f,
+                                 0.0402f, 0.04045f, 0.0406f, 0.06f, 0.5f, 0.94f, 1.0f };
+        std::vector<Pixel> knees;
+        for (float a : kKnees) for (float b : kKnees) knees.push_back({a, b, 0.5f * (a + b), 1.0f});
+        const unsigned kneeW = (unsigned)knees.size();
+
         // 2. Mode 0 is a bit-exact bypass on both paths - not "close", identical.
         for (bool hdr : {false, true}) {
             const auto pass = probe.Run(cube, 17, 289, 0, hdr);
@@ -297,18 +429,29 @@ int main() {
                     Require(std::isfinite(encoded[i][c]) && encoded[i][c] >= 0.0f && encoded[i][c] <= 1.0f,
                             "Encoded output left [0,1]");
             }
-            // 4. Encoded and FP16-linear paths agree to better than one 8-bit step.
+            // 4. THE assertion that catches a channel-order or transposition slip: every GPU sample equals
+            // the CPU model built from the Python numbers. Encoded path: full cube, both sRGB knees, and
+            // the gamut corners.
+            const auto edge = probe.Run(primaries, 8, 1, mode, false);
+            RequireMatchesReference(encoded, cube, mode, false, "cube");
+            RequireMatchesReference(probe.Run(knees, kneeW, 1, mode, false), knees, mode, false, "sRGB knees");
+            RequireMatchesReference(edge, primaries, mode, false, "gamut corners");
+
+            // 5. Encoded and FP16-linear paths agree to better than one 8-bit step, and the FP16-linear
+            // path independently matches the same reference (its own branch: max(0), no encode).
             std::vector<Pixel> linear(cube.size());
             for (size_t i = 0; i < cube.size(); ++i)
                 linear[i] = {SrgbToLinear(cube[i][0]), SrgbToLinear(cube[i][1]), SrgbToLinear(cube[i][2]), cube[i][3]};
             const auto fromLinear = probe.Run(linear, 17, 289, mode, true);
+            RequireMatchesReference(fromLinear, linear, mode, true, "cube");
+            RequireMatchesReference(probe.Run(knees, kneeW, 1, mode, true), knees, mode, true, "sRGB knees");
+            RequireMatchesReference(probe.Run(primaries, 8, 1, mode, true), primaries, mode, true, "gamut corners");
             for (size_t i = 0; i < cube.size(); ++i)
                 for (int c = 0; c < 3; ++c) {
                     float reencoded = LinearToSrgb(fromLinear[i][c] < 0 ? 0 : fromLinear[i][c] > 1 ? 1 : fromLinear[i][c]);
                     Require(std::abs(reencoded - encoded[i][c]) <= 1.0f / 255.0f, "Encoded/linear parity exceeds 1/255");
                 }
-            // 5. Saturated primaries stay in gamut, white and black are fixed points.
-            const auto edge = probe.Run(primaries, 8, 1, mode, false);
+            // 6. Saturated primaries stay in gamut, white and black are fixed points.
             for (size_t i = 0; i < primaries.size(); ++i)
                 for (int c = 0; c < 3; ++c)
                     Require(edge[i][c] >= 0.0f && edge[i][c] <= 1.0f, "Saturated primary left [0,1]");
@@ -316,17 +459,35 @@ int main() {
                 Require(std::abs(edge[6][c] - 1.0f) < 2e-3f, "White moved");
                 Require(std::abs(edge[7][c]) < 2e-3f, "Black moved");
             }
-            // 6. The stage is not a no-op: at least one cube colour actually moves.
+            // 7. The stage is not a no-op: at least one cube colour actually moves.
             bool moved = false;
             for (size_t i = 0; i < cube.size() && !moved; ++i)
                 for (int c = 0; c < 3; ++c)
                     if (std::abs(encoded[i][c] - cube[i][c]) > 1.0f / 255.0f) { moved = true; break; }
             Require(moved, "Colour-vision stage changed nothing");
+
+            // 8. Composition: the correction is applied TO what the LUT and the style produced, not instead
+            // of them. The cv=0 run of the same shader is the input to the CPU model, so this holds for any
+            // preset/style without duplicating their maths here. Cartoon and PixelArt both, because
+            // PixelArt samples a block neighbourhood and Cartoon does not.
+            for (unsigned styleMode : { 1u, 2u }) {
+                SceneStyleParams style = {}; style.mode = styleMode; style.strength = 0.8f; style.pixelSize = 4;
+                const auto graded  = probe.Run(cube, 17, 289, RF_CV_NONE, false, DLSS_LUT_VIVID, 0.85f, style);
+                const auto composed = probe.Run(cube, 17, 289, mode,     false, DLSS_LUT_VIVID, 0.85f, style);
+                RequireMatchesReference(composed, graded, mode, false, "LUT+style composition");
+                bool differs = false;
+                for (size_t i = 0; i < cube.size() && !differs; ++i)
+                    for (int c = 0; c < 3; ++c)
+                        if (std::abs(composed[i][c] - graded[i][c]) > 1.0f / 255.0f) { differs = true; break; }
+                Require(differs, "Correction vanished once a LUT and a style were active");
+            }
         }
 
         printf("PASS: production HLSL on D3D11 WARP; 3 modes; matrices match colour_vision_ref.py; "
-               "bit-exact mode-0 bypass on both paths; 4913-colour cube in gamut; encoded/linear parity <= 1/255; "
-               "saturated primaries, white and black endpoints.\n");
+               "every GPU sample matches the reference model on BOTH colour-space paths (4913-colour cube, "
+               "196 sRGB-knee samples, 8 gamut corners) and composes with LUT Vivid + Cartoon/PixelArt; "
+               "bit-exact mode-0 bypass on both paths; cube stays in gamut; encoded/linear parity <= 1/255; "
+               "white and black are fixed points.\n");
         return 0;
     } catch (const std::exception& error) { fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }
 }
@@ -341,18 +502,36 @@ target_link_libraries(colour_vision_probe PRIVATE d3d11 d3dcompiler)
 target_compile_definitions(colour_vision_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 ```
 
-- [ ] Add `ColorVision.h` to the `add_library(RenderforgeNative SHARED ...)` list in `native\CMakeLists.txt`, on the line after `Sharpen.h` (`:72`).
-- [ ] Confirm the probe does **not** build yet (TDD red). `ColorVision.h`, `CvMatrix`, `CvCorrection`, `ColorVisionEnabled` and the 9-argument `FillSharpenConstants` do not exist:
+- [ ] Add `ColorVision.h` to the `add_library(RenderforgeNative SHARED ...)` list in `native\CMakeLists.txt`, on the line after `Sharpen.h` (`:72`). The file exists by now (scaffolding 1/3), so CMake configures instead of aborting — that is the whole point of the ordering.
+- [ ] **Red run.** The probe must BUILD and then FAIL an assertion:
 
 ```powershell
 & 'C:\Program Files\CMake\bin\cmake.exe' --build E:\DEV\PhoenixPoint\Renderforge\build\native --config Release --target colour_vision_probe -- /verbosity:minimal
+E:\DEV\PhoenixPoint\Renderforge\build\native\Release\colour_vision_probe.exe
 ```
 
-Expected: a non-zero exit with `C1083: Cannot open include file: 'ColorVision.h'`. If it builds, something already exists — stop and re-read the tree before continuing.
+Expected: **0 errors** from cmake, then
 
-### 2b — the matrices
+```
+FAIL: Matrix differs from the Python reference
+```
 
-- [ ] Create `native\ColorVision.h`:
+with exit code 1 (`$LASTEXITCODE` = 1). A build error here means the scaffolding is incomplete — fix that, do not proceed. A `PASS` here means the stage already exists somewhere; stop and re-read the tree.
+
+- [ ] Also re-run `lut_probe` and `scene_style_probe` now, before touching anything else — they share
+`FillSharpenConstants`, and this is the cheapest moment to catch a broken signature change:
+
+```powershell
+& 'C:\Program Files\CMake\bin\cmake.exe' --build E:\DEV\PhoenixPoint\Renderforge\build\native --config Release --target lut_probe scene_style_probe -- /verbosity:minimal
+E:\DEV\PhoenixPoint\Renderforge\build\native\Release\lut_probe.exe
+E:\DEV\PhoenixPoint\Renderforge\build\native\Release\scene_style_probe.exe
+```
+
+Expected: both still print their existing `PASS:` line, exit 0.
+
+### 2b — the matrices (half the red goes green)
+
+- [ ] Replace the whole of `native\ColorVision.h` — the stub body and its `TODO` disappear:
 
 ```cpp
 // ColorVision.h - daltonization matrices for the analytic post pass. Mode ordinals cross the managed/native
@@ -363,15 +542,23 @@ Expected: a non-zero exit with `C1083: Cannot open include file: 'ColorVision.h'
 // S = Machado, Oliveira & Fernandes 2009 simulation matrices at severity 1.0, transcribed from the authors'
 //     own table: https://www.inf.ufrgs.br/~oliveira/pubs_files/CVD_Simulation/CVD_Simulation.html
 // R = error redistribution: how the colour a deficient eye cannot separate is pushed onto channels it can.
-//     deuteranopia / protanopia: Fidaner, Lin & Ozguven 2005, "Analysis of Color Blindness" - `err2mod`
-//         verbatim in their MATLAB (https://github.com/joergdietrich/daltonize/blob/main/doc/conv_img.m);
-//         report at http://acorn.stanford.edu/psych221/projects/2005/ofidaner/colorblindness_project.htm.
-//         They publish ONE matrix used for both types, not a per-type pair.
-//     tritanopia: http://ixora.io/projects/colorblindness/daltonization.html, which redistributes onto the
-//         channels a tritan can still discriminate. This is a SECONDARY source (a blog attributing the
-//         per-deficiency principle to Simon-Liedtke & Farup, JVCI 2016), weaker than the Fidaner citation
-//         above; it is used only because no peer-reviewed table publishes a tritan redistribution matrix.
-//         ixora also gives a different deuteranopia R - the Fidaner one wins there, per the design spec.
+//     protanopia: Fidaner, Lin & Ozguven 2005, "Analysis of Color Blindness" - `err2mod` verbatim in their
+//         MATLAB (https://github.com/joergdietrich/daltonize/blob/main/doc/conv_img.m), which applies it to
+//         the protan error (`errorp`) only; report at
+//         http://acorn.stanford.edu/psych221/projects/2005/ofidaner/colorblindness_project.htm.
+//     deuteranopia: the SAME matrix, and that is a deliberate, sourced choice - the MATLAB does not correct
+//         the deutan error at all, but the maintained Python port of the same method applies the single
+//         err2mod to every deficiency type (daltonize/daltonize.py:125 in
+//         https://github.com/joergdietrich/daltonize; the type argument only picks the simulate() matrix,
+//         :120). The alternative was ixora's distinct deutan R (1 0.7 0 / 0 0 0 / 0 0.7 1); it was rejected
+//         because it rests on the same unverified secondary table as the tritan row below.
+//     tritanopia: the matrix table at
+//         https://ixora.io/projects/colorblindness/color-blindness-simulation-research.html, which
+//         redistributes onto the channels a tritan can still discriminate. SECONDARY source, coefficients
+//         NOT independently verified - the page cites Simon-Liedtke & Farup (JVCI 2016) as justification
+//         for using a per-type matrix, it is not the published origin of these numbers. Weaker than the
+//         citations above; used because err2mod would push the tritan error onto B, the very channel a
+//         tritan cannot discriminate.
 //
 // Every row of every D sums to 1 within 1e-6 (residual = the rounding in the published S), so neutral
 // grey and white are fixed points. probe/colour_vision_probe.cpp asserts that, and asserts D against
@@ -402,9 +589,9 @@ constexpr M3 kSimulate[3] = {
 };
 
 constexpr M3 kRedistribute[3] = {
-    { { 0.0f, 0.0f, 0.0f,  0.7f, 1.0f, 0.0f,  0.7f, 0.0f, 1.0f } },   // deuteranopia (Fidaner)
-    { { 0.0f, 0.0f, 0.0f,  0.7f, 1.0f, 0.0f,  0.7f, 0.0f, 1.0f } },   // protanopia   (Fidaner, same matrix)
-    { { 1.0f, 0.0f, 0.7f,  0.0f, 1.0f, 0.7f,  0.0f, 0.0f, 0.0f } },   // tritanopia   (ixora.io)
+    { { 0.0f, 0.0f, 0.0f,  0.7f, 1.0f, 0.0f,  0.7f, 0.0f, 1.0f } },   // deuteranopia (err2mod, daltonize.py:125)
+    { { 0.0f, 0.0f, 0.0f,  0.7f, 1.0f, 0.0f,  0.7f, 0.0f, 1.0f } },   // protanopia   (err2mod, Fidaner conv_img.m)
+    { { 1.0f, 0.0f, 0.7f,  0.0f, 1.0f, 0.7f,  0.0f, 0.0f, 0.0f } },   // tritanopia   (ixora.io, secondary)
 };
 
 constexpr float Dot(const M3& a, const M3& b, int r, int c)
@@ -431,37 +618,25 @@ constexpr CvMatrix CvCorrection(int mode)
 }
 ```
 
-### 2c — the predicate and the constant-block signature
+- [ ] **Second red run** — the CPU half is now green and the GPU half is still bypassed, so the failure
+must have MOVED to the reference comparison:
 
-- [ ] In `native\Sharpen.h`, add the include next to the existing one (`:7`, after `#include "SceneStyle.h"`):
-
-```cpp
-#include "ColorVision.h"
+```powershell
+& 'C:\Program Files\CMake\bin\cmake.exe' --build E:\DEV\PhoenixPoint\Renderforge\build\native --config Release --target colour_vision_probe -- /verbosity:minimal
+E:\DEV\PhoenixPoint\Renderforge\build\native\Release\colour_vision_probe.exe
 ```
 
-- [ ] In `native\Sharpen.h`, extend the `FillSharpenConstants` declaration (`:17-19`) with the new trailing parameter:
+Expected: exit 1, a `cube: mode 1 encoded sample … in … got … want …` line on stderr where `got` equals
+`in` (the shader is still a passthrough), then
 
-```cpp
-void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
-                          int lutPreset = 0, float lutStrength = 0.0f, bool hdr = false,
-                          const SceneStyleParams& style = SceneStyleParams{}, int colorVision = 0);
+```
+FAIL: GPU output differs from the reference model
 ```
 
-- [ ] In `native\Sharpen.h`, immediately after `ColorGradeEnabled` (`:21`), add:
+If it still says `Matrix differs from the Python reference`, 2b is wrong — fix that first. If it PASSES,
+the constants or the shader are not what this plan thinks they are; stop and re-read `Sharpen.cpp`.
 
-```cpp
-inline bool ColorVisionEnabled(int mode) { return mode >= RF_CV_DEUTERANOPIA && mode <= RF_CV_TRITANOPIA; }
-
-// The analytic post shader (RCAS + grade + scene style + colour vision) is compiled INSTEAD of NIS/RCAS
-// whenever any of its stages is active. Colour vision lives only in that shader, so every "is the post pass
-// needed" test must go through here - otherwise LUT=Off + style=Off silently bypasses the correction.
-inline bool PostShaderEnabled(int preset, float strength, const SceneStyleParams& style, int colorVision)
-{
-    return ColorGradeEnabled(preset, strength) || SceneStyleEnabled(style) || ColorVisionEnabled(colorVision);
-}
-```
-
-### 2d — the HLSL stage
+### 2c — the HLSL stage
 
 - [ ] In `native\Sharpen.cpp`, replace the cbuffer line of `kColorGradeHlsl` (`:47`) with:
 
@@ -496,9 +671,9 @@ Packing note (why this is safe): the first ten scalars fill bytes 0..39; `colorV
 "  dst[id.xy]=float4(ColorVision(Grade(Stylize(p,c))),src.Load(int3(p,0)).a); }\n";
 ```
 
-### 2e — constant packing
+### 2d — constant packing
 
-- [ ] In `native\Sharpen.cpp`, replace `FillSharpenConstants` (`:132-151`) with:
+- [ ] In `native\Sharpen.cpp`, replace `FillSharpenConstants` (`:132-151`, already widened in 2a) with:
 
 ```cpp
 void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
@@ -531,9 +706,9 @@ void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, u
 }
 ```
 
-- [ ] In `native\Sharpen.cpp`, change the pass predicate at `:136` — it is the `if` line replaced above; confirm it now reads `if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision)) {`.
+- [ ] Confirm the pass predicate at `:136` still reads `if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision)) {` — it was changed in 2a and this replacement must not have reverted it.
 
-### 2f — green
+### 2e — green
 
 - [ ] Build and run:
 
@@ -547,7 +722,7 @@ E:\DEV\PhoenixPoint\Renderforge\build\native\Release\scene_style_probe.exe
 Expected: the cmake build reports 0 errors, then
 
 ```
-PASS: production HLSL on D3D11 WARP; 3 modes; matrices match colour_vision_ref.py; bit-exact mode-0 bypass on both paths; 4913-colour cube in gamut; encoded/linear parity <= 1/255; saturated primaries, white and black endpoints.
+PASS: production HLSL on D3D11 WARP; 3 modes; matrices match colour_vision_ref.py; every GPU sample matches the reference model on BOTH colour-space paths (4913-colour cube, 196 sRGB-knee samples, 8 gamut corners) and composes with LUT Vivid + Cartoon/PixelArt; bit-exact mode-0 bypass on both paths; cube stays in gamut; encoded/linear parity <= 1/255; white and black are fixed points.
 PASS: production HLSL on D3D11 WARP; 9 presets; 4913-color cube; alpha, finite range, blend endpoints, B&W equality, 1025-step monotonic ramps, FP overbrights.
 ```
 
@@ -716,11 +891,23 @@ void __cdecl Dlss_SetColorVision(void* slot, int mode)
             else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision);
 ```
 
-- [ ] Prove no predicate was missed. Before this task the pattern matches **11** sites (`Sharpen.cpp:136`, `Device11.cpp:91/254/278`, `D3D12Sharpen.h:261`, `Device12.cpp:188/196`, `Fsr12.cpp:289/297`, `Xess12.cpp:324/332`); after it, the command must return **zero** matches:
+- [ ] Prove no predicate was missed. Before this task the old two-term disjunction appears at **11** sites (`Sharpen.cpp:136`, `Device11.cpp:91/254/278`, `D3D12Sharpen.h:261`, `Device12.cpp:188/196`, `Fsr12.cpp:289/297`, `Xess12.cpp:324/332`). Afterwards exactly **one** occurrence may remain — the body of `PostShaderEnabled` in `Sharpen.h`, which is the whole point of the refactor. The naive regex matches that body too, so it needs a lookahead that permits the three-term form and rejects every two-term one:
 
 ```powershell
-Select-String -Path E:\DEV\PhoenixPoint\Renderforge\native\*.cpp,E:\DEV\PhoenixPoint\Renderforge\native\*.h -Pattern 'ColorGradeEnabled\(.*\)\s*\|\|\s*SceneStyleEnabled'
+Select-String -Path E:\DEV\PhoenixPoint\Renderforge\native\*.cpp,E:\DEV\PhoenixPoint\Renderforge\native\*.h `
+  -Pattern 'ColorGradeEnabled\([^)]*\)\s*\|\|\s*SceneStyleEnabled\([^)]*\)(?!\s*\|\|\s*ColorVisionEnabled)'
 ```
+
+Expected: **no output at all** (`Select-String` prints nothing when nothing matches).
+
+- [ ] Positive control, so "no output" cannot mean "the regex is broken" — the one permitted definition must be found exactly once:
+
+```powershell
+@(Select-String -Path E:\DEV\PhoenixPoint\Renderforge\native\Sharpen.h `
+  -Pattern 'ColorGradeEnabled\([^)]*\)\s*\|\|\s*SceneStyleEnabled\([^)]*\)\s*\|\|\s*ColorVisionEnabled\([^)]*\)').Count
+```
+
+Expected output: `1`.
 
 - [ ] Full native build (this is also the FG/Streamline regression gate):
 
@@ -767,21 +954,39 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(native): export Dlss_SetC
     public enum ColorVisionMode { None, Deuteranopia, Protanopia, Tritanopia }
 ```
 
-- [ ] `src\DlssConfig.cs` — add the field name to `HiddenFromModSettings` (`:31-36`), on the `SceneStyle` line:
+> **Coexistence with the quality-knobs plan (`docs\superpowers\plans\2026-09-05-quality-knobs.md`).**
+> That plan adds `Vignette` / `ShadowResolution` / `Anisotropic` / `LodBias` to the same three places in
+> `DlssConfig.cs` and its own `QualityPanel` row block to `GraphicsPanel.cs`. The two plans are
+> **additive, and order-independent — whichever lands second keeps everything the first one added.**
+> So: locate every edit below by its **anchor name**, never by the line number (A's inserts shift them),
+> read the current text first, and add to it. If a snippet below shows a full replacement line and the
+> file already carries A's names, use the "quality knobs already landed" variant.
+
+- [ ] `src\DlssConfig.cs` — add the field name to `HiddenFromModSettings` (anchor: the initializer containing `nameof(CrispFonts)`).
+
+If the quality-knobs plan has **not** landed, the last line becomes:
 
 ```csharp
             nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts),
             nameof(ColorVision)
 ```
 
-- [ ] `src\DlssConfig.cs` — add the field immediately after `PixelSize` (`:51`):
+If it **has** landed (its four names are already there), keep them and append ours:
+
+```csharp
+            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts),
+            nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias),
+            nameof(ColorVision)
+```
+
+- [ ] `src\DlssConfig.cs` — add the field immediately after the `PixelSize` field (`:51` pre-A; anchor: `public int PixelSize`). Pure insert — it never collides with A's fields, which go in after `CrispFonts`:
 
 ```csharp
         [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Scene only; the interface is drawn after this pass. Also in Options → Graphics.")]
         public ColorVisionMode ColorVision = ColorVisionMode.None;
 ```
 
-- [ ] `src\DlssConfig.cs` — add the Russian entry to `Ru`, after the `PixelSize` line (`:89`):
+- [ ] `src\DlssConfig.cs` — add the Russian entry to `Ru`, after the `nameof(PixelSize)` row (`:89` pre-A). Pure insert; A's four RU rows go in after the `FrameGen` row and do not conflict:
 
 ```csharp
             { nameof(ColorVision), new[] { "Цветовое зрение", "Выкл, дейтеранопия, протанопия или тританопия. Перераспределяет неразличимые цвета на различимые каналы. Только сцена: интерфейс рисуется после этого прохода. Также в Настройки → Графика." } },
@@ -794,13 +999,31 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(native): export Dlss_SetC
                 || ColorVisionPanel.Active(cfg);
 ```
 
-- [ ] `src\DlssDriver.cs:504-506` — send the mode on the same slot, right after the scene-style send. Gated on `TacticalActive` exactly like `lutPreset` at `:492`: the post pass only exists on the tactical camera, so the geoscape is out of reach either way, and mirroring the LUT keeps one rule for the whole shader:
+- [ ] **One gate, not two.** Activation (`:197`) and submission (`:504`, below) must ask the *same*
+question, or the geoscape gets a post pass that starts for colour vision and then never receives the
+mode — an uncorrected passthrough pass, pure cost and a real risk of a visual delta from a pass that
+should not be running at all. `lutPreset` is already tactical-gated at `:492` and `Dlss_SetColorVision`
+mirrors it, so the tactical test belongs **inside** `ColorVisionPanel.Active` where both callers pick it
+up and cannot drift apart. In `src\ColorVisionPanel.cs` (Task 5) `Active` therefore reads:
+
+```csharp
+        // Tactical-only, exactly like lutPreset at DlssDriver.cs:492 - the post pass exists on the tactical
+        // camera only. Both the activation predicate (DlssDriver.cs:197) and the per-frame submission
+        // (DlssDriver.cs:504) call this, so the two can never disagree.
+        internal static bool Active(DlssConfig cfg) => RenderforgeMod.TacticalActive && cfg != null
+            && cfg.ColorVision >= ColorVisionMode.Deuteranopia && cfg.ColorVision <= ColorVisionMode.Tritanopia;
+```
+
+Known and deliberately untouched asymmetry: `SceneStylePanel.Active(cfg)` carries no tactical gate. That
+is existing behaviour of a shipped feature; do not "fix" it inside this plan.
+
+- [ ] `src\DlssDriver.cs:504-506` — send the mode on the same slot, right after the scene-style send. The tactical gate lives inside `ColorVisionPanel.Active`, so this call site and `:197` are literally the same predicate — do **not** re-spell it here:
 
 ```csharp
                 if (SceneStylePanel.Active(cfg))
                     Native.Dlss_SetSceneStyle(slot, (int)cfg.SceneStyle,
                         Mathf.Clamp01(cfg.SceneStyleStrength / 100f), Mathf.Clamp(cfg.PixelSize, 2, 16));
-                if (RenderforgeMod.TacticalActive && ColorVisionPanel.Active(cfg))
+                if (ColorVisionPanel.Active(cfg))
                     Native.Dlss_SetColorVision(slot, (int)cfg.ColorVision);
 ```
 
@@ -835,7 +1058,12 @@ namespace Renderforge
             DlssConfig.Loc("Protanopia", "Протанопия"),
             DlssConfig.Loc("Tritanopia", "Тританопия") };
 
-        internal static bool Active(DlssConfig cfg) => cfg != null
+        /// <summary>The ONE activation gate. Both DlssDriver.cs:197 (start the pipeline) and :504 (send the
+        /// mode) call this, so they cannot drift apart and leave an uncorrected passthrough pass running on
+        /// the geoscape. Tactical-only, mirroring lutPreset at DlssDriver.cs:492 — the post pass exists on
+        /// the tactical camera only. Note the UI row itself does not use this: the picker stays visible and
+        /// settable everywhere.</summary>
+        internal static bool Active(DlssConfig cfg) => RenderforgeMod.TacticalActive && cfg != null
             && cfg.ColorVision >= ColorVisionMode.Deuteranopia && cfg.ColorVision <= ColorVisionMode.Tritanopia;
 
         internal static Transform Build(UIModuleGraphicsOptionsPanel panel, Transform after, DlssConfig cfg)
@@ -901,23 +1129,36 @@ namespace Renderforge
 }
 ```
 
-- [ ] `src\GraphicsPanel.cs:43` — hide it with the others when the rows are turned off:
+> **Row order, stated once for both plans.** The combined Options → Graphics order is
+> **LUT → Colour vision → Scene style → Quality knobs** (colour vision "next to the LUT row" per spec §B;
+> the quality knobs stay last, as their own plan places them). Whichever of the two plans lands second
+> **keeps the other's rows** — read `GraphicsPanel.cs` before editing and add a line, never replace the
+> block wholesale. `QualityPanel.*` exists only after `2026-09-05-quality-knobs.md` has landed; omit
+> those lines if it has not, and add them without touching ours if it lands later.
+
+- [ ] `src\GraphicsPanel.cs:43` — hide it with the others when the rows are turned off (anchor: the `LutPanel.Hide` line inside the `ShowInGraphicsOptions == false` branch). Insert exactly one line; the `QualityPanel.Hide` line is A's and is present only if A landed:
 
 ```csharp
                     LutPanel.Hide(src.transform.parent);
-                    ColorVisionPanel.Hide(src.transform.parent);
+                    ColorVisionPanel.Hide(src.transform.parent);          // <- this plan adds only this line
                     SceneStylePanel.Hide(src.transform.parent);
+                    QualityPanel.Hide(src.transform.parent);              // quality-knobs plan; omit if not landed
 ```
 
-- [ ] `src\GraphicsPanel.cs:61-62` — build it directly after the LUT rows, as the spec requires ("next to the LUT row"):
+- [ ] `src\GraphicsPanel.cs:61-62` — build it directly after the LUT rows. `SceneStylePanel.Build` returns the last row it made (`src\SceneStylePanel.cs:30`), so chaining `after =` through it is safe whether or not anything follows:
 
 ```csharp
                 after = LutPanel.Build(__instance, sharp != null ? sharp.transform.parent : picker.transform, mod.Cfg);
-                after = ColorVisionPanel.Build(__instance, after, mod.Cfg);
-                SceneStylePanel.Build(__instance, after, mod.Cfg);
+                after = ColorVisionPanel.Build(__instance, after, mod.Cfg);   // <- this plan adds only this line
+                after = SceneStylePanel.Build(__instance, after, mod.Cfg);
+                QualityPanel.Build(__instance, after, mod.Cfg);               // quality-knobs plan; omit if not landed
 ```
 
-- [ ] `src\Pickers.cs:89-90` — drop the cached controller with the others:
+If the quality-knobs plan has not landed, the last line is dropped and the `SceneStylePanel` line may keep
+its original `SceneStylePanel.Build(__instance, after, mod.Cfg);` form — but writing `after =` now costs
+nothing and is what A's Task 5 step 2 expects to find.
+
+- [ ] `src\Pickers.cs:89-90` — drop the cached controller with the others. One line; leave any `QualityPanel.Clear()` that is already there:
 
 ```csharp
             LutPanel.Clear();
@@ -972,67 +1213,203 @@ E:\DEV\PhoenixPoint\Renderforge\deploy.ps1 -PPRoot 'D:\PP-Instance3'
 
 Expected: no `REFUSED` (close the Instance3 game first if it is running), `dotnet build` succeeds, the DLLs land in `D:\PP-Instance3\Mods\Renderforge`, and `RenderforgeNative.dll` is staged into `D:\PP-Instance3\PhoenixPointWin64_Data\Plugins\x86_64`.
 
-- [ ] Launch Instance3 into a tactical mission and wait until PPCLI actually answers before sending anything else:
+- [ ] Update PPCLI first — the `-Window` capture below only exists from commit `f5878b7`:
+
+```powershell
+git -C E:\DEV\PhoenixPoint\PPCLI pull
+```
+
+- [ ] Launch Instance3 into a tactical mission and wait until PPCLI actually answers before sending anything else. Every command in this task carries `-PPRoot 'D:\PP-Instance3'` so it can never reach Instance2 or the user's Steam install:
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
-.\ppcli.ps1 connect state
+.\ppcli.ps1 connect state -PPRoot 'D:\PP-Instance3'
 ```
 
-- [ ] Put the pass in its hardest state — LUT Off, style Off, sharpness 0 — so nothing but colour vision can make the post pass run:
+### 6a — read the ACTUAL renderer and FP16 state (never infer it from launch flags)
+
+A launch flag is a request, not a result: `-force-d3d12` can be ignored, and the FP16-linear branch
+additionally depends on a runtime knob. Read what the mod itself reports, once per launch, and record it
+beside every number this task produces.
 
 ```powershell
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetLut","args":["Off",0]}'
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetSceneStyle","args":["Off",0,4]}'
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetSharpness","args":[0]}'
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["None"]}'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}' -PPRoot 'D:\PP-Instance3'
+```
+
+The returned string (`src\RenderforgeMod.cs:486`, which embeds `DlssDriver.Status`, `src\DlssDriver.cs:147-159`) carries everything needed:
+
+| Read this token | Meaning | Source of truth |
+|---|---|---|
+| `api=` | the live graphics API — `D3D11` / `D3D12`. This is the renderer, not the flag. | `Native.Api()` via `DlssDriver.Status` |
+| `d3d12HalfColor=` | the FP16 knob (`Diagnostics.D3D12HalfColor`, default on) | `RenderforgeMod.cs:486` |
+| `provider=` | which upscaler is actually running | `Upscalers.Running` |
+| `passthrough=` / `mode=` / `render=`/`out=` | whether an upscaler is really scaling | `DlssDriver.Status` |
+| `lastError=` | must stay `0` (in particular never `-3`, `DLSS_ERR_SHARPEN`) | `Native.Dlss_LastError()` |
+| `sharpen=` | which post shader kind is compiled | `Native.SharpenerName(...)` |
+
+**The FP16-linear branch (`styleLinear != 0`) is live iff `api=D3D12` AND `d3d12HalfColor=True`** — that is
+literally the predicate at `src\DlssDriver.cs:550` (`WantHalfColor => graphicsDeviceType == Direct3D12 && Diagnostics.D3D12HalfColor`).
+If a D3D12 pass reports `d3d12HalfColor=False`, turn it back on before capturing, or the FP16 branch is
+simply not being tested:
+
+```powershell
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetD3D12HalfColor","args":[true]}' -PPRoot 'D:\PP-Instance3'
+```
+
+- [ ] Record the `api=` / `d3d12HalfColor=` / `provider=` triple for each of the two launches (6c pass 1 and pass 2) verbatim. A case whose readback does not match its intended renderer is **not evidence** — relaunch.
+
+### 6b — the capture protocol (defined once, used by every case below)
+
+Three rules make a screenshot pair mean something:
+
+1. **`-Window` capture, not the engine one.** `connect screenshot … -Window` grabs the FINAL composited
+   frame after present (DWM `PrintWindow`), i.e. after upscale + our shim pass + UI — which is the only
+   thing that can prove both "the scene changed" and "the HUD did not". It talks to the game only to learn
+   which pid to capture, so it is also immune to the engine-capture edge cases. The window must **not be
+   minimised**.
+2. **Pause the game.** `-Window` capture is not frame-synchronised, so animation, temporal accumulation and
+   an idle-breathing soldier all leak into a whole-frame diff. Freeze time first, restore it after:
+
+```powershell
+.\ppcli.ps1 connect call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":0}' -PPRoot 'D:\PP-Instance3'
+# … captures …
+.\ppcli.ps1 connect call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":1}' -PPRoot 'D:\PP-Instance3'
+```
+
+3. **Always take an OFF/OFF control pair first.** Two captures with *nothing changed between them* measure
+   the residual noise floor (TAA/DLSS history, dithering, a cursor blink). Only a signal well above that
+   floor counts. Never compare a single OFF/ON pair on its own.
+
+Per case, with the camera untouched throughout:
+
+```powershell
+$tag = 'd3d11-off'            # case tag, see the table in 6c
+.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-off-a.png"}') -Window -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-off-b.png"}') -Window -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Deuteranopia"]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-deut.png"}') -Window -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Protanopia"]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-prot.png"}') -Window -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Tritanopia"]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\' + $tag + '-trit.png"}') -Window -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["None"]}' -PPRoot 'D:\PP-Instance3'
+```
+
+- [ ] Write the comparison script **once**, to `C:\Temp\rf-cv\cmp.py`. It reports mean |Δ| per channel over
+      two regions: a stable scene box and a HUD box that our pass must never touch.
+
+```python
+"""Region diff for the colour-vision live acceptance.
+usage: python cmp.py A.png B.png [label]
+Regions are fractions of the frame, so they survive a resolution change. Check them ONCE against the
+first capture (open it, confirm SCENE holds only terrain/soldiers and HUD holds only the action bar)
+and adjust the two tuples if this mission's framing differs - then leave them fixed for every case.
+"""
+import sys
+from PIL import Image, ImageChops, ImageStat
+
+SCENE = (0.30, 0.18, 0.70, 0.55)   # centre of the viewport: scene only, no HUD, no minimap
+HUD   = (0.20, 0.88, 0.80, 0.99)   # bottom action bar: UI only, composited AFTER our pass
+
+def crop(img, f):
+    w, h = img.size
+    return img.crop((int(f[0] * w), int(f[1] * h), int(f[2] * w), int(f[3] * h)))
+
+a = Image.open(sys.argv[1]).convert("RGB")
+b = Image.open(sys.argv[2]).convert("RGB")
+if a.size != b.size:
+    sys.exit("size mismatch: %s vs %s" % (a.size, b.size))
+label = sys.argv[3] if len(sys.argv) > 3 else ""
+for name, f in (("scene", SCENE), ("hud", HUD)):
+    d = ImageChops.difference(crop(a, f), crop(b, f))
+    st = ImageStat.Stat(d)
+    mx = max(hi for _, hi in st.extrema)
+    print("%-22s %-5s mean|d| R=%.3f G=%.3f B=%.3f  max=%d" %
+          (label, name, st.mean[0], st.mean[1], st.mean[2], mx))
+```
+
+- [ ] Run it per case — control floor first, then each mode, then mode-vs-mode:
+
+```powershell
+$tag = 'd3d11-off'
+python C:\Temp\rf-cv\cmp.py "C:\Temp\rf-cv\$tag-off-a.png" "C:\Temp\rf-cv\$tag-off-b.png" "$tag CONTROL"
+foreach ($m in 'deut','prot','trit') {
+    python C:\Temp\rf-cv\cmp.py "C:\Temp\rf-cv\$tag-off-a.png" "C:\Temp\rf-cv\$tag-$m.png" "$tag off-vs-$m"
+}
+python C:\Temp\rf-cv\cmp.py "C:\Temp\rf-cv\$tag-deut.png" "C:\Temp\rf-cv\$tag-prot.png" "$tag deut-vs-prot"
+python C:\Temp\rf-cv\cmp.py "C:\Temp\rf-cv\$tag-deut.png" "C:\Temp\rf-cv\$tag-trit.png" "$tag deut-vs-trit"
+```
+
+**Acceptance per case** (all five, or the case fails):
+
+- `CONTROL scene` mean |Δ| ≤ **0.5** on every channel — a paused frame captured twice must be near-identical. If it is not, the pause did not take; fix that before reading anything else.
+- `CONTROL hud` mean |Δ| ≤ **0.5** on every channel — the HUD noise floor.
+- `off-vs-<mode> scene` mean |Δ| ≥ **1.0** on at least one channel **and** ≥ 4× the control scene floor. This is the activation proof: LUT Off, style Off, sharpness 0, and the scene still changed.
+- `off-vs-<mode> hud` mean |Δ| ≤ **control hud floor + 0.5** on every channel — the HUD is composited after the pass and must be untouched. A HUD delta anywhere near the scene delta means the correction is being applied to the wrong surface; that is a **failure**, not a cosmetic note.
+- `deut-vs-prot` and `deut-vs-trit` scene mean |Δ| ≥ **1.0** — the three modes are genuinely different transforms, not one shared tint.
+
+### 6c — the cases
+
+Pass 1 launches Instance3 normally (D3D11), pass 2 with `-force-d3d12`; **confirm which one you actually
+got with 6a's `api=` before trusting any case in that pass.** Set the state, run 6b, run the comparison,
+record the numbers. Unless a row says otherwise the state is the hardest one — LUT Off, style Off,
+sharpness 0 — so that nothing but colour vision can make the post pass run:
+
+```powershell
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetLut","args":["Off",0]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetSceneStyle","args":["Off",0,4]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetSharpness","args":[0]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["None"]}' -PPRoot 'D:\PP-Instance3'
 ```
 
 Expected: each replies `ok:true`; the last returns `colorVision=None`.
 
-- [ ] Baseline screenshot from a camera that is not moving (do not touch the camera between the two captures):
+| # | Tag | Pass | State to set first | What it proves |
+|---|---|---|---|---|
+| 1 | `d3d11-off` | 1 | `SetUpscaler Off` | **Upscaler OFF.** The correction runs with no upscaler at all — the `Device11.cpp:254` passthrough predicate, the case the old plan never covered |
+| 2 | `d3d11-dlss` | 1 | `SetUpscaler DLSS` | the `Device11.cpp:278` DLSS call site |
+| 3 | `d3d11-compose` | 1 | `SetUpscaler DLSS`, `SetLut VintageSepia 80`, `SetSceneStyle Cartoon 70 4` | **Composition live:** correction on top of a LUT preset *and* a style. Its control pair is captured with LUT+style already on, so the measured delta is the correction alone |
+| 4 | `d3d12-dlss` | 2 | `SetUpscaler DLSS` | the **FP16-linear branch** (`styleLinear != 0`) D3D11 never takes — only valid if 6a reported `api=D3D12` and `d3d12HalfColor=True` |
+| 5 | `d3d12-fsr` | 2 | `SetUpscaler FSR` | `Fsr12.cpp:289/297` — FSR does its own RCAS, so `doPost` is driven by `grade` alone and this is the only proof the widened predicate reaches it |
+| 6 | `d3d12-xess` | 2 | `SetUpscaler XeSS` | `Xess12.cpp:324/332` |
+| 7 | `d3d12-fg-dlss` | 2 | `SetUpscaler DLSS`, `SetFgProvider Dlss`, `SetFrameGen X2` | **Frame generation on**, the case the provider probes never exercise: the correction must still be there in the presented frame |
+| 8 | `d3d12-fg-fsr` | 2 | `SetUpscaler FSR`, `SetFgProvider Fsr`, `SetFrameGen X2` | FG through the FSR provider |
+| 9 | `d3d12-fg-xess` | 2 | `SetUpscaler XeSS`, `SetFgProvider Xess`, `SetFrameGen X2` | FG through the XeSS provider |
+
+Example of setting a case (case 3):
 
 ```powershell
-.\ppcli.ps1 connect screenshot '{"path":"C:\\Temp\\rf-cv\\cv-off.png"}'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetUpscaler","args":["DLSS"]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetLut","args":["VintageSepia",80]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetSceneStyle","args":["Cartoon",70,4]}' -PPRoot 'D:\PP-Instance3'
 ```
 
-- [ ] Switch on deuteranopia correction and capture again:
+- [ ] **FG transition test** (cases 7–9, one extra step each). With colour vision left ON at `Deuteranopia`, walk frame generation `X2 → Off → X2` and capture after each step; the correction must be present in all three:
 
 ```powershell
-.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Deuteranopia"]}'
-.\ppcli.ps1 connect screenshot '{"path":"C:\\Temp\\rf-cv\\cv-deut.png"}'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["Deuteranopia"]}' -PPRoot 'D:\PP-Instance3'
+foreach ($fg in 'X2','Off','X2') {
+    .\ppcli.ps1 connect call ('{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["' + $fg + '"]}') -PPRoot 'D:\PP-Instance3'
+    .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}' -PPRoot 'D:\PP-Instance3'
+    .\ppcli.ps1 connect screenshot ('{"path":"C:\\Temp\\rf-cv\\fg-' + $fg + '-deut.png"}') -Window -PPRoot 'D:\PP-Instance3'
+}
 ```
 
-- [ ] Repeat for the other two modes into `cv-prot.png` and `cv-trit.png`, then restore `None`.
-- [ ] Measure the difference — a claim of "it works" needs numbers:
+Acceptance: each `GetStatus` still reports `lastError=0`, and each of the three captures compared against
+that case's `-off-a.png` meets the same scene/HUD thresholds as 6b. A transition that clears the
+correction, or one that leaves `lastError` non-zero, is a failure.
+
+- [ ] After every case, restore the state you changed and unpause:
 
 ```powershell
-python -c @'
-from PIL import Image, ImageChops
-import statistics, sys
-base = Image.open(r"C:\Temp\rf-cv\cv-off.png").convert("RGB")
-for name in ("deut", "prot", "trit"):
-    img = Image.open(rf"C:\Temp\rf-cv\cv-{name}.png").convert("RGB")
-    if img.size != base.size: sys.exit("size mismatch: " + name)
-    diff = ImageChops.difference(base, img)
-    px = list(diff.getdata())
-    flat = [c for p in px for c in p]
-    changed = sum(1 for p in px if max(p) > 2) / len(px)
-    print("%s: mean|delta|=%.3f max=%d changed>2/255=%.1f%%" %
-          (name, statistics.fmean(flat), max(flat), changed * 100))
-'@
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetColorVision","args":["None"]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetFrameGen","args":["Off"]}' -PPRoot 'D:\PP-Instance3'
+.\ppcli.ps1 connect call '{"op":"set","type":"UnityEngine.Time","member":"timeScale","value":1}' -PPRoot 'D:\PP-Instance3'
 ```
 
-Acceptance, all four must hold:
-- each of the three modes reports `mean|delta|` clearly above 1.0 and `changed>2/255` above 20% — the pass is running with LUT and style Off, which is the activation proof the spec asks for;
-- the three modes differ from **each other**, not just from the baseline (compare `cv-deut.png` against `cv-prot.png` the same way — non-zero);
-- the HUD is visibly **un**corrected in the screenshots (expected: the spec says the UI is composited after the pass);
-- `.\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.Native","member":"Dlss_LastError","args":[]}'` returns 0 — in particular not `-3` (`DLSS_ERR_SHARPEN`).
-
-- [ ] Repeat the `None` → `Deuteranopia` capture pair once under `-force-d3d12` on Instance3, to cover the FP16-linear branch (`styleLinear != 0`) that D3D11 never takes. Same acceptance.
-- [ ] Record the measured numbers; they go into the doc in Task 7.
+- [ ] Record, for every case: its `api=` / `d3d12HalfColor=` / `provider=` readback, the control floor, and the three scene/HUD deltas. Those numbers go into the doc in Task 7. A case reported without its readback triple is not evidence.
 - [ ] If PPCLI itself misbehaves at any point, append an entry to `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity) and work around it. Do not edit PPCLI source.
-- [ ] Nothing to commit in this task unless a fix was needed; if the live run forced a code change, re-run Task 2f's probes and commit the fix on its own.
+- [ ] Nothing to commit in this task unless a fix was needed; if the live run forced a code change, re-run Task 2e's probes and commit the fix on its own.
 
 ---
 
@@ -1052,7 +1429,7 @@ Acceptance, all four must hold:
 | Colour vision | Off | Deuteranopia, Protanopia or Tritanopia correction for tactical missions, at full strength. Scene only: the HUD and menus are drawn after this pass and stay uncorrected. |
 ```
 
-- [ ] `docs\DESIGN.md` — add a `### Colour vision` subsection under `### Renderforge.dll (C#, ~700 LOC)`'s neighbourhood (place it before `### Data flow per frame`, `:361`), recording: the stage order (after `Grade()` and `Stylize()`); `D = I + R·(I − S)` with all three sources from the provenance table at the top of this plan, including the explicit note that the tritan `R` rests on a secondary source and that ixora's differing deuteranopia `R` was rejected in favour of Fidaner's; the constant-buffer extension (`colorVision` at byte 40, `cvRow0..2` at 48/64/80 of the 256-byte block); the two colour-space branches keyed on `styleLinear`; `PostShaderEnabled` as the single activation seam replacing the old two-term disjunction at all 11 native call sites; and the measured live deltas from Task 6.
+- [ ] `docs\DESIGN.md` — add a `### Colour vision` subsection under `### Renderforge.dll (C#, ~700 LOC)`'s neighbourhood (place it before `### Data flow per frame`, `:361`), recording: the stage order (after `Grade()` and `Stylize()`); `D = I + R·(I − S)` with all three sources from the provenance table at the top of this plan — protan `R` from Fidaner's `conv_img.m` (which corrects `errorp` only), deutan `R` the same matrix on the authority of `daltonize/daltonize.py:125`, tritan `R` from the ixora matrix table at `https://ixora.io/projects/colorblindness/color-blindness-simulation-research.html`, flagged as an unverified secondary source whose Simon-Liedtke & Farup 2016 reference justifies the per-type approach but is not the origin of the numbers, and the note that ixora's differing deuteranopia `R` was rejected; the constant-buffer extension (`colorVision` at byte 40, `cvRow0..2` at 48/64/80 of the 256-byte block); the two colour-space branches keyed on `styleLinear`; `PostShaderEnabled` as the single activation seam replacing the old two-term disjunction at all 11 native call sites; and the measured live deltas from Task 6.
 - [ ] Commit:
 
 ```powershell
@@ -1068,28 +1445,28 @@ Check each line before declaring the plan done.
 
 | Spec requirement (§B) | Where it is satisfied |
 |---|---|
-| Separate stage AFTER `Grade()` and scene style | Task 2d — `ColorVision(Grade(Stylize(p,c)))` at `Sharpen.cpp:74` |
-| Own int param `ColorVision` 0/1/2/3 | Task 2d cbuffer `uint colorVision`; Task 3 `DLSS_CV_*`, `FrameParams.colorVision`; Task 4 `ColorVisionMode` |
+| Separate stage AFTER `Grade()` and scene style | Task 2c — `ColorVision(Grade(Stylize(p,c)))` at `Sharpen.cpp:74` |
+| Own int param `ColorVision` 0/1/2/3 | Task 2c cbuffer `uint colorVision`; Task 3 `DLSS_CV_*`, `FrameParams.colorVision`; Task 4 `ColorVisionMode` |
 | Full, fixed correction, no slider in v1 | Task 5 — picker only, no `BuildSlider` call |
-| Composes with any LUT preset / style | Task 2d — chained after both inside the one shader; Task 2f probes run with LUT Off, live run in Task 6 composes them |
+| Composes with any LUT preset / style | Task 2c — chained after both inside the one shader; probe check 8 runs LUT Vivid 0.85 + Cartoon **and** PixelArt and asserts the correction composes; live case 3 in Task 6 |
 | `D = I + R·(I − S)`, column-vector linear RGB | Task 2b `CvCorrection`; Task 1 reference; Task 2a assertion |
 | `S` = Machado 2009 severity 1.0, verified + cited | Provenance table; all three **exact match** against the authors' own page |
-| `R` = Fidaner for deut/prot, sourced matrix for tritan | Provenance table; tritan sourced to ixora.io, shipped with the weaker-citation caveat recorded in code + DESIGN |
-| One 3×3 per type, precomputed on the CPU, row-major | Task 2b `constexpr CvCorrection`; Task 2e packs it row-major |
-| Uploaded as constants, alignment checked | Task 2d packing note (40/44 fill register 2; rows at 48/64/80); Task 2e |
-| UNORM: decode sRGB → linear, apply, `saturate`, encode — exact piecewise curve | Task 2d `CvSrgbToLinear` / `CvLinearToSrgb`, both piecewise |
-| FP16 linear: apply, `max(0)`, no encode, keyed on `styleLinear` | Task 2d `styleLinear != 0` branches |
-| Clamp always in linear before encoding | Task 2d — `CvLinearToSrgb` saturates its linear input before the transfer function |
-| `ColorVision != 0` counts as "pass active" in EVERY predicate | Task 3 — `Sharpen.cpp:136`, `Device11.cpp:91/254/278`, `D3D12Sharpen.h:261`, `Device12.cpp:188/196`, `Fsr12.cpp:289/297`, `Xess12.cpp:324/332`, `DlssDriver.cs:197`; grep gate proves none remain |
+| `R` = Fidaner for deut/prot, sourced matrix for tritan | Provenance table — protan = Fidaner `conv_img.m` `err2mod` (which corrects `errorp` only); deutan = the same `err2mod`, cited to `daltonize/daltonize.py:125` where it is applied for every deficiency type, with the choice stated explicitly; tritan = the ixora matrix table, shipped flagged as an unverified secondary source |
+| One 3×3 per type, precomputed on the CPU, row-major | Task 2b `constexpr CvCorrection`; Task 2d packs it row-major |
+| Uploaded as constants, alignment checked | Task 2c packing note (40/44 fill register 2; rows at 48/64/80); Task 2d |
+| UNORM: decode sRGB → linear, apply, `saturate`, encode — exact piecewise curve | Task 2c `CvSrgbToLinear` / `CvLinearToSrgb`, both piecewise |
+| FP16 linear: apply, `max(0)`, no encode, keyed on `styleLinear` | Task 2c `styleLinear != 0` branches |
+| Clamp always in linear before encoding | Task 2c — `CvLinearToSrgb` saturates its linear input before the transfer function |
+| `ColorVision != 0` counts as "pass active" in EVERY predicate | Task 3 — `Sharpen.cpp:136`, `Device11.cpp:91/254/278`, `D3D12Sharpen.h:261`, `Device12.cpp:188/196`, `Fsr12.cpp:289/297`, `Xess12.cpp:324/332`, `DlssDriver.cs:197` (one gate shared with the `:504` submission, inside `ColorVisionPanel.Active`); the Task 3 grep gate uses a lookahead so the new `PostShaderEnabled` body is permitted and any remaining two-term site fails it, plus a positive control expecting exactly `1` |
 | UI picker row next to the LUT row, en/ru labels | Task 5 — `GraphicsPanel.cs:62`, `Labels`, tooltip, title, all `DlssConfig.Loc(en, ru)` |
 | Hidden from the Mods menu | Task 4 — `nameof(ColorVision)` in `HiddenFromModSettings` |
 | Console/setter parity with `SetLut` | Task 5 — `RenderforgeMod.SetColorVision` |
 | README: scene only, HUD not corrected | Task 7 — bullet and table row both say it |
 | Probe: mode 0 bit-exact bypass | Task 2a check 2, both `hdr` values, `==` not a tolerance |
-| Probe: matrices equal an independent reference | Task 2a check 1 against `colour_vision_ref.py` output at 1e-6 |
-| Probe: encoded/linear parity ≤ 1/255 | Task 2a check 4 |
-| Probe: saturated primaries stay in [0,1] | Task 2a checks 3 and 5, plus white/black fixed points |
-| Live: LUT=None/style=None/sharpen=0 + `ColorVision=1` differs from 0, with numbers | Task 6 — the four `Set*` calls, the screenshot pair, the diff script, the stated thresholds |
+| Probe: matrices equal an independent reference | Task 2a check 1 (CPU matrices vs `colour_vision_ref.py` at 1e-6) **and** check 4/5 (every GPU sample vs the CPU reference model built from those same numbers, on BOTH colour-space paths — cube, sRGB knees, gamut corners) |
+| Probe: encoded/linear parity ≤ 1/255 | Task 2a check 5 |
+| Probe: saturated primaries stay in [0,1] | Task 2a checks 3 and 6, plus white/black fixed points and the 196-sample sRGB-knee set |
+| Live: LUT=None/style=None/sharpen=0 + `ColorVision=1` differs from 0, with numbers | Task 6 — 9 cases (upscaler Off, D3D11 DLSS, LUT+style composition, D3D12 DLSS/FSR/XeSS, FG X2 on all three providers plus X2→Off→X2), each with a paused `-Window` OFF/OFF control pair, scene- and HUD-region mean&#124;Δ&#124;, and the real `api=`/`d3d12HalfColor=`/`provider=` readback from `GetStatus` — never a launch flag |
 | Instance3 only | Task 6 — `-PPRoot 'D:\PP-Instance3'`, explicit prohibition on Instance2 and the Steam install |
 
 Deliberately **not** built (say so if asked, do not add): a severity slider, a per-channel strength control, HUD/UI correction, a simulation ("show me what a deuteranope sees") preview mode, and any per-type `R` for deut/prot beyond the single Fidaner matrix the authors actually publish.
