@@ -401,7 +401,8 @@ namespace Renderforge
         {
             cam.targetTexture = colorRT;
             cam.depthTextureMode |= DepthTextureMode.Depth | DepthTextureMode.MotionVectors;
-            if (layer != null && layer.antialiasingMode != PostProcessLayer.Antialiasing.None) layer.antialiasingMode = PostProcessLayer.Antialiasing.None;
+            // SMAA off only under a real upscaler (it replaces the AA); a passthrough generation keeps vanilla AA.
+            if (!passthrough && layer != null && layer.antialiasingMode != PostProcessLayer.Antialiasing.None) layer.antialiasingMode = PostProcessLayer.Antialiasing.None;
             present.depth = cam.depth + 1;
         }
 
@@ -548,8 +549,8 @@ namespace Renderforge
         public void AfterApplyPostProcessOptions()
         {
             if (gen != Gen.Live || layer == null) return;
-            savedAA = layer.antialiasingMode; aaSaved = true;
-            layer.antialiasingMode = PostProcessLayer.Antialiasing.None;
+            savedAA = layer.antialiasingMode; aaSaved = true;   // re-saved even in passthrough: Detach restores the fresh preset
+            if (!passthrough) layer.antialiasingMode = PostProcessLayer.Antialiasing.None;
         }
 
         // ---------------------------------------------------------------- helpers

@@ -85,7 +85,7 @@ namespace Renderforge
             SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[idx]);
             Grey(picker.CurrentItem.gameObject, reason != null);
             Tip(picker.CentralButton.gameObject, reason);
-            SetSliderEnabled(reason == null && idx != (int)RenderforgeMode.Off);
+            SetSliderEnabled(RenderforgeMod.Available);   // NIS sharpen runs in every generation, Mode Off and post-only included
         }
 
         /// <summary>Row index for a config mode. UltraQuality/UltraQualityPlus exist only in XeSS's label set; on
@@ -151,7 +151,7 @@ namespace Renderforge
             ShowSharp((int)sharp.value);
             sharp.onValueChanged.RemoveAllListeners();
             sharp.onValueChanged.AddListener(OnSharp);
-            SetSliderEnabled(cfg.Mode != RenderforgeMode.Off);
+            SetSliderEnabled(RenderforgeMod.Available);
         }
 
         private static void OnSharp(float v)
