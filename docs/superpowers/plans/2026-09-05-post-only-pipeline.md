@@ -70,6 +70,7 @@ native\RenderforgeNative.cpp    S.providerCode, POST_ONLY mapping, idempotence g
 native\probe\dlss_probe.cpp     + --fake=N mode (RunPostOnly11, pattern upload + readback), code 8 = untested in the DLSS runs
 build-native.ps1                + gate the --fake=2 probe run
 src\Native.cs                   + DLSS_OK_POST_ONLY, + PostOnlyReason()
+src\Upscaler.cs                 + Upscalers.PostCarrier (the live post carrier, its OWN field, never Failed)
 src\RenderforgeMod.cs           + PostOnly, InitNative NGX post carrier, ReinitNative carrier-preserving rollback, Reason(), GetStatus
 src\DlssDriver.cs               wantMode forced Off, mode recomputed after ReinitNative, needsPipeline includes sharpness, sharpness zeroing by VIEW
 docs\DESIGN.md                  init state machine + dev switch
@@ -238,11 +239,13 @@ Same shape as the existing env knobs (`RENDERFORGE_D3D12_DEBUG` at `native\D3D12
 
 ```cpp
 // DEV ONLY. RENDERFORGE_FAKE_INIT injects an NGX failure with the device already acquired - the post-only path
-// without a non-NVIDIA GPU. It never short-circuits the handler it is testing:
-//   2 = substitute a failing NVSDK_NGX_Result for the *_Init_with_ProjectID result, so the PRODUCTION failure
-//       branch (the one that must keep the device) runs unchanged. Lands on every GPU.
-//   3 = force available = 0, 4 = force needsDriver = 1, i.e. the real capability branches. Both need NGX to have
-//       come up, so they are NVIDIA-only; elsewhere the real handler answers 2 first.
+// without a non-NVIDIA GPU. It never short-circuits the handler it is testing, and it never CALLS the NGX entry
+// point whose answer it is faking (no context to leak, no query whose result is bent after the fact):
+//   2 = *_Init_with_ProjectID is not called at all; r = NVSDK_NGX_Result_FAIL_PlatformError instead, so the
+//       PRODUCTION failure branch (the one that must keep the device) runs unchanged. Lands on every GPU.
+//   3 = skip the SuperSampling_Available query, leaving available = 0; 4 = skip the NeedsUpdatedDriver query and
+//       set needsDriver = 1 - i.e. the real capability branches. Both need NGX to have come up, so they are
+//       NVIDIA-only; elsewhere the real handler answers 2 first.
 // 0 = off. Read once, cached.
 int RfFakeInitCode();
 ```
@@ -275,21 +278,29 @@ int RfFakeInitCode()
 with
 
 ```cpp
-        NVSDK_NGX_Result r = NVSDK_NGX_D3D11_Init_with_ProjectID(kProjectId, NVSDK_NGX_ENGINE_TYPE_UNITY, kEngineVersion,
-                                                                 logDir ? logDir : L".", device, &common, NVSDK_NGX_Version_API);
-        // DEV ONLY (RfFakeInitCode, Device.h): =2 substitutes a failing result so the REAL branch below runs, device
-        // retention included. On a box where NGX did come up its context is then left to process teardown on purpose
-        // - ngxInitialized stays 0, so Shutdown() must not call NVSDK_NGX_D3D11_Shutdown1 on it.
+        // DEV ONLY (RfFakeInitCode, Device.h): =2 does not CALL NVSDK_NGX_D3D11_Init_with_ProjectID at all, it
+        // supplies the failing result in its place, so the REAL branch below runs (device retention included) and
+        // no NGX context is created that ngxInitialized == 0 would then leave un-shut-down (Shutdown() must not
+        // call NVSDK_NGX_D3D11_Shutdown1 on a device that never initialised NGX).
         const int fake = RfFakeInitCode();
-        if (fake == 2) r = NVSDK_NGX_Result_FAIL_PlatformError;
+        NVSDK_NGX_Result r = fake == 2
+            ? NVSDK_NGX_Result_FAIL_PlatformError
+            : NVSDK_NGX_D3D11_Init_with_ProjectID(kProjectId, NVSDK_NGX_ENGINE_TYPE_UNITY, kEngineVersion,
+                                                  logDir ? logDir : L".", device, &common, NVSDK_NGX_Version_API);
         if (NVSDK_NGX_FAILED(r)) { lastCreate = r; return initCode = DLSS_ERR_INIT_FAILED; }
 ```
 
-  and after the four `NVSDK_NGX_Parameter_Get*` reads (lines 181-184), immediately before `if (needsDriver)`:
+  and the same shape for 3/4 — bend the capability by SKIPPING its query, never by overwriting what the query just
+  returned. Replace the first two of the four `NVSDK_NGX_Parameter_Get*` reads (lines 181-182); the two
+  `MinDriverVersion*` reads and both branches at lines 186-187 stay exactly as they are:
 
 ```cpp
-        if (fake == 4) needsDriver = 1;      // real branch: return initCode = DLSS_ERR_NEEDS_DRIVER  (line 186)
-        else if (fake == 3) available = 0;   // real branch: return initCode = DLSS_ERR_NOT_AVAILABLE (line 187)
+        int available = 0;
+        // fake=3 leaves available at its 0 initialiser; fake=4 injects needsDriver. The skipped query is never
+        // issued, so nothing can overwrite the injected value and the branches below are pure production code.
+        if (fake != 3) NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
+        if (fake == 4) needsDriver = 1;
+        else NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_NeedsUpdatedDriver, &needsDriver);
 ```
 
 - [ ] **3.4 `native\Device12.cpp:95-97` and `:104-107`** — the identical pair, with
@@ -297,16 +308,19 @@ with
   `RfDbg` are already attached at that point (`Device12.cpp:84-86`), so ownership matches the real post-only path:
 
 ```cpp
-        NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init_with_ProjectID(kProjectId, NVSDK_NGX_ENGINE_TYPE_UNITY, kEngineVersion,
-                                                                 logDir ? logDir : L".", device, &common, NVSDK_NGX_Version_API);
         const int fake = RfFakeInitCode();
-        if (fake == 2) r = NVSDK_NGX_Result_FAIL_PlatformError;
+        NVSDK_NGX_Result r = fake == 2
+            ? NVSDK_NGX_Result_FAIL_PlatformError
+            : NVSDK_NGX_D3D12_Init_with_ProjectID(kProjectId, NVSDK_NGX_ENGINE_TYPE_UNITY, kEngineVersion,
+                                                  logDir ? logDir : L".", device, &common, NVSDK_NGX_Version_API);
         if (NVSDK_NGX_FAILED(r)) { lastCreate = r; return initCode = DLSS_ERR_INIT_FAILED; }
 ```
 
 ```cpp
-        if (fake == 4) needsDriver = 1;      // real branch: return initCode = DLSS_ERR_NEEDS_DRIVER  (line 109)
-        else if (fake == 3) available = 0;   // real branch: return initCode = DLSS_ERR_NOT_AVAILABLE (line 110)
+        int available = 0;
+        if (fake != 3) NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
+        if (fake == 4) needsDriver = 1;
+        else NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_NeedsUpdatedDriver, &needsDriver);
 ```
 
 - [ ] **3.5** FSR/XeSS are deliberately untouched — the switch exists to fake *NGX* failure. That is also what makes
@@ -406,7 +420,7 @@ static int RunPostOnly11(const wchar_t* dllDir, const wchar_t* cwd, int fake)
     ID3D11Texture2D* any = MakeTex(dev, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE);
     int init = Dlss_Init(any, dllDir, cwd);
     int reason = Dlss_PostOnlyReason();
-    // fake=2 substitutes the NGX init result, so it lands on every GPU. fake=3|4 reach the capability branches only
+    // fake=2 replaces the NGX init CALL, so it lands on every GPU. fake=3|4 reach the capability branches only
     // where NGX itself came up; elsewhere the real handler answers 2 first - still POST_ONLY, still the point.
     printf("Dlss_Init      fake=%d code=%d (expect %d) api=%d (expect 11) postOnlyReason=%d (expect %d%s)\n",
            fake, init, DLSS_OK_POST_ONLY, Dlss_Api(), reason, fake, fake == 2 ? "" : " or 2");
@@ -534,8 +548,8 @@ and the dispatch line becomes:
 and after the XeSS gate (line 100):
 
 ```powershell
-# Post-only must work on EVERY GPU, so exit 3 is not tolerated here: --fake=2 substitutes the NGX init result and
-# is therefore deterministic on any device. (--fake=3|4 need a working NGX init, so they stay a manual run.)
+# Post-only must work on EVERY GPU, so exit 3 is not tolerated here: --fake=2 replaces the NGX init call and is
+# therefore deterministic on any device. (--fake=3|4 need a working NGX init, so they stay a manual run.)
 if ($rcFake -ne 0) { throw "dlss_probe (--fake=2, post-only) failed ($rcFake)" }
 ```
 
@@ -602,6 +616,17 @@ Commit: `feat(mod): expose the post-only init result over P/Invoke`
 - [ ] **6.2 `src\RenderforgeMod.cs:45`** — reset it beside `Available = false;`: `PostOnly = false;`
   (and the same at `:157`, in `OnModDisabled`).
 
+- [ ] **6.2b `src\Upscaler.cs:19`** — the live carrier needs its OWN field, next to `Failed`/`FailedCode`.
+  `Failed` is the PICKER's reason slot: every failed switch overwrites it (`ReinitNative`), so deriving the carrier
+  from it survives exactly one rollback and then hands the second one the wrong provider:
+
+```csharp
+        /// <summary>In a post-only session, the provider whose D3D device is carrying the post pass; Running is Off
+        /// then and Failed holds the picker's reason, which the NEXT failed switch overwrites - so the rollback in
+        /// RenderforgeMod.ReinitNative reads THIS field, never Failed. Off whenever PostOnly is false.</summary>
+        internal static UpscalerKind PostCarrier = UpscalerKind.Off;
+```
+
 - [ ] **6.3 `src\RenderforgeMod.cs:100-120`** — replace the whole `InitNative` body. The Auto fallback loop is
   preserved exactly as today; post-only is accepted only after the alternatives are exhausted, and only then is NGX
   probed as a last-resort post carrier (an Auto run that never met an NGX backend has no carrier to restore):
@@ -652,6 +677,9 @@ Commit: `feat(mod): expose the post-only init result over P/Invoke`
             }
             PostOnly = InitCode == Native.DLSS_OK_POST_ONLY;
             Available = InitCode == Native.DLSS_OK || PostOnly;
+            // The carrier in its own field, latched here while Upscalers.Running still holds it. Never re-derived
+            // from Upscalers.Failed: that slot belongs to the picker and the next failed switch overwrites it.
+            Upscalers.PostCarrier = PostOnly ? Upscalers.Running : UpscalerKind.Off;
             // In post-only the failed provider STAYS recorded with its real code, so the picker greys the row with
             // the true reason (Availability.Reason reads Upscalers.Failed/FailedCode) instead of claiming success.
             if (PostOnly) { Upscalers.Failed = Upscalers.Running; Upscalers.FailedCode = Native.PostOnlyReason(); Upscalers.Running = UpscalerKind.Off; }
@@ -673,10 +701,10 @@ Commit: `feat(mod): expose the post-only init result over P/Invoke`
             var m = Instance;
             if (m == null || probeTex == null) return;
             UpscalerKind prev = Upscalers.Running;
-            // In post-only Running is Off and the live carrier sits in Upscalers.Failed (see InitNative). Remember
-            // it, or the rollback below has nothing to restore and the post pass dies with the failed switch.
-            bool prevPostOnly = PostOnly;
-            UpscalerKind prevCarrier = prevPostOnly ? Upscalers.Failed : UpscalerKind.Off;
+            // In post-only Running is Off and the live carrier sits in Upscalers.PostCarrier (6.2b). Read it from
+            // THERE: Upscalers.Failed is about to be overwritten with the provider this switch is trying, so a
+            // carrier derived from Failed would be correct for the first rollback and wrong for every one after it.
+            UpscalerKind prevCarrier = Upscalers.PostCarrier;
             Native.Dlss_Shutdown();
             // Post-only is a good answer when nothing was running; it is a regression when it replaces a live
             // provider, so treat that exactly as a hard failure and roll back.
@@ -691,7 +719,8 @@ Commit: `feat(mod): expose the post-only init result over P/Invoke`
             Native.Dlss_Shutdown();
             UpscalerKind back = prev != UpscalerKind.Off ? prev : prevCarrier;
             // Restoring the carrier lands on POST_ONLY again, which is a SUCCESS for this call: InitNative sets
-            // PostOnly/Available itself, and the picker keeps the reason of the provider the user actually asked for.
+            // PostOnly/Available and re-latches Upscalers.PostCarrier itself, so the NEXT failed switch still finds
+            // it; only Failed/FailedCode are put back by hand, to keep the reason of the provider the user asked for.
             if (back != UpscalerKind.Off && InitNative(back)) { Upscalers.Failed = failed; Upscalers.FailedCode = code; }
         }
 ```
@@ -717,28 +746,39 @@ Commit: `feat(mod): expose the post-only init result over P/Invoke`
   Insert after `"provider=" + Upscalers.Running`:
 
 ```csharp
-        public static string GetStatus() => "provider=" + Upscalers.Running + " postOnly=" + PostOnly + " postOnlyReason=" + Native.PostOnlyReason() + " lut=" + ...
+        public static string GetStatus() => "provider=" + Upscalers.Running + " postOnly=" + PostOnly + " postOnlyReason=" + Native.PostOnlyReason() + " postCarrier=" + Upscalers.PostCarrier + " lut=" + ...
 ```
 
 Build: `dotnet build E:\DEV\PhoenixPoint\Renderforge\Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"`
-Check: build succeeds, and no bare `DLSS_OK` comparison treats post-only as a failure. `DLSS_OK\b` does not match
-`DLSS_OK_POST_ONLY` (`_` is a word character), so the grep still finds exactly the plain-success tests — but 6.3
-legitimately introduces four of them, and `:150` loses its one (6.5). Allowlist those, fail on anything else:
+Check: build succeeds, and no bare `DLSS_OK` comparison treats post-only as a failure. The pattern must be
+`\bDLSS_OK\b`: a bare `DLSS_OK` also matches the `DLSS_OK_POST_ONLY` lines, which are the CORRECT new code and are
+not allowlisted below, so the un-anchored grep would fail the gate on its own edits. `\b` after `OK` excludes
+`DLSS_OK_POST_ONLY` (`_` is a word character), leaving exactly the plain-success tests — of which the working tree
+must contain **four**, all in `InitNative`, after 6.3 adds three and 6.5 removes the one at `:150`:
+
+| # | expected file:line after Tasks 6.1-6.6 | line |
+|---|---|---|
+| 1 | `src\RenderforgeMod.cs:112` | `while (InitCode != Native.DLSS_OK && want == UpscalerKind.Auto)` |
+| 2 | `src\RenderforgeMod.cs:127` | `if (InitCode != Native.DLSS_OK && InitCode != Native.DLSS_OK_POST_ONLY` (NGX carrier probe) |
+| 3 | `src\RenderforgeMod.cs:139` | `if (InitCode != Native.DLSS_OK && InitCode != Native.DLSS_OK_POST_ONLY && postCarrier != UpscalerKind.Off)` |
+| 4 | `src\RenderforgeMod.cs:148` | `Available = InitCode == Native.DLSS_OK \|\| PostOnly;` |
+
+(The numbers are the landing spots given the +5 lines the earlier steps insert above `InitNative`: 6.1 +3 at `:16`,
+6.2 +1 at `:45`, 6.6 +1 at `:74`. The gate matches on TEXT, so a drift of a few lines is not a failure — a fifth
+match, or a match outside `InitNative`, is.)
 
 ```powershell
 $allow = @(
   'while (InitCode != Native.DLSS_OK && want == UpscalerKind.Auto)',
   'if (InitCode != Native.DLSS_OK && InitCode != Native.DLSS_OK_POST_ONLY',
-  '&& postCarrier == UpscalerKind.Off && want == UpscalerKind.Auto && first != UpscalerKind.DLSS)',
   'if (InitCode != Native.DLSS_OK && InitCode != Native.DLSS_OK_POST_ONLY && postCarrier != UpscalerKind.Off)',
-  'if (InitCode == Native.DLSS_OK_POST_ONLY && postCarrier == UpscalerKind.Off) postCarrier = Upscalers.Running;',
-  'if (InitCode == Native.DLSS_OK_POST_ONLY) postCarrier = UpscalerKind.DLSS;',
-  'PostOnly = InitCode == Native.DLSS_OK_POST_ONLY;',
   'Available = InitCode == Native.DLSS_OK || PostOnly;'
 )
-$bad = Select-String -Path E:\DEV\PhoenixPoint\Renderforge\src\*.cs -Pattern 'DLSS_OK' |
-       Where-Object { $_.Filename -ne 'Native.cs' -and $allow -notcontains $_.Line.Trim() }
+$hits = Select-String -Path E:\DEV\PhoenixPoint\Renderforge\src\*.cs -Pattern '\bDLSS_OK\b' |
+        Where-Object { $_.Filename -ne 'Native.cs' }
+$bad = $hits | Where-Object { $allow -notcontains $_.Line.Trim() }
 if ($bad) { $bad; throw 'post-only success handled somewhere unreviewed' }
+if ($hits.Count -ne 4) { $hits; throw "expected 4 plain DLSS_OK comparisons, found $($hits.Count)" }
 ```
 
 Commit: `feat(mod): accept a post-only shim as available`
@@ -860,11 +900,29 @@ reported as post-only. Restore `Auto` after the post-only block.
 - [ ] **8.5 Repeat 8.2-8.4 under D3D12** (`SetRenderer D3D12` + restart), upscaler still pinned to DLSS,
   `RENDERFORGE_FAKE_INIT=2`. Then, D3D11 only and still pinned, once with `=3` and once with `=4` to prove all three
   codes map and `postOnlyReason` echoes each (2/3/4, never 8).
-- [ ] **8.5b Auto fallback still wins on D3D12 (the counter-case to 8.5).** Same `RENDERFORGE_FAKE_INIT=2`, but
-  `SetUpscaler Auto`, D3D12: NGX fails, `NextFallback` reaches FSR, and the run must end `postOnly=False`
-  `provider=FSR` `gen=Live passthrough=False` — a faked NGX failure must NOT disable a working upscaler. Repeat with
-  `amd_fidelityfx_*.dll` renamed aside so Auto continues to XeSS (`provider=XeSS`, `postOnly=False`); restore the
-  files. Only with BOTH renamed aside does Auto land in post-only (`postOnly=True`, carrier DLSS — 6.3's NGX probe).
+- [ ] **8.5b Auto fallback still wins on D3D12 (the counter-case to 8.5).** Auto must be exercised at STARTUP, not
+  by a live switch: after 8.5 the session is post-only, so `Upscalers.Failed == DLSS` with `FailedCode == 2` and
+  `SetUpscaler Auto` resolves to DLSS (`Upscalers.Resolve`, `src\Upscaler.cs:40-44`, `Running == Off`), which
+  `ApplyUpscaler` refuses with `Availability.Reason(Feature.Dlss)` (`src\Availability.cs:51-54`) — nothing re-inits
+  and the readback would prove nothing. `SetUpscaler` still SAVES first (`Cfg.Upscaler` at `src\RenderforgeMod.cs:200`,
+  `SaveConfig()` at `:205`, both before the refusal is returned), so the pin persists. Per DLL configuration:
+  persist `Upscaler=Auto`, quit, and COLD-LAUNCH the game again with `$env:RENDERFORGE_FAKE_INIT = '2'` set in the
+  launching shell (PPCLI `PLAYBOOK.md`, `plans\start-campaign.json` / `start-mission.json`), D3D12, then read
+  `GetStatus`. That is what runs `InitNative(Auto)`'s fallback chain for real.
+
+```powershell
+& $Cli connect call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"SetUpscaler","args":["Auto"]}' -PPRoot $PP   # saved even when refused
+```
+
+  | DLLs beside the mod | expected after the restart |
+  |---|---|
+  | FSR + XeSS present | `postOnly=False provider=FSR gen=Live passthrough=False` — a faked NGX failure must NOT disable a working upscaler |
+  | `amd_fidelityfx_*.dll` renamed aside | `postOnly=False provider=XeSS` |
+  | both renamed aside | `postOnly=True postCarrier=DLSS provider=Off` |
+
+  Restore every renamed file afterwards. Note for the third row: on this NVIDIA box `Upscalers.Resolve(Auto)` is
+  already DLSS, so the carrier is latched by the FIRST iteration of 6.3's loop and the extra NGX carrier probe
+  (`first != UpscalerKind.DLSS`) is unreachable here — that probe stays untested on this hardware; record it.
 - [ ] **8.6 Real failure, no fake switch.** Upscaler pinned to DLSS (same reason as 8.5), rename `nvngx_dlss.dll` to
   `nvngx_dlss.dll.off` in the Instance3 mod folder, launch: `postOnly=True`, `postOnlyReason=` 2, 3 or 4 (record
   which — NGX may init and only report the feature unavailable), post effects still work on both APIs. Restore the
@@ -887,6 +945,31 @@ reported as post-only. Restore `Auto` after the post-only block.
   `InitNative` answers POST_ONLY, 6.4 rejects it and rolls back. Expected afterwards: `provider=FSR postOnly=False`,
   `gen=Live passthrough=False`, log `DLSS init failed (code 8): back to FSR`, and the picker's UPSCALER row greyed
   with the DLSS reason (`Upscalers.Failed=DLSS`, `FailedCode=2`). Repeat with XeSS as the starting provider.
+- [ ] **8.7c The carrier survives TWO consecutive failed switches (Task 6.2b/6.4).** The bug this catches: a
+  rollback that reads the carrier out of `Upscalers.Failed` is right once and wrong forever after, because the first
+  rollback leaves `Failed` holding the provider that just failed. Both switches must reach `ReinitNative`, so the
+  target's `Availability.Reason` must be null — hence the DLLs stay PRESENT (`Upscalers.FsrDllsPresent` /
+  `XessDllPresent` are file-existence checks, `src\Upscaler.cs:117-141`) and are made unloadable instead:
+
+```powershell
+Copy-Item "$PP\Mods\Renderforge\amd_fidelityfx_upscaler_dx12.dll" "$env:TEMP\fsr.bak"
+Copy-Item "$PP\Mods\Renderforge\libxess.dll"                      "$env:TEMP\xess.bak"
+Set-Content "$PP\Mods\Renderforge\amd_fidelityfx_upscaler_dx12.dll" 'not a dll' -Encoding Ascii   # present, cannot load
+Set-Content "$PP\Mods\Renderforge\libxess.dll"                      'not a dll' -Encoding Ascii
+```
+
+  D3D12, launch with `$env:RENDERFORGE_FAKE_INIT = '2'` and `Cfg.Upscaler = DLSS` pinned (so no Auto fallback):
+  start post-only, `postOnly=True postCarrier=DLSS provider=Off`. Then, in ONE session:
+  1. `SetUpscaler FSR` → `InitNative(FSR)` fails (`Fsr12` cannot load its DLL) → rollback to `prevCarrier`.
+     Assert `postOnly=True postCarrier=DLSS provider=Off gen=Live passthrough=True`, `Upscalers.Failed=FSR`,
+     and the post pass still works (`SetSharpness 100` vs `0`: scene mean |Δ| ≥ 1.0, HUD ≤ control + 0.5).
+  2. `SetUpscaler XeSS` → fails the same way → rollback again. Assert the SAME line: `postOnly=True
+     postCarrier=DLSS provider=Off`, `Failed=XeSS`, sharpen still moves pixels. With the carrier derived from
+     `Failed` this second rollback would try to restore FSR and end `postOnly=False provider=Off` with a dead post
+     pass — that is the regression this step exists for.
+
+  Restore both DLLs from `$env:TEMP` afterwards and confirm a normal FSR launch still works.
+
 - [ ] **8.8 D3D12 exposure identity.** All effects Off (LUT Off, style Off, CV None, Sharpness 0), switch OFF,
   D3D12: measure exposure exactly as `docs\research\2026-09-05-d3d12-exposure-restoration.md` did — read that note's
   method before running — and confirm the 1.3.0 reference value **22.627** is unchanged.
@@ -907,8 +990,9 @@ Commit (evidence only, after the run): `test(renderforge): verify the post-only 
   release in both `Shutdown()`s, and the rule that FSR/XeSS never reach post-only.
 - [ ] **9.2 `docs\DESIGN.md`, same section** — document `RENDERFORGE_FAKE_INIT=2|3|4` as **dev-only**, next to the
   existing env knobs listed at `docs\DESIGN.md:633-634`; state that it never overwrites a successful init because
-  it returns before NGX is called (`native\Device11.cpp` / `Device12.cpp` Init), and that
-  `dlss_probe.exe <dir> --fake=3` is its regression gate in `build-native.ps1`.
+  it REPLACES the NGX call rather than its result — `=2` in place of `*_Init_with_ProjectID`, `=3`/`=4` in place of
+  the capability query (`native\Device11.cpp` / `Device12.cpp` `Init`) — and that `dlss_probe.exe <dir> --fake=2`
+  is its regression gate in `build-native.ps1`.
 - [ ] **9.3 `README.md:40`** (the post-pass row of `## Requirements`, line 26) and `README.md:120` — the honest
   claim: the post pass "runs without an upscaler", **verified on NVIDIA** (D3D11 and D3D12, with the failure both
   faked and forced by removing `nvngx_dlss.dll`); non-NVIDIA smoke evidence is still pending, so no universal
@@ -931,18 +1015,24 @@ Before declaring the plan done, verify each of these against the working tree �
 
 1. **No device leak.** `Select-String -Path native\Device11.cpp,native\Device12.cpp -Pattern 'device->Release'` —
    every remaining release is either in `Shutdown()` or on a path that returns a code with `PostAlive() == false`.
-2. **`ngxInitialized` still success-only.** It is assigned 1 only after `NVSDK_NGX_FAILED(r)` was false
-   (`Device11.cpp:175`, `Device12.cpp:98`). The fake switch does not bypass that test — it feeds it a failing
-   result (`fake == 2`) or bends the capability flags read after it (`3`/`4`), so every branch that runs is a
-   production branch, and a revert of Task 1.1 fails the `--fake=2` gate.
+2. **`ngxInitialized` still success-only, and the fake switch never calls the NGX entry point it fakes.** It is
+   assigned 1 only after `NVSDK_NGX_FAILED(r)` was false (`Device11.cpp:175`, `Device12.cpp:98`). `fake == 2`
+   supplies the failing result INSTEAD OF calling `*_Init_with_ProjectID` (so no NGX context is created that the
+   `ngxInitialized == 0` path would then never shut down), and `3`/`4` SKIP the capability query they inject
+   (`Select-String -Path native\Device11.cpp,native\Device12.cpp -Pattern 'fake'` — every `fake` line is a
+   call-site guard, none is an assignment after a query). Every branch that runs is a production branch, so a
+   revert of Task 1.1 fails the `--fake=2` gate.
 3. **Idempotence.** `Dlss_Init` returns early for both `DLSS_OK` and `DLSS_OK_POST_ONLY`, and both backends'
    `Init` replay guards test `ngxInitialized || device`. The probe's second `Dlss_Init` call (4.1) proves it.
 4. **Auto fallback preserved.** The loop in `InitNative` is byte-identical to the old one apart from the
    `postCarrier` line; post-only is only accepted after `NextFallback` returns `Off`, and the extra NGX carrier
    probe runs only when the whole chain failed and never started on DLSS. Proven live by 8.5b: a faked NGX failure
    must still end on a working FSR (then XeSS) before it may end in post-only.
-5. **A working upscaler is never traded away, and the carrier survives a failed switch.** Task 6.4's guard plus
-   its `prevCarrier` rollback, checked live by 8.7b (`provider=FSR` after a rejected DLSS request).
+5. **A working upscaler is never traded away, and the carrier survives EVERY failed switch.** Task 6.4's guard plus
+   its `prevCarrier` rollback, checked live by 8.7b (`provider=FSR` after a rejected DLSS request) and by 8.7c (two
+   consecutive failed switches, `postCarrier=DLSS` both times). The carrier lives in `Upscalers.PostCarrier` (6.2b),
+   never in `Upscalers.Failed`: `Select-String -Path src\RenderforgeMod.cs -Pattern 'PostCarrier'` must show exactly
+   one write (`InitNative`) and one read (`ReinitNative`).
 5b. **No stale mode after an async switch.** 7.4 re-runs `Apply` after `ReinitNative`; 8.7 checks
    `gen=Live passthrough=False` straight after a PostOnly -> FSR/XeSS switch, with nothing else touched.
 5c. **Post output is proven by pixels, not status codes.** 4.1 uploads a known pattern and asserts
