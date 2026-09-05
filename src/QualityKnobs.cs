@@ -29,6 +29,10 @@ namespace Renderforge
         private static ShadowResolution baseShadowRes;
         private static bool loggedError;
 
+        private static PostProcessVolume volume;
+        private static bool haveVignetteBase;
+        private static bool baseVignette;
+
         /// <summary>What vanilla left behind. Taken when UsePreset unwinds, and - as a fallback - immediately before the
         /// mod's first write, for the case where a preset was applied before Harmony was installed.</summary>
         internal static void Snapshot()
@@ -117,8 +121,40 @@ namespace Renderforge
             catch (Exception ex) { Log("scalar apply failed", ex); }
         }
 
-        /// <summary>Filled in by Task 4.</summary>
-        internal static void ApplyVignette(LightingManager known) { }
+        /// <summary>The volume vanilla itself drives: GetComponentInChildren&lt;PostProcessVolume&gt;() under the
+        /// LightingManager's protected _currentLightsRoot (LightingManager.cs:168). Reacquired on every call, never cached
+        /// across levels - LightingSettingsDef.ApplyTo destroys and re-instantiates the lights prefab per level
+        /// (LightingSettingsDef.cs:21-22), so a cached reference points at a dead clone.</summary>
+        private static PostProcessVolume CurrentVolume(LightingManager known)
+        {
+            LightingManager lm = known ?? GameUtl.GameComponent<LightingManager>();
+            if (lm == null) return null;
+            Transform root = Traverse.Create(lm).Field("_currentLightsRoot").GetValue<Transform>();
+            return root == null ? null : root.GetComponentInChildren<PostProcessVolume>();
+        }
+
+        /// <summary>Vanilla = write the captured baseline back; Off = enabled.value = false. Writes `profile` (the runtime
+        /// clone), which is what vanilla writes at LightingManager.cs:172-178 - `sharedProfile` is the shared asset and
+        /// editing it would leak across levels and into the player's install.</summary>
+        internal static void ApplyVignette(LightingManager known)
+        {
+            var cfg = RenderforgeMod.Instance?.Cfg;
+            if (cfg == null) return;
+            try
+            {
+                PostProcessVolume found = CurrentVolume(known);
+                if (found != volume) { volume = found; haveVignetteBase = false; }   // new clone = new baseline
+                if (volume == null || volume.profile == null) return;
+                Vignette vignette;
+                if (!volume.profile.TryGetSettings(out vignette) || vignette == null) return;
+                if (!haveVignetteBase) { baseVignette = vignette.enabled.value; haveVignetteBase = true; }
+                vignette.enabled.value = cfg.Vignette == VignetteMode.Off ? false : baseVignette;
+                // The exact invalidation vanilla performs at LightingManager.cs:167 - a public static field on PPv2's
+                // PostProcessManager (PostProcessManager.cs:25), read back by UpdateSettings (:239).
+                PostProcessManager.NeedUpdateSettings = true;
+            }
+            catch (Exception ex) { Log("vignette apply failed", ex); }
+        }
 
         /// <summary>PPCLI readback: {"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"Status"}.
         /// Config value, live QualitySettings value and the captured baseline, side by side.</summary>
@@ -133,7 +169,16 @@ namespace Renderforge
                  + " shadowRes=" + QualitySettings.shadowResolution
                  + " | base have=" + haveSnapshot + " aniso=" + baseAniso
                  + " lodBias=" + baseLodBias.ToString("R") + " shadowRes=" + baseShadowRes
-                 + " | inUsePreset=" + InUsePreset;
+                 + " | inUsePreset=" + InUsePreset
+                 + " | vignette base=" + (haveVignetteBase ? baseVignette.ToString() : "?")
+                 + " live=" + LiveVignette();
+        }
+
+        private static string LiveVignette()
+        {
+            Vignette vignette;
+            if (volume == null || volume.profile == null || !volume.profile.TryGetSettings(out vignette) || vignette == null) return "?";
+            return vignette.enabled.value.ToString();
         }
 
         /// <summary>PPCLI setter: {"member":"SetQuality","args":["Off","VeryHigh","Force16",2.0]}. Applies live and saves.</summary>
