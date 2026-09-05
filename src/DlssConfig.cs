@@ -21,6 +21,18 @@ namespace Renderforge
     /// <summary>Original analytic colour grades. Ordinals cross the managed/native ABI; append only.</summary>
     public enum LutPreset { Off, RealisticDesaturated, Neutral, CinematicBleach, Vivid, BlackAndWhiteCinema, Noir, AmberFilm, Arctic, VintageSepia }
 
+    /// <summary>Tactical vignette. Vanilla = whatever the level's volume shipped with (captured per volume);
+    /// Off = the mod writes enabled.value = false on the runtime profile.</summary>
+    public enum VignetteMode { Vanilla, Off }
+
+    /// <summary>QualitySettings.shadowResolution. Vanilla = the captured preset value (High at Ultra);
+    /// VeryHigh is Unity's top tier - the engine still caps the map at 4096 dir / 2048 spot / 1024 point.</summary>
+    public enum ShadowResolutionMode { Vanilla, VeryHigh }
+
+    /// <summary>Vanilla never writes anisotropic filtering at all. Force16 = ForceEnable +
+    /// Texture.SetGlobalAnisotropicFilteringLimits(16, 16); the restore is the snapshot + limits (-1, -1).</summary>
+    public enum AnisotropicMode { Vanilla, Force16 }
+
     /// <summary>Public fields = the in-game mod settings UI + ModConfig.json (ModConfig.GetConfigFields).
     /// [ConfigField] = the English label; GetConfigFields swaps in Russian when the game runs in Russian
     /// (same shape as PerkOracle's OracleConfig.GetConfigFields, minus the CSV: two languages, inline).</summary>
@@ -32,7 +44,8 @@ namespace Renderforge
         {
             nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen),
             nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
-            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts)
+            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts),
+            nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias)
         };
 
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance")]
@@ -76,6 +89,14 @@ namespace Renderforge
         public UpscalerKind Upscaler = UpscalerKind.Auto;
         [ConfigField("Frame generation", "Off / 2x / 3x / 4x. DirectX 12 only. 3x and 4x need DLSS-G on an RTX 50 GPU.")]
         public FrameGenMode FrameGen = FrameGenMode.Off;
+        [ConfigField("Vignette", "Vanilla keeps the mission's own vignette; Off removes the darkened frame edges. Also in Options → Graphics.")]
+        public VignetteMode Vignette = VignetteMode.Vanilla;
+        [ConfigField("Shadow resolution", "Vanilla keeps the graphics preset's value; Very High raises the shadow map size. Also in Options → Graphics.")]
+        public ShadowResolutionMode ShadowResolution = ShadowResolutionMode.Vanilla;
+        [ConfigField("Anisotropic filtering", "Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture. Also in Options → Graphics.")]
+        public AnisotropicMode Anisotropic = AnisotropicMode.Vanilla;
+        [ConfigField("LOD detail", "0 = vanilla. 1.0 … 4.0 keeps higher-detail models at distance; costs GPU time and VRAM. Also in Options → Graphics.")]
+        public float LodBias = 0f;             // 0 = vanilla (write the captured baseline back); otherwise clamped to 1..4
 
         // field ID -> (RU label, RU description); English comes from the attribute above.
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
@@ -99,6 +120,10 @@ namespace Renderforge
             { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный, требуется перезапуск." } },
             { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, Intel → XeSS, иначе FSR (XeSS, если нет DLL AMD). FSR/XeSS требуют DirectX 12. Смена требует перезапуска." } },
             { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12. 3x и 4x — DLSS-G на видеокарте RTX 50." } },
+            { nameof(Vignette), new[] { "Виньетка", "«Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра. Также в Настройки → Графика." } },
+            { nameof(ShadowResolution), new[] { "Разрешение теней", "«Как в игре» — значение выбранного пресета; «Очень высокое» увеличивает размер карты теней. Также в Настройки → Графика." } },
+            { nameof(Anisotropic), new[] { "Анизотропная фильтрация", "«Как в игре» ничего не меняет; «16x» включает 16 выборок для всех текстур. Также в Настройки → Графика." } },
+            { nameof(LodBias), new[] { "Детализация LOD", "0 = как в игре. 1.0 … 4.0 — модели дольше остаются детальными вдали; расход GPU и видеопамяти растёт. Также в Настройки → Графика." } },
         };
 
         /// <summary>True while the game runs in Russian (I2 LocalizationManager.CurrentLanguage, "English"/"Russian"/…).</summary>
