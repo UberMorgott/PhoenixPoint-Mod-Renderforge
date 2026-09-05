@@ -138,7 +138,7 @@ namespace Renderforge
                     postCarrier = UpscalerKind.DLSS;
                     m.Logger.LogInfo("no upscaler available: NGX probed as the post carrier (reason " + Native.PostOnlyReason() + ")");
                 }
-                else
+                else if (InitCode != Native.DLSS_OK)   // DLSS_OK is reachable (Resolve(Auto) keeps a stale Running): keep the win
                 {
                     // NGX hard-failed too: keep the provider that actually failed and its code, or the row the
                     // player can see (Availability.Reason(Feature.Fsr/Xess)) would be greyed with no reason.
