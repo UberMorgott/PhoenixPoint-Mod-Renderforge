@@ -120,7 +120,7 @@ struct OwnedSet12
         DXGI_FORMAT cf = Typed(cd.Format, srgbIn), of = Typed(od.Format);
         unsigned cw = (unsigned)cd.Width, ch = cd.Height, ow = (unsigned)od.Width, oh = od.Height;
         if (color && fmt == cf && outFmt == of && w == cw && h == ch && outW == ow && outH == oh) return true;
-        if (color) ring.WaitIdle();
+        if (color && !ring.WaitIdle()) return false;
         Release();
         fmt = cf; outFmt = of; w = cw; h = ch; outW = ow; outH = oh;
         color = Make(dev, cw, ch, cf, false, L"Renderforge colorIn");

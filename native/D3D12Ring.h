@@ -29,6 +29,7 @@ struct D3D12Ring
     static const int kStates = 4;   // colour + depth + motion vectors + output, the widest declaration we make
 
     ID3D12Device* device;
+    bool trackingLost; // a failed queue Signal cannot prove retirement
     ID3D12CommandAllocator* alloc[kRing];
     ID3D12GraphicsCommandList* list[kRing];
     UINT64 submitted[kRing];      // our own fence value for that slot's submission, 0 = never used
@@ -75,7 +76,7 @@ struct D3D12Ring
 
     void Zero()
     {
-        device = NULL;
+        device = NULL; trackingLost = false;
         for (int i = 0; i < kRing; ++i) { alloc[i] = NULL; list[i] = NULL; submitted[i] = 0; unityVal[i] = 0; }
         fence = NULL; fenceVal = 0; submissions = 0;
         ringIdx = 0; recording = 0; waitEvent = NULL; failCode = 0;
@@ -150,49 +151,52 @@ struct D3D12Ring
 
     // WAIT_OBJECT_0 once `value` has retired on `f` (0 = never submitted, retired by definition), else the
     // WaitForSingleObject result (WAIT_TIMEOUT / WAIT_FAILED). Callers must not touch the slot otherwise.
-    DWORD WaitOn(ID3D12Fence* f, UINT64 value)
+    DWORD WaitOn(ID3D12Fence* f, UINT64 value, DWORD waitMs = kFenceWaitMs)
     {
         if (!value) return WAIT_OBJECT_0;
         if (!f) return WAIT_FAILED;
         if (f->GetCompletedValue() >= value) return WAIT_OBJECT_0;
+        if (!waitMs) return WAIT_TIMEOUT;
         if (!waitEvent) waitEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
         if (!waitEvent) return WAIT_FAILED;
         if (FAILED(f->SetEventOnCompletion(value, waitEvent))) return WAIT_FAILED;
-        return WaitForSingleObject(waitEvent, kFenceWaitMs);
+        return WaitForSingleObject(waitEvent, waitMs);
     }
 
     // Slot `i` fully retired: our own fence AND Unity's frame fence (see unityVal).
-    DWORD WaitSlot(int i)
+    DWORD WaitSlot(int i, DWORD waitMs = kFenceWaitMs)
     {
-        DWORD r = WaitOn(fence, submitted[i]);
+        DWORD r = WaitOn(fence, submitted[i], waitMs);
         if (r != WAIT_OBJECT_0) return r;
         IUnityGraphicsD3D12v5* unity = g_unityD3D12;
         ID3D12Fence* ff = unity ? unity->GetFrameFence() : NULL;
-        if (!ff || !unityVal[i]) return WAIT_OBJECT_0;
-        if (ff->GetCompletedValue() < unityVal[i])
+        if (!unityVal[i]) return WAIT_OBJECT_0;
+        if (!ff) return WAIT_FAILED;
+        if (waitMs && ff->GetCompletedValue() < unityVal[i])
             RfDbg::Log("REUSE slot=%d: own fence %llu retired but Unity frame fence %llu < %llu - waiting",
                        i, (unsigned long long)submitted[i], (unsigned long long)ff->GetCompletedValue(), (unsigned long long)unityVal[i]);
-        return WaitOn(ff, unityVal[i]);
+        return WaitOn(ff, unityVal[i], waitMs);
     }
 
     // Blocks until every list we ever submitted has retired. Required before destroying anything a submitted
     // list referenced (NGX feature handles - guide p.54 5.5 - or ffx contexts). False = a slot timed out or a
     // fence failed: something may still be executing (unless the device is gone - see Removed()).
-    bool WaitIdle()
+    bool WaitIdle(DWORD waitMs = kFenceWaitMs)
     {
+        if (trackingLost) return false;
         bool ok = true;
-        for (int i = 0; i < kRing; ++i) if (WaitSlot(i) != WAIT_OBJECT_0) ok = false;
+        for (int i = 0; i < kRing; ++i) if (WaitSlot(i, waitMs) != WAIT_OBJECT_0) ok = false;
         return ok;
     }
 
     bool Removed() { return device && FAILED(device->GetDeviceRemovedReason()); }
 
-    // A slot whose retirement can no longer be tracked (fence Signal failed): never Reset or Release its
-    // allocator again - leak the pair, Begin() builds a fresh one.
+    // A failed Signal loses proof of retirement. Retain the complete ring and stop submitting until
+    // device removal; starting another generation cannot make its referenced resources safe to destroy.
     void Quarantine(int i)
     {
         RfDbg::Log("ring: slot %d quarantined (fence Signal failed, removed=%d)", i, Removed() ? 1 : 0);
-        list[i] = NULL; alloc[i] = NULL; submitted[i] = 0; unityVal[i] = 0;
+        trackingLost = true; // retain the allocator/list and every referenced resource until device removal
     }
 
     void ReleaseSlot(int i)
@@ -204,7 +208,7 @@ struct D3D12Ring
     // Returns an open, recording DIRECT command list, or NULL with failCode set.
     ID3D12GraphicsCommandList* Begin()
     {
-        if (!device || !g_unityD3D12 || recording) { failCode = DLSS_ERR_NO_CONTEXT; return NULL; }
+        if (!device || !g_unityD3D12 || recording || trackingLost) { failCode = DLSS_ERR_NO_CONTEXT; return NULL; }
         int i = ringIdx;
         // An in-flight allocator must never be reset: on timeout/failure leave the slot alone and bail.
         LARGE_INTEGER t0, t1, qpf;
@@ -276,19 +280,16 @@ struct D3D12Ring
         return false;
     }
 
-    // Live objects are only destroyed once every submission retired; on a timeout with the device still alive
-    // (a hung GPU) they are leaked instead, since the GPU may still be reading them. A removed device executes
-    // nothing any more, so its objects can go.
-    void Release()
+    // A timeout retains every handle and fence value for a later retry. Never abandon ownership.
+    bool Release()
     {
-        bool idle = WaitIdle();
-        bool free = idle || Removed();
-        if (!idle) RfDbg::Log("ring: Release with %s", free ? "device removed - freeing" : "GPU still busy - leaking slots + fence");
-        for (int i = 0; i < kRing; ++i) { if (free) ReleaseSlot(i); else { list[i] = NULL; alloc[i] = NULL; } submitted[i] = 0; unityVal[i] = 0; }
+        if (!WaitIdle(0) && !Removed()) return false;
+        for (int i = 0; i < kRing; ++i) { ReleaseSlot(i); submitted[i] = 0; unityVal[i] = 0; }
         if (waitEvent) { CloseHandle(waitEvent); waitEvent = NULL; }
-        if (fence) { if (free) fence->Release(); fence = NULL; }
-        if (free) ReleaseTimings(); else { qbuf = NULL; qheap = NULL; qCpu = NULL; }
+        if (fence) { fence->Release(); fence = NULL; }
+        ReleaseTimings();
         fenceVal = 0; submissions = 0;
-        ringIdx = 0; recording = 0; device = NULL; failCode = 0;
+        ringIdx = 0; recording = 0; device = NULL; trackingLost = false; failCode = 0;
+        return true;
     }
 };

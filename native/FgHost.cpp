@@ -37,7 +37,6 @@ namespace {
 template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = NULL; } }
 
 enum { kNone = 0, kLive = 1, kDetached = 2 };
-const int kDestroyTries = 120;          // pumps (frames) a provider may refuse Destroy before it is forced
 
 struct Chain
 {
@@ -138,9 +137,10 @@ bool CopyBackBuffer(Chain& c, ID3D12Resource* src, ID3D12Resource* dst)
 }
 
 // Main thread, no lock held. GPU objects of a chain whose provider is already gone (or never came up).
-void ReleaseGpu(Chain& c)
+bool ReleaseGpu(Chain& c)
 {
-    c.prep.Release();                   // waits idle: the hud twin's last reader/writer has retired
+    if ((!c.prep.WaitIdle(0) && !c.prep.Removed()) || (!c.copy.WaitIdle(0) && !c.copy.Removed())) return false;
+    c.prep.Release();
     c.hud.Release();
     c.copy.Release();
     SafeRelease(c.xfence);
@@ -150,6 +150,7 @@ void ReleaseGpu(Chain& c)
     SafeRelease(c.app);
     if (c.child) { FgWndDestroy(); c.child = NULL; }
     c.scFlags = 0;
+    return true;
 }
 
 // Main thread, no lock held, chain detached. The host's shadow reference goes first (XeSS-FG's xefgSwapChainDestroy
@@ -159,13 +160,14 @@ bool DestroyChain(Chain& c, const char* why, bool force)
 {
     ULONGLONG t0 = GetTickCount64();
     if (c.prov) c.prov->SetEnabled(false);
+    if ((!c.prep.WaitIdle(0) && !c.prep.Removed()) || (!c.copy.WaitIdle(0) && !c.copy.Removed())) return false;
     SafeRelease(c.shadow);
     if (c.prov) {
         if (!c.prov->Destroy(force)) { FgLog("host: teardown (%s): provider refused Destroy (try %d)", why, H.destroyTries + 1); return false; }
         c.prov = NULL;
     }
     ULONGLONG t1 = GetTickCount64();
-    ReleaseGpu(c);
+    if (!ReleaseGpu(c)) return false;
     FgLog("host: teardown (%s) tid %u: provider %llu ms, gpu %llu ms%s", why, (unsigned)GetCurrentThreadId(),
           (unsigned long long)(t1 - t0), (unsigned long long)(GetTickCount64() - t1), force ? " (forced)" : "");
     return true;
@@ -196,7 +198,7 @@ bool DestroyDetached(DWORD waitMs)
         if (GetTickCount64() >= until) { FgLog("host: teardown (%s): render thread still pinned after %lu ms - deferred", H.why, waitMs); return false; }
         Sleep(1);
     }
-    bool force = H.destroyTries >= kDestroyTries;
+    bool force = false; // A retry count never proves that the vendor/GPU stopped using its handles.
     if (!DestroyChain(H.c, H.why, force)) { ++H.destroyTries; return false; }
     Locked lk;
     H.c = Chain();
@@ -208,16 +210,22 @@ bool DestroyDetached(DWORD waitMs)
 bool Pin()
 {
     Locked lk;
-    if (H.state != kLive || !H.enabled) return false;
+    if (H.state != kLive || !H.enabled || H.pinned) return false;
     H.pinned = 1;
     H.cur = H.slot;
+    if (H.cur.hudless) H.cur.hudless->AddRef();
+    if (H.cur.depth) H.cur.depth->AddRef();
+    if (H.cur.mv) H.cur.mv->AddRef();
     return true;
 }
 
 // Render thread. `tearWhy` != NULL = this thread found the chain dead: detach (the main thread destroys).
 void Unpin(const char* tearWhy)
 {
-    { Locked lk; H.pinned = 0; }
+    { Locked lk;
+      SafeRelease(H.cur.hudless); SafeRelease(H.cur.depth); SafeRelease(H.cur.mv);
+      H.pinned = 0;
+    }
     if (tearWhy) Detach(tearWhy);
 }
 
@@ -556,19 +564,20 @@ int FgHostPump(void)
         // The hook forgot / rediscovered the app chain (WM_NCDESTROY): a chain built on the old one is dead.
         if (H.state == kLive && !FgAppIs((IDXGISwapChain*)H.c.app)) { H.state = kDetached; H.enabled = 0; H.destroyTries = 0; strncpy_s(H.why, sizeof(H.why), "app chain changed", _TRUNCATE); }
     }
-    return DestroyDetached(2000) ? 1 : 0;
+    return DestroyDetached(0) ? 1 : 0;
 }
 
 int FgHostShutdown(void)
 {
     Detach("shutdown");
-    int ok = DestroyDetached(10000) ? 1 : 0;
+    int ok = DestroyDetached(0) ? 1 : 0;
     Locked lk;
     H.enabled = 0;
-    ReleaseSlotLocked();
+    if (ok) ReleaseSlotLocked();
     return ok;
 }
 
+int FgHostRetired(void) { Locked lk; return H.state == kNone && !H.pinned ? 1 : 0; }
 int FgHostAlive(void) { Locked lk; return H.state == kLive ? 1 : 0; }
 unsigned FgHostCaps(void) { Locked lk; return H.state == kLive ? H.c.prov->Caps() : H.lastCaps; }
 int FgHostProvider(void) { Locked lk; return H.state == kLive ? H.c.prov->Id() : FG_PROVIDER_NONE; }

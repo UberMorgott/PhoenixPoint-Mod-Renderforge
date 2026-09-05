@@ -67,7 +67,6 @@ struct Device12 : IDevice
         return cl;
     }
     bool End(int n) { return ring.End(n); }
-    void WaitIdle() { ring.WaitIdle(); }
 
     // ---- IDevice -----------------------------------------------------------
 
@@ -130,7 +129,7 @@ struct Device12 : IDevice
     void Create(const CreateParams& cp) override
     {
         if (!params || !device || !g_unityD3D12) { lastCreate = NVSDK_NGX_Result_FAIL_NotInitialized; return; }
-        ReleaseFeature();
+        if (!ReleaseFeature()) { lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; return; }
         if (!cp.w || !cp.outW) { lastCreate = NVSDK_NGX_Result_FAIL_InvalidParameter; return; }
         SetPresetHints(params);
 
@@ -237,26 +236,27 @@ struct Device12 : IDevice
         RfDbg::Removed(device, "Evaluate");
     }
 
-    void ReleaseFeature() override
+    bool ReleaseFeature() override
     {
-        if (!feature || !BeginDestroy()) return;
-        WaitIdle();                       // guide p.54 5.5: no command list using the feature may still be in flight
-        if (feature) NVSDK_NGX_D3D12_ReleaseFeature(feature);
+        if (!BeginDestroy()) return false;
+        if (!ring.WaitIdle(0) && !ring.Removed()) { EndDestroy(); return false; }
+        if (feature && NVSDK_NGX_FAILED(NVSDK_NGX_D3D12_ReleaseFeature(feature))) { EndDestroy(); return false; }
         feature = NULL;
         owned.Release();                  // idle above; a new generation re-creates the set at its own size
         EndDestroy();
+        return true;
     }
 
-    void Shutdown() override
+    bool Shutdown() override
     {
-        ReleaseFeature();
-        ring.Release();
+        if (!ReleaseFeature() || !ring.Release()) return false;
         owned.Release();
         sharpen.Release();
         if (params) { NVSDK_NGX_D3D12_DestroyParameters(params); params = NULL; }
         if (ngxInitialized) { NVSDK_NGX_D3D12_Shutdown1(device); ngxInitialized = 0; }
         if (device) { device->Release(); device = NULL; }
         Zero();
+        return true;
     }
 };
 

@@ -199,10 +199,16 @@ namespace Renderforge
         public static string Dlss_ResultString(int ngxResult) => Marshal.PtrToStringAnsi(Dlss_ResultStringPtr(ngxResult)) ?? "";
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
-        public static extern void Dlss_ReleaseNow();
+        public static extern int Dlss_ReleaseNow();
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
-        public static extern void Dlss_Shutdown();
+        public static extern void Dlss_BeginRelease();
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_ReleaseStatus();
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Dlss_Shutdown();
 
         /// <summary>Graphics API the shim bound to: 0 = none, 11 = D3D11, 12 = D3D12.</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]

@@ -200,21 +200,22 @@ struct Fsr12 : IDevice
         return NVSDK_NGX_Result_Success;
     }
 
-    void DestroyContext()
+    bool DestroyContext()
     {
-        if (!context || !BeginDestroy()) return;
-        ring.WaitIdle();                       // no submitted list may still reference the context's resources
-        ffx->DestroyContext(&context, NULL);
+        if (!BeginDestroy()) return false;
+        if (!ring.WaitIdle(0) && !ring.Removed()) { EndDestroy(); return false; }
+        if (context && ffx->DestroyContext(&context, NULL) != FFX_API_RETURN_OK) { EndDestroy(); return false; }
         context = NULL;
         version[0] = 0;
         owned.Release();                       // idle above; the next Create's first dispatch re-creates the set
         EndDestroy();
+        return true;
     }
 
     void Create(const CreateParams& cp) override
     {
         if (!ffx || !device || !g_unityD3D12) { lastCreate = NVSDK_NGX_Result_FAIL_NotInitialized; return; }
-        DestroyContext();
+        if (!DestroyContext()) { lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; return; }
         if (!cp.w || !cp.outW) { lastCreate = NVSDK_NGX_Result_FAIL_InvalidParameter; return; }
 
         memset(&descUpscale, 0, sizeof(descUpscale));
@@ -349,16 +350,16 @@ struct Fsr12 : IDevice
         if (!ring.End(n)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
     }
 
-    void ReleaseFeature() override { DestroyContext(); }
+    bool ReleaseFeature() override { return DestroyContext(); }
 
-    void Shutdown() override
+    bool Shutdown() override
     {
-        DestroyContext();
-        ring.Release();
+        if (!DestroyContext() || !ring.Release()) return false;
         owned.Release();
         post.Release();
         if (device) { device->Release(); device = NULL; }
         Zero();                 // the loaded AMD modules stay resident; FfxLoad is idempotent by design
+        return true;
     }
 };
 

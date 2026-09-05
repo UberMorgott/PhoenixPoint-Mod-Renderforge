@@ -92,9 +92,13 @@ DLSS_API void __cdecl Dlss_Timings(float* copyInMs, float* evalMs, float* copyOu
 // NVSDK_NGX_Result -> narrow string (static buffer, not thread-safe).
 DLSS_API const char* __cdecl Dlss_ResultString(int ngxResult);
 // Releases the feature immediately. ONLY when the render thread is idle (prefer DLSS_EV_RELEASE).
-DLSS_API void __cdecl Dlss_ReleaseNow(void);
+DLSS_API int __cdecl Dlss_ReleaseNow(void);
+// Call BeginRelease before queuing DLSS_EV_RELEASE; Status is 0 until that event executes,
+// -1 if resources remain in flight (queue a retry), and 1 only after all references are safe to free.
+DLSS_API void __cdecl Dlss_BeginRelease(void);
+DLSS_API int __cdecl Dlss_ReleaseStatus(void);
 // Releases feature (if alive), params, NGX for this device, device ref. Main thread, render idle.
-DLSS_API void __cdecl Dlss_Shutdown(void);
+DLSS_API int __cdecl Dlss_Shutdown(void); // 0 = retained, retry; 1 = fully shut down
 
 // Graphics API the shim bound to: 0 = none/not initialised, 11 = D3D11, 12 = D3D12. Main thread, always safe.
 DLSS_API int __cdecl Dlss_Api(void);

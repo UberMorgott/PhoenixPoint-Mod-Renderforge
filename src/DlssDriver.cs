@@ -26,6 +26,10 @@ namespace Renderforge
         private DebugView wantView = DebugView.None;
         private Gen gen = Gen.Idle;
         private int genFrames;
+        private bool releaseQueued, shutdownRequested;
+        private static bool quitting;
+        // Only needed if another component destroys our persistent owner unexpectedly. One successor drains it.
+        private static DlssDriver orphan;
         private RenderforgeMode liveMode;
         private DebugView liveView;
         private bool passthrough;
@@ -54,6 +58,7 @@ namespace Renderforge
         private bool broken;                // threw once inside a Unity callback -> self-disabled
 
         public bool IsLive => gen == Gen.Live;
+        internal bool Retiring => gen == Gen.Releasing;
         public bool Passthrough => passthrough;
         public Camera SceneCamera => cam;
         public PostProcessLayer Layer => layer;
@@ -66,7 +71,12 @@ namespace Renderforge
 
         public static DlssDriver Create()
         {
-            if (Instance != null) return Instance;
+            if (Instance != null)
+            {
+                if (Instance.shutdownRequested) Instance.broken = false;
+                Instance.shutdownRequested = false;
+                return Instance;
+            }
             var go = new GameObject("DlssDriver") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             Instance = go.AddComponent<DlssDriver>();
@@ -80,12 +90,25 @@ namespace Renderforge
             Camera.onPostRender += OnCameraPostRender;
         }
 
+        private void OnApplicationQuit() { quitting = true; }
+
+        internal void RequestShutdown()
+        {
+            shutdownRequested = true;
+            wantMode = RenderforgeMode.Off;
+            switchTo = UpscalerKind.Off;
+            if (gen != Gen.Releasing) BeginRelease();
+        }
+
         private void OnDestroy()
         {
             Camera.onPostRender -= OnCameraPostRender;
-            // Fg_Shutdown is synchronous: the chain that references outRT/depthRT/mvRT is gone when Release returns.
-            try { FrameGen.Release(); Detach(); TeardownResources(); } catch (Exception) { }
             if (Instance == this) Instance = null;
+            if (colorRT == null && cbEval == null) return;
+            Detach();
+            // Application exit: retain the last owner until process/device teardown. Never free live GPU inputs.
+            orphan = this;
+            if (!quitting) Create();
         }
 
         /// <summary>Bind to the scene camera (CameraManager.Camera). A different camera than the live one = Off first.</summary>
@@ -97,8 +120,8 @@ namespace Renderforge
             layer = cam.GetComponent<PostProcessLayer>();
         }
 
-        /// <summary>Live provider switch: release the generation now (FG chain, feature, mip bias, two frames for
-        /// in-flight events), then Idle re-inits the shim on `kind` and the normal path re-creates on it.</summary>
+        /// <summary>Live provider switch: detach now, retain the generation until render/GPU retirement is
+        /// acknowledged, then Idle re-inits the shim on `kind` and the normal path re-creates on it.</summary>
         public void SwitchProvider(UpscalerKind kind)
         {
             switchTo = kind;
@@ -152,8 +175,18 @@ namespace Renderforge
                 if (Input.GetKeyDown(cfg.ToggleHotkey)) RenderforgeMod.Toggle();
                 if (Input.GetKeyDown(cfg.OverlayHotkey)) RenderforgeMod.ToggleOverlay();
             }
-            if (broken) return;
-            try { FrameGen.Pump(); Step(); }
+            if (broken && gen != Gen.Releasing && !shutdownRequested && ReferenceEquals(orphan, null)) return;
+            try
+            {
+                FrameGen.Pump();
+                if (!ReferenceEquals(orphan, null))
+                {
+                    if (orphan.gen != Gen.Releasing) orphan.BeginRelease();
+                    if (!orphan.TryRetire()) return;
+                    orphan = null;
+                }
+                Step();
+            }
             catch (Exception ex) { Fail("Update threw: " + ex); }
         }
 
@@ -165,12 +198,16 @@ namespace Renderforge
             switch (gen)
             {
                 case Gen.Idle:
+                    if (shutdownRequested)
+                    {
+                        if (Native.Dlss_Shutdown() != 0) Destroy(gameObject);
+                        break;
+                    }
                     if (switchTo != UpscalerKind.Off)
                     {
-                        // The RELEASE event destroys the feature/context on the render thread; Shutdown must not race
-                        // it from here (double ffxDestroyContext crashed 2026-09-03), so wait until it reports dead.
-                        int c, e, alive; Native.Dlss_Status(out c, out e, out alive);
-                        if (alive != 0 && ++genFrames < 120) break;
+                        // Retirement was acknowledged by the render thread. A refused vendor shutdown still
+                        // keeps this provider selected; a frame count cannot authorize freeing its resources.
+                        if (!FrameGen.Release() || Native.Dlss_Shutdown() == 0) break;
                         UpscalerKind k = switchTo; switchTo = UpscalerKind.Off;
                         RenderforgeMod.ReinitNative(k);
                     }
@@ -217,8 +254,7 @@ namespace Renderforge
                     if (mipReapplyAt > 0f && Time.unscaledTime >= mipReapplyAt) { mipReapplyAt = 0f; MipBias.Reapply(); }
                     break;
                 case Gen.Releasing:
-                    if (++genFrames < 2) break;       // two frames after event 3: no in-flight event touches a dead RT
-                    TeardownResources();
+                    if (!TryRetire()) break;
                     gen = Gen.Idle; genFrames = 0;
                     break;
             }
@@ -378,12 +414,30 @@ namespace Renderforge
 
         private void BeginRelease()
         {
-            FrameGen.Release();    // the FG chain references outRT/depthRT/mvRT and must die before they do
             MipBias.Reset();
-            Detach();
-            if (wantsFeature) GL.IssuePluginEvent(evFn, Native.DLSS_EV_RELEASE);
+            Detach(); // Stop all future evaluate/FG submissions before requesting retirement.
+            FrameGen.Release();
             Native.Dlss_Passthrough(0);
+            releaseQueued = false;
             gen = Gen.Releasing; genFrames = 0;
+        }
+
+        private bool TryRetire()
+        {
+            if (!FrameGen.Release()) return false;
+            if (releaseQueued && Native.Dlss_ReleaseStatus() == 1)
+            {
+                TeardownResources();
+                return true;
+            }
+            // One event at a time. A failed fence poll is acknowledged as -1; 0 is still queued.
+            if (!releaseQueued || Native.Dlss_ReleaseStatus() < 0)
+            {
+                Native.Dlss_BeginRelease();
+                GL.IssuePluginEvent(evFn, Native.DLSS_EV_RELEASE);
+                releaseQueued = true;
+            }
+            return false;
         }
 
         private void TeardownResources()

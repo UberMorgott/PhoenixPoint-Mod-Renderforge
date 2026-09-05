@@ -150,9 +150,10 @@ void FgHostPrepare(void);                    // render thread, DLSS_EV_FG_PREPAR
 // no chain is alive or detached afterwards.
 int  FgHostPump(void);
 // Main thread. Detaches AND destroys the chain before returning; 1 = destroyed (or none), 0 = the render thread
-// never unpinned within the bound and the chain is still detached (leaked until the next pump).
+// or GPU/provider retirement is still pending. Ownership is retained; the next pump retries.
 int  FgHostShutdown(void);
 void FgHostTearDown(const char* why);        // any thread: DETACH only (Fg_Alive -> 0, the driver's pump destroys, then rebuilds)
+int  FgHostRetired(void);                    // 1 only after detached teardown completed
 int  FgHostAlive(void);                      // 1 while a live chain exists
 unsigned FgHostCaps(void);
 // Ordinary CreateSwapChainForHwnd on the host's child window (the pass-through provider's chain).

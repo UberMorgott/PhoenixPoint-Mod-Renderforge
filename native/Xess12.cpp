@@ -174,15 +174,16 @@ struct Xess12 : IDevice
         return r;
     }
 
-    void DestroyContext()
+    bool DestroyContext()
     {
-        if (!ctx || !BeginDestroy()) return;
-        ring.WaitIdle();                       // xess.h:293 - no pending command list may still use the context
-        xessDestroyContext(ctx);
+        if (!BeginDestroy()) return false;
+        if (!ring.WaitIdle(0) && !ring.Removed()) { EndDestroy(); return false; }
+        if (ctx && xessDestroyContext(ctx) != XESS_RESULT_SUCCESS) { EndDestroy(); return false; }
         ctx = NULL;
         initialised = 0;
         owned.Release();                       // idle above; the next execute re-creates the set at its own size
         EndDestroy();
+        return true;
     }
 
     // ---- IDevice -----------------------------------------------------------
@@ -260,7 +261,7 @@ struct Xess12 : IDevice
         if (!lib || !device || !g_unityD3D12) { lastCreate = NVSDK_NGX_Result_FAIL_NotInitialized; return; }
         if (!cp.w || !cp.outW) { lastCreate = NVSDK_NGX_Result_FAIL_InvalidParameter; return; }
         // Re-init on a live context is allowed once no command list is pending (xess_d3d12.h:149-150).
-        if (initialised) ring.WaitIdle();
+        if (initialised && !ring.WaitIdle(0)) { lastCreate = NVSDK_NGX_Result_FAIL_PlatformError; return; }
         xess_result_t r = EnsureContext();
         if (r != XESS_RESULT_SUCCESS) { lastCreate = Map(r); lastError = DLSS_ERR_XESS; return; }
 
@@ -381,16 +382,16 @@ struct Xess12 : IDevice
 
     // XeSS has no feature handle apart from the context: a preset/resolution change is a re-init, and dropping the
     // context is the cheapest way to release everything it allocated.
-    void ReleaseFeature() override { DestroyContext(); }
+    bool ReleaseFeature() override { return DestroyContext(); }
 
-    void Shutdown() override
+    bool Shutdown() override
     {
-        DestroyContext();
-        ring.Release();
+        if (!DestroyContext() || !ring.Release()) return false;
         owned.Release();
         sharpen.Release();
         if (device) { device->Release(); device = NULL; }
         Zero();                 // libxess.dll stays resident: the delay-load thunks are bound to it
+        return true;
     }
 };
 

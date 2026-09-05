@@ -281,17 +281,18 @@ struct Device11 : IDevice
         ctx->Release();
     }
 
-    void ReleaseFeature() override
+    bool ReleaseFeature() override
     {
-        ReleaseSharpenViews();   // outUav refs a Unity RT the driver frees two frames after this event
-        if (!feature) return;
-        NVSDK_NGX_D3D11_ReleaseFeature(feature);
+        ReleaseSharpenViews();   // outUav refs a Unity RT the driver frees after this event acknowledges retirement
+        if (!feature) return true;
+        if (NVSDK_NGX_FAILED(NVSDK_NGX_D3D11_ReleaseFeature(feature))) return false;
         feature = NULL;
+        return true;
     }
 
-    void Shutdown() override
+    bool Shutdown() override
     {
-        ReleaseFeature();
+        if (!ReleaseFeature()) return false;
         if (cb) { cb->Release(); cb = NULL; }
         if (cs) { cs->Release(); cs = NULL; }
         if (sampler) { sampler->Release(); sampler = NULL; }
@@ -299,6 +300,7 @@ struct Device11 : IDevice
         if (ngxInitialized) { NVSDK_NGX_D3D11_Shutdown1(device); ngxInitialized = 0; }
         if (device) { device->Release(); device = NULL; }
         Zero();
+        return true;
     }
 };
 

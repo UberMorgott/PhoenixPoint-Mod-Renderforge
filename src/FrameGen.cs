@@ -12,6 +12,8 @@ namespace Renderforge
     {
         private static int wantProvider, wantMultiplier, builtMultiplier;
         private static bool live;
+        private static bool retiring;
+        internal static bool Retiring => retiring;
         private static float retryAt;
         private static int lastRc = -1;
         private static int failed;             // bitmask of FG_PROVIDER_* ids that failed terminally this session
@@ -99,7 +101,8 @@ namespace Renderforge
         internal static void Pump()
         {
             if (!Usable) return;
-            Native.Fg_Pump();
+            if (Native.Fg_Pump() == 0) retiring = true;
+            else if (retiring) retiring = Native.Fg_Shutdown() == 0;
             SyncAlive();
         }
 
@@ -120,7 +123,7 @@ namespace Renderforge
         internal static void Retry()
         {
             Pump();
-            if (live || wantMultiplier == 0 || wantProvider < 0) return;
+            if (live || retiring || DlssDriver.Instance?.Retiring == true || wantMultiplier == 0 || wantProvider < 0) return;
             if (Time.unscaledTime < retryAt) return;
             retryAt = Time.unscaledTime + 0.25f;
             int rc = Native.Fg_Init(wantProvider, (uint)wantMultiplier, RenderforgeMod.ModDir);
@@ -155,19 +158,19 @@ namespace Renderforge
             Release();
         }
 
-        /// <summary>Driver teardown (the chain references outRT/depthRT/mvRT, which are about to die): tear the
-        /// chain down but keep the wish, so the next live generation's Retry() rebuilds it. Fg_Shutdown returns
-        /// only once the chain is destroyed.</summary>
-        internal static void Release()
+        /// <summary>Stop publishing frames, but retain ownership until native teardown confirms completion.
+        /// The driver keeps its Unity textures while this returns false; Pump/Release retry without re-init.</summary>
+        internal static bool Release()
         {
-            if (!live) return;
-            Native.Fg_SetEnabled(0);
-            if (Native.Fg_Shutdown() == 0)
-                RenderforgeMod.Instance?.Logger.LogWarning("FG shutdown: the render thread never left the chain - parked, Fg_Pump retries: " + Native.Fg_Status());
+            if (!Usable) return true;
+            bool wasLive = live;
+            if (wasLive) Native.Fg_SetEnabled(0);
+            retiring = Native.Fg_Shutdown() == 0;
             live = false;
             lastRc = -1;
             Overlay.FgFps = 0;
-            RenderforgeMod.ApplyFrameRate();
+            if (wasLive) RenderforgeMod.ApplyFrameRate();
+            return !retiring;
         }
 
         internal static string Status() => (live ? "live " : "off ") + Native.Fg_Status();

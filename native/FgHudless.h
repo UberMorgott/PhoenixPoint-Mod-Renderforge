@@ -96,7 +96,7 @@ struct Hudless8
     {
         if (!Encodable(backFmt) || !Pipeline(dev)) return false;
         if (tex && w == ow && h == oh && fmt == backFmt) return true;
-        if (tex) { ring.WaitIdle(); tex->Release(); tex = NULL; }
+        if (tex) { if (!ring.WaitIdle()) return false; tex->Release(); tex = NULL; }
         D3D12_HEAP_PROPERTIES hp = {};
         hp.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC d = {};

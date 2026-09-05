@@ -72,8 +72,8 @@ struct IDevice
                                         unsigned* maxW, unsigned* maxH) = 0;
     virtual void Create(const CreateParams& cp) = 0;                    // render thread
     virtual void Evaluate(const FrameParams& fp, bool passthrough) = 0; // render thread
-    virtual void ReleaseFeature() = 0;                                  // render thread
-    virtual void Shutdown() = 0;                                        // main thread, render idle
+    virtual bool ReleaseFeature() = 0;                                  // render thread
+    virtual bool Shutdown() = 0;                                        // main thread, render idle
     virtual bool FeatureAlive() const = 0;
     // Writes the provider's version string into buf (NUL-terminated, at most cap bytes). Returns bytes written.
     // Default: nothing - the NGX backends report their runtime version on the managed side from nvngx_dlss.dll.

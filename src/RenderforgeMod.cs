@@ -144,13 +144,13 @@ namespace Renderforge
             CrispFonts.Dispose();
             try
             {
-                DlssDriver.Instance?.Apply(RenderforgeMode.Off, DebugView.None);
-                if (DlssDriver.Instance != null) UnityEngine.Object.Destroy(DlssDriver.Instance.gameObject);
                 FrameGen.Stop();
+                // Keep one persistent owner pumping render-thread retirement after unpatch/disable.
+                if (DlssDriver.Instance != null) DlssDriver.Instance.RequestShutdown();
+                else if (InitCode == Native.DLSS_OK) DlssDriver.Create().RequestShutdown();
                 Overlay.Destroy();
                 Pickers.Clear();
                 if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
-                if (InitCode == Native.DLSS_OK) Native.Dlss_Shutdown();
             }
             catch (Exception ex) { Logger.LogError("Renderforge disable THREW " + ex); }
             Application.targetFrameRate = 60;   // the game's own value (OptionsManager.cs:505)

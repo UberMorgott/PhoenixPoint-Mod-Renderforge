@@ -26,7 +26,7 @@ static IUnityInterfaces* g_unityIfaces = NULL;
 static IUnityGraphics* g_unityGfx = NULL;
 static int g_unityLoaded = 0;
 
-static void ShutdownBackend(void);
+static bool ShutdownBackend(void);
 
 static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType)
 {
@@ -74,6 +74,9 @@ void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload(void)
     g_unityGfx = NULL; g_unityIfaces = NULL; g_unityD3D12 = NULL; g_unityLoaded = 0;
 }
 
+// Render-thread acknowledgement: 0 queued, -1 retained/pending, 1 fully retired.
+static volatile LONG g_releaseResult = 1;
+
 // ---------------------------------------------------------------- shared state
 
 static struct {
@@ -90,12 +93,14 @@ static struct {
     float nearZ, farZ, fovY;            // Dlss_SetCamera cache, copied into every slot
 } S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0.1f, 1000.0f, 1.0471976f };
 
-static void ShutdownBackend(void)
+static bool ShutdownBackend(void)
 {
-    if (S.dev) S.dev->Shutdown();
+    if (!FgHostRetired()) return false;
+    if (S.dev && !S.dev->Shutdown()) return false;
     S.dev = NULL;
     S.lastSlot = NULL;
     S.initCode = DLSS_ERR_NO_DEVICE;
+    return true;
 }
 
 NVSDK_NGX_PerfQuality_Value ToNgxQuality(int q)
@@ -210,7 +215,11 @@ void __cdecl Dlss_SetSceneStyle(void* slot, int mode, float strength, int pixelS
 
 static void __stdcall OnRenderEventAndData(int eventId, void* data)
 {
-    if (!S.dev) return;
+    if (!S.dev)
+    {
+        if (eventId == DLSS_EV_RELEASE) InterlockedExchange(&g_releaseResult, FgHostRetired() ? 1 : -1);
+        return;
+    }
     if (RfDbg::NoEvents()) return;   // RENDERFORGE_D3D12_NOEVENTS=1: managed side runs, no GPU work of ours
     switch (eventId) {
     case DLSS_EV_CREATE:
@@ -224,7 +233,7 @@ static void __stdcall OnRenderEventAndData(int eventId, void* data)
         break;
     }
     case DLSS_EV_RELEASE:
-        S.dev->ReleaseFeature();
+        InterlockedExchange(&g_releaseResult, FgHostRetired() && S.dev->ReleaseFeature() ? 1 : -1);
         break;
     case DLSS_EV_FG_PREPARE:
         FgHostPrepare();
@@ -298,7 +307,9 @@ const char* __cdecl Dlss_ResultString(int ngxResult)
     return buf;
 }
 
-void __cdecl Dlss_ReleaseNow(void) { if (S.dev) S.dev->ReleaseFeature(); }
+int __cdecl Dlss_ReleaseNow(void) { return FgHostRetired() && (!S.dev || S.dev->ReleaseFeature()) ? 1 : 0; }
+void __cdecl Dlss_BeginRelease(void) { InterlockedExchange(&g_releaseResult, 0); }
+int __cdecl Dlss_ReleaseStatus(void) { return (int)InterlockedCompareExchange(&g_releaseResult, 0, 0); }
 
 // ---------------------------------------------------------------- frame generation (Phase 5)
 
@@ -356,8 +367,8 @@ int __cdecl Fg_Alive(void) { return FgHostAlive(); }
 
 // The vtable patch stays until UnityPluginUnload: Unity keeps presenting after Dlss_Shutdown, and the
 // hook is inert once the host has no provider.
-void __cdecl Dlss_Shutdown(void)
+int __cdecl Dlss_Shutdown(void)
 {
-    FgHostShutdown();
-    ShutdownBackend();
+    if (!FgHostShutdown()) return 0;
+    return ShutdownBackend() ? 1 : 0;
 }
