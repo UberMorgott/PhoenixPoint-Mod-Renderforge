@@ -59,7 +59,7 @@ No test project exists in this repo (`Renderforge.csproj:14,34` — `EnableDefau
 
 **Files:** `src\DlssConfig.cs` (enums after line 22; `HiddenFromModSettings` at :31-36; fields after :78; `Ru` table before :102)
 
-- [ ] 1. Add the three enums immediately after the `LutPreset` enum (`src\DlssConfig.cs:22`):
+- [x] 1. Add the three enums immediately after the `LutPreset` enum (`src\DlssConfig.cs:22`):
 
 ```csharp
     /// <summary>Tactical vignette. Vanilla = whatever the level's volume shipped with (captured per volume);
@@ -75,7 +75,7 @@ No test project exists in this repo (`Renderforge.csproj:14,34` — `EnableDefau
     public enum AnisotropicMode { Vanilla, Force16 }
 ```
 
-- [ ] 2. Add the four config fields directly after the `FrameGen` field (`src\DlssConfig.cs:78`):
+- [x] 2. Add the four config fields directly after the `FrameGen` field (`src\DlssConfig.cs:78`):
 
 ```csharp
         [ConfigField("Vignette", "Vanilla keeps the mission's own vignette; Off removes the darkened frame edges. Also in Options → Graphics.")]
@@ -88,7 +88,7 @@ No test project exists in this repo (`Renderforge.csproj:14,34` — `EnableDefau
         public float LodBias = 0f;             // 0 = vanilla (write the captured baseline back); otherwise clamped to 1..4
 ```
 
-- [ ] 3. Add the four names to `HiddenFromModSettings` (`src\DlssConfig.cs:31-36`) — replace the closing line of the initializer so it reads:
+- [x] 3. Add the four names to `HiddenFromModSettings` (`src\DlssConfig.cs:31-36`) — replace the closing line of the initializer so it reads:
 
 ```csharp
             nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen),
@@ -97,7 +97,7 @@ No test project exists in this repo (`Renderforge.csproj:14,34` — `EnableDefau
             nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias)
 ```
 
-- [ ] 4. Add the four RU rows to the `Ru` dictionary, immediately after the `FrameGen` row (`src\DlssConfig.cs:101`):
+- [x] 4. Add the four RU rows to the `Ru` dictionary, immediately after the `FrameGen` row (`src\DlssConfig.cs:101`):
 
 ```csharp
             { nameof(Vignette), new[] { "Виньетка", "«Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра. Также в Настройки → Графика." } },
@@ -106,7 +106,7 @@ No test project exists in this repo (`Renderforge.csproj:14,34` — `EnableDefau
             { nameof(LodBias), new[] { "Детализация LOD", "0 = как в игре. 1.0 … 4.0 — модели дольше остаются детальными вдали; расход GPU и видеопамяти растёт. Также в Настройки → Графика." } },
 ```
 
-- [ ] 5. Build from the repo root `E:\DEV\PhoenixPoint\Renderforge`:
+- [x] 5. Build from the repo root `E:\DEV\PhoenixPoint\Renderforge`:
 
 ```powershell
 dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
@@ -114,7 +114,7 @@ dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
 
 Expected tail: `Build succeeded.` … `0 Warning(s)` … `0 Error(s)`. Any warning must be fixed before moving on.
 
-- [ ] 6. Commit:
+- [x] 6. Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -127,7 +127,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(config): add vignette, sh
 
 **Files:** `src\QualityKnobs.cs` (create, ~130 lines)
 
-- [ ] 1. Create `src\QualityKnobs.cs` with the state, the guard, and the scalar path (patches come in Task 3, vignette in Task 4):
+- [x] 1. Create `src\QualityKnobs.cs` with the state, the guard, and the scalar path (patches come in Task 3, vignette in Task 4):
 
 ```csharp
 using System;
@@ -235,7 +235,7 @@ namespace Renderforge
 }
 ```
 
-- [ ] 2. Add the PPCLI readback and setter levers at the end of the class, before `Log` — this is the acceptance surface Task 6 uses, and it matches the existing `RenderforgeMod.SetMode` / `D3D12Fix.SetAo` lever shape:
+- [x] 2. Add the PPCLI readback and setter levers at the end of the class, before `Log` — this is the acceptance surface Task 6 uses, and it matches the existing `RenderforgeMod.SetMode` / `D3D12Fix.SetAo` lever shape:
 
 ```csharp
         /// <summary>PPCLI readback: {"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"Status"}.
@@ -283,9 +283,9 @@ namespace Renderforge
         }
 ```
 
-- [ ] 3. `QualityPanel.Sync()` does not exist yet (Task 5). Temporarily comment that one call out with `// QualityPanel.Sync();  // Task 5` so this task builds standalone, and remember to restore it in Task 5 step 4.
+- [x] 3. `QualityPanel.Sync()` does not exist yet (Task 5). Temporarily comment that one call out with `// QualityPanel.Sync();  // Task 5` so this task builds standalone, and remember to restore it in Task 5 step 4.
 
-- [ ] 4. Build from `E:\DEV\PhoenixPoint\Renderforge`:
+- [x] 4. Build from `E:\DEV\PhoenixPoint\Renderforge`:
 
 ```powershell
 dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
@@ -293,7 +293,7 @@ dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
 
 Expected: `Build succeeded.` `0 Warning(s)` `0 Error(s)`.
 
-- [ ] 5. Commit:
+- [x] 5. Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -306,7 +306,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(quality): add QualityKnob
 
 **Files:** `src\QualityKnobs.cs` (append the patch classes after the `QualityKnobs` class, inside the namespace), `src\RenderforgeMod.cs:162,167-174`
 
-- [ ] 1. Append the two patch classes to `src\QualityKnobs.cs`, after the closing brace of `QualityKnobs` and inside `namespace Renderforge`:
+- [x] 1. Append the two patch classes to `src\QualityKnobs.cs`, after the closing brace of `QualityKnobs` and inside `namespace Renderforge`:
 
 ```csharp
     /// <summary>OptionsManager.UsePreset (public void UsePreset(int, bool), OptionsManager.cs:375) is where vanilla writes
@@ -344,19 +344,19 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(quality): add QualityKnob
     }
 ```
 
-- [ ] 2. Wire `OnLevelStart` — replace `src\RenderforgeMod.cs:162` with:
+- [x] 2. Wire `OnLevelStart` — replace `src\RenderforgeMod.cs:162` with:
 
 ```csharp
         public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); }   // Reapply covers a level that starts with the generation still live
 ```
 
-- [ ] 3. Wire `OnConfigChanged` — a ModConfig.json edit still routes here even though the rows are hidden from the Mods menu. Insert one line into `src\RenderforgeMod.cs:167-174`, after `ApplyFrameRate();`:
+- [x] 3. Wire `OnConfigChanged` — a ModConfig.json edit still routes here even though the rows are hidden from the Mods menu. Insert one line into `src\RenderforgeMod.cs:167-174`, after `ApplyFrameRate();`:
 
 ```csharp
             QualityKnobs.ApplyAll();
 ```
 
-- [ ] 4. Build from `E:\DEV\PhoenixPoint\Renderforge`:
+- [x] 4. Build from `E:\DEV\PhoenixPoint\Renderforge`:
 
 ```powershell
 dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
@@ -364,7 +364,7 @@ dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
 
 Expected: `Build succeeded.` `0 Warning(s)` `0 Error(s)`. Two Harmony patches now target `LightingManager.ApplyPostProcessOptions` (the existing `Patches.cs:19` one and this one) — that is supported and intentional; keep them separate so the DLSS SMAA fix and the vignette knob stay independently removable.
 
-- [ ] 5. Commit:
+- [x] 5. Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -377,7 +377,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(quality): patch UsePreset
 
 **Files:** `src\QualityKnobs.cs` (replace the Task 2 stub `ApplyVignette`, add the volume fields next to the other state)
 
-- [ ] 1. Add the vignette state next to the scalar state in `QualityKnobs` (right after the `loggedError` field):
+- [x] 1. Add the vignette state next to the scalar state in `QualityKnobs` (right after the `loggedError` field):
 
 ```csharp
         private static PostProcessVolume volume;
@@ -385,7 +385,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(quality): patch UsePreset
         private static bool baseVignette;
 ```
 
-- [ ] 2. Replace the stub `internal static void ApplyVignette(LightingManager known) { }` with the real implementation:
+- [x] 2. Replace the stub `internal static void ApplyVignette(LightingManager known) { }` with the real implementation:
 
 ```csharp
         /// <summary>The volume vanilla itself drives: GetComponentInChildren&lt;PostProcessVolume&gt;() under the
@@ -424,7 +424,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(quality): patch UsePreset
         }
 ```
 
-- [ ] 3. Extend `Status()` so the acceptance run can read the vignette back — append to the returned string, before the closing `;`:
+- [x] 3. Extend `Status()` so the acceptance run can read the vignette back — append to the returned string, before the closing `;`:
 
 ```csharp
                  + " | vignette base=" + (haveVignetteBase ? baseVignette.ToString() : "?")
@@ -442,7 +442,7 @@ and add the helper right below `Status()`:
         }
 ```
 
-- [ ] 4. Build from `E:\DEV\PhoenixPoint\Renderforge`:
+- [x] 4. Build from `E:\DEV\PhoenixPoint\Renderforge`:
 
 ```powershell
 dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
@@ -450,7 +450,7 @@ dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
 
 Expected: `Build succeeded.` `0 Warning(s)` `0 Error(s)`. A build failure on `PostProcessManager.NeedUpdateSettings` would mean the shipped `Unity.Postprocessing.Runtime.dll` differs from the decompile — stop and report rather than working around it.
 
-- [ ] 5. Commit:
+- [x] 5. Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -463,7 +463,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(quality): add vignette ov
 
 **Files:** `src\QualityPanel.cs` (create), `src\GraphicsPanel.cs:42-43,61-63`
 
-- [ ] 1. Create `src\QualityPanel.cs` — three picker rows cloned from `TextureQualityPicker` and one slider row cloned from `ShadowDistanceSlider`, exactly the recipe in `LutPanel.cs:47-93`:
+- [x] 1. Create `src\QualityPanel.cs` — three picker rows cloned from `TextureQualityPicker` and one slider row cloned from `ShadowDistanceSlider`, exactly the recipe in `LutPanel.cs:47-93`:
 
 ```csharp
 using System;
@@ -651,7 +651,7 @@ namespace Renderforge
 }
 ```
 
-- [ ] 2. Wire the rows into the panel — replace `src\GraphicsPanel.cs:61-63` with:
+- [x] 2. Wire the rows into the panel — replace `src\GraphicsPanel.cs:61-63` with:
 
 ```csharp
                 after = LutPanel.Build(__instance, sharp != null ? sharp.transform.parent : picker.transform, mod.Cfg);
@@ -669,15 +669,15 @@ second must keep the other's rows and config fields instead of replacing the blo
 `after` (`after = ColorVisionPanel.Build(__instance, after, mod.Cfg);` stays, `QualityPanel.Build` goes last) and append,
 never overwrite, in `HiddenFromModSettings`, the `Ru` table, `GraphicsPanel.Hide` and `Pickers.Clear`.
 
-- [ ] 3. Hide them with the rest — add one line to the `ShowInGraphicsOptions == false` branch, after `SceneStylePanel.Hide(src.transform.parent);` (`src\GraphicsPanel.cs:43`):
+- [x] 3. Hide them with the rest — add one line to the `ShowInGraphicsOptions == false` branch, after `SceneStylePanel.Hide(src.transform.parent);` (`src\GraphicsPanel.cs:43`):
 
 ```csharp
                     QualityPanel.Hide(src.transform.parent);
 ```
 
-- [ ] 4. Restore the call commented out in Task 2 step 3: in `QualityKnobs.SetQuality`, change `// QualityPanel.Sync();  // Task 5` back to `QualityPanel.Sync();`.
+- [x] 4. Restore the call commented out in Task 2 step 3: in `QualityKnobs.SetQuality`, change `// QualityPanel.Sync();  // Task 5` back to `QualityPanel.Sync();`.
 
-- [ ] 5. Build from `E:\DEV\PhoenixPoint\Renderforge`:
+- [x] 5. Build from `E:\DEV\PhoenixPoint\Renderforge`:
 
 ```powershell
 dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
@@ -685,7 +685,7 @@ dotnet build Renderforge.csproj -c Release /p:PPRoot="D:\PP-Instance3"
 
 Expected: `Build succeeded.` `0 Warning(s)` `0 Error(s)`.
 
-- [ ] 6. Commit:
+- [x] 6. Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -698,7 +698,7 @@ git -C E:\DEV\PhoenixPoint\Renderforge commit -m "feat(ui): add quality knob row
 
 **Files:** none changed unless a check fails. Target install `D:\PP-Instance3` — **not** Instance2, **never** the Steam install.
 
-- [ ] 1. Deploy the mod (reuse the already-built native DLLs; nothing native changed in this plan):
+- [x] 1. Deploy the mod (reuse the already-built native DLLs; nothing native changed in this plan):
 
 ```powershell
 cd E:\DEV\PhoenixPoint\Renderforge
@@ -707,7 +707,7 @@ cd E:\DEV\PhoenixPoint\Renderforge
 
 Expected tail: `Deployed Renderforge to D:\PP-Instance3\Mods\Renderforge` and a file list containing `Renderforge.dll`. If `build\out\*.dll` is missing, drop `-SkipNative` and let `build-native.ps1` run.
 
-- [ ] 2. Deploy the PPCLI bridge to the same install and arm it (the bridge is opt-in; a bare `deploy` would target the install named in `PPCLI\ppcli-install.txt`):
+- [x] 2. Deploy the PPCLI bridge to the same install and arm it (the bridge is opt-in; a bare `deploy` would target the install named in `PPCLI\ppcli-install.txt`):
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -717,7 +717,7 @@ New-Item -ItemType File 'D:\PP-Instance3\Mods\PPBridge\ppcli-enabled'
 
 Both `com.morgott.Renderforge` and `com.morgott.PPBridge` must be in that profile's `MOD_ACTIVATED`; if the client refuses to launch, tick them once in the in-game mod manager and quit.
 
-- [ ] 3. Launch `D:\PP-Instance3`, then **wait for the bridge to answer before sending anything** (querying a still-initialising game hangs for minutes and looks like an engine bug):
+- [x] 3. Launch `D:\PP-Instance3`, then **wait for the bridge to answer before sending anything** (querying a still-initialising game hangs for minutes and looks like an engine bug):
 
 ```powershell
 cd E:\DEV\PhoenixPoint\PPCLI
@@ -726,7 +726,7 @@ cd E:\DEV\PhoenixPoint\PPCLI
 
 Expected: a JSON object with `ok:true`. Do not proceed until it answers.
 
-- [ ] 4. Baseline readback plus the one member this plan could not verify statically:
+- [x] 4. Baseline readback plus the one member this plan could not verify statically:
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"Status"}'
@@ -735,7 +735,7 @@ Expected: a JSON object with `ok:true`. Do not proceed until it answers.
 
 Expected: `Status` returns `cfg vignette=Vanilla shadowRes=Vanilla aniso=Vanilla lodBias=0 | live aniso=… lodBias=… shadowRes=… | base have=True … | inUsePreset=False`, with `live` equal to `base` on every scalar. The second call returns a boolean — its success is the proof that the field exists at runtime.
 
-- [ ] 5. **All 6 presets.** For each index 0..5, apply the preset and read back. Run in one shell:
+- [x] 5. **All 6 presets.** For each index 0..5, apply the preset and read back. Run in one shell:
 
 ```powershell
 0..5 | ForEach-Object {
@@ -745,7 +745,7 @@ Expected: `Status` returns `cfg vignette=Vanilla shadowRes=Vanilla aniso=Vanilla
 
 Expected per preset: `inUsePreset=False` in every reply (the guard came down), `base have=True`, and `live` scalars equal to `base` scalars (all knobs still Vanilla). Record each preset's `base aniso / lodBias / shadowRes` triple — the Ultra row should read `aniso=ForceEnable lodBias=2 shadowRes=High`, matching the spec's verified facts.
 
-- [ ] 6. **Knobs on, then all 6 presets again** — this is the real seam test: a preset re-applies vanilla's values, and the finalizer must put ours back.
+- [x] 6. **Knobs on, then all 6 presets again** — this is the real seam test: a preset re-applies vanilla's values, and the finalizer must put ours back.
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Off","VeryHigh","Force16",4.0]}'
@@ -756,7 +756,7 @@ Expected per preset: `inUsePreset=False` in every reply (the guard came down), `
 
 Expected after every preset: `live aniso=ForceEnable lodBias=4 shadowRes=VeryHigh` and `vignette live=False`, while `base` shows that preset's own values (which differ per preset) — proving the snapshot refreshed and the knobs won.
 
-- [ ] 7. **Same-preset reapply** (the `ChangeGraphicsQuality` early-out at `OptionsManager.cs:397-400` means the nested lighting callback may not fire at all; the knobs must survive that too):
+- [x] 7. **Same-preset reapply** (the `ChangeGraphicsQuality` early-out at `OptionsManager.cs:397-400` means the nested lighting callback may not fire at all; the knobs must survive that too):
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"UsePreset","args":[3]}'
@@ -765,7 +765,7 @@ Expected after every preset: `live aniso=ForceEnable lodBias=4 shadowRes=VeryHig
 
 Expected: identical `live` values in both replies, `inUsePreset=False` in both.
 
-- [ ] 8. **Failure path — an invalid preset index must not poison the baseline.** `UsePreset` throws at
+- [x] 8. **Failure path — an invalid preset index must not poison the baseline.** `UsePreset` throws at
 `OptionsManager.cs:377/447` before it writes anything, so the finalizer must unwind the guard, skip the snapshot and
 rethrow. Turn the knobs on first, so a wrong snapshot would be obvious (it would record `ForceEnable / 4 / VeryHigh`
 as "Vanilla"):
@@ -784,7 +784,7 @@ current preset's own values, never `aniso=ForceEnable lodBias=4 shadowRes=VeryHi
 `inUsePreset=False` afterwards — proving the guard unwound on the throw path and no snapshot was taken. Then re-run a
 valid `UsePreset` (`args:[3]`) and confirm the knobs still win, i.e. the guard is not latched.
 
-- [ ] 9. **Vanilla round-trip** — every knob back to Vanilla must restore the snapshot exactly:
+- [x] 9. **Vanilla round-trip** — every knob back to Vanilla must restore the snapshot exactly:
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Vanilla","Vanilla","Vanilla",0]}'
@@ -795,7 +795,7 @@ valid `UsePreset` (`args:[3]`) and confirm the knobs still win, i.e. the guard i
 
 Expected: the three raw `QualitySettings` reads equal the `base …` triple from step 5 for the currently applied preset, and `vignette live` equals `vignette base`.
 
-- [ ] 10. **Survives `OnLevelStart`** — tactical → geoscape → tactical. Set the knobs on, then run a mission cold-start plan and read back inside the mission:
+- [x] 10. **Survives `OnLevelStart`** — tactical → geoscape → tactical. Set the knobs on, then run a mission cold-start plan and read back inside the mission:
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Off","VeryHigh","Force16",2.0]}'
@@ -806,7 +806,7 @@ Expected: the three raw `QualitySettings` reads equal the `base …` triple from
 
 Expected inside the mission: `live aniso=ForceEnable lodBias=2 shadowRes=VeryHigh`, `vignette live=False`, and `vignette base=` a value (not `?`) — a fresh baseline for the level's new volume clone. Repeat the transition once more and confirm the values are unchanged.
 
-- [ ] 11. **Vignette screenshot crop.** With the camera untouched between the two captures:
+- [x] 11. **Vignette screenshot crop.** With the camera untouched between the two captures:
 
 ```powershell
 .\ppcli.ps1 connect call '{"op":"invoke","type":"Renderforge.QualityKnobs","assembly":"Renderforge","member":"SetQuality","args":["Vanilla","Vanilla","Vanilla",0]}'
@@ -830,7 +830,7 @@ function Mean($path, $x, $y, $s) {
 
 Expected: the **corner** means differ measurably (off is brighter — the darkened frame edge is gone); the **centre** means are equal to within rounding. Adjust the centre coordinates to the actual capture size if it is not 2560x1440.
 
-- [ ] 12. **LOD slider navigation — decrement from 1.0 must reach Vanilla** (the contiguous-position mapping of Task 5
+- [x] 12. **LOD slider navigation — decrement from 1.0 must reach Vanilla** (the contiguous-position mapping of Task 5
 step 1; a scaled 0..40 slider would trap the selection at 1.0). Set the bias, open the panel, and step down at the
 keyboard/controller — PPCLI has no key-injection verb, so the arrow presses are made at the machine and PPCLI is used
 for the readback:
@@ -848,9 +848,9 @@ Expected: one Left press from `1.0` shows the readout `Vanilla` / `Как в и�
 `cfg … lodBias=0` with `live lodBias` equal to `base lodBias`; the following Right presses read `1.0`, `1.1`, `1.2` —
 one step per press, no jump to `4.0` and no bounce back to `1.0`.
 
-- [ ] 13. Log any PPCLI defect hit during this run as an entry in `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity). Do not fix PPCLI.
+- [x] 13. Log any PPCLI defect hit during this run as an entry in `E:\DEV\PhoenixPoint\PPCLI\ISSUES.md` (attempted → happened → expected → evidence → severity). Do not fix PPCLI.
 
-- [ ] 14. Record the readback table (preset index → base triple, knobs-on live triple, invalid-index base-unchanged check, vignette corner/centre means) in the commit body. Commit:
+- [x] 14. Record the readback table (preset index → base triple, knobs-on live triple, invalid-index base-unchanged check, vignette corner/centre means) in the commit body. Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A
@@ -862,6 +862,8 @@ If nothing changed in the working tree, skip the commit and carry the numbers in
 ---
 
 ## Task 7 — Performance numbers
+
+BLOCKED 2026-09-05: PresentMon saw 0 frames from the game; GPU contended — rerun when idle.
 
 **Files:** none. Measurement only, on the user's rig (RTX 5070 Ti, 1440p 240 Hz borderless, vsync off) against `D:\PP-Instance3`.
 
@@ -1044,7 +1046,7 @@ the README cost table in Task 8 step 1.
 
 **Files:** `README.md`, `docs\DESIGN.md`
 
-- [ ] 1. Add a user-facing block to `README.md` beside the other Options → Graphics rows. **Every number below is a
+- [x] 1. Add a user-facing block to `README.md` beside the other Options → Graphics rows. **Every number below is a
 placeholder to be filled from the Task 7 step 7 report table** — median GPU busy ms delta vs Vanilla, and peak VRAM MiB
 delta vs Vanilla, for the `shadow`, `lod`, `aniso` and `vigoff` runs. No cost may be described in words ("free",
 "negligible", "no impact") — if a knob measured at or below the run-to-run noise, write the measured delta and say
@@ -1079,7 +1081,7 @@ Fill the four rows from **Task 7 step 7** (`shadow`, `lod`, `aniso`, `vigoff` �
 and the peak-VRAM delta from `vram.csv` inside each run's window). Your own rig is not the reference: if the measurement
 was made anywhere other than the RTX 5070 Ti / 1440p rig, change the sentence to name the hardware actually used.
 
-- [ ] 2. Add the design rows to `docs\DESIGN.md` (place them with the other feature sections):
+- [x] 2. Add the design rows to `docs\DESIGN.md` (place them with the other feature sections):
 
 ```markdown
 ## Quality knobs (1.4.0)
@@ -1118,7 +1120,7 @@ was made anywhere other than the RTX 5070 Ti / 1440p rig, change the sentence to
   so a tier above `VeryHigh` would be meaningless. 11 of 71 lights cast shadows, all `FromQualitySettings`.
 ```
 
-- [ ] 3. Commit:
+- [x] 3. Commit:
 
 ```powershell
 git -C E:\DEV\PhoenixPoint\Renderforge add -A

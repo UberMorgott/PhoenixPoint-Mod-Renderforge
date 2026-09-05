@@ -626,6 +626,41 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
 - Steam Workshop item: **TBD — filled in by the Workshop publish task**. Uses PerkOracle's
   SteamworksPy publisher (`PerkOracle\docs\OPERATIONS.md`), appid 839770, content = the Full pack.
 
+## Quality knobs (1.4.0)
+
+`src\QualityKnobs.cs` (state + patches), `src\QualityPanel.cs` (rows). Config: `Vignette`,
+`ShadowResolution`, `Anisotropic`, `LodBias` on `DlssConfig`, hidden from the Mods menu.
+
+- **Vanilla = write the captured baseline back, never "skip the write."** A skipped write would leave
+  the mod's value in place until the next preset change.
+- **Baseline capture.** Vanilla writes `QualitySettings` inside `OptionsManager.UsePreset`
+  (`OptionsManager.cs:384`), which nests `ChangeGraphicsQuality` (`:391`) → `OnGraphicsSettingsChangedEvent`
+  (`:406`) → `LightingManager.ApplyPostProcessOptions` (`LightingManager.cs:53-55`). A Harmony prefix
+  raises `inUsePreset`, a `HarmonyFinalizer` lowers it — always — and re-applies the knobs; it snapshots
+  `{anisotropicFiltering, lodBias, shadowResolution}` **only when the original method did not throw**
+  (`__exception == null`), and returns `__exception` unchanged so the failure is rethrown, not swallowed. Finalizer, not
+  postfix: a throw must not latch the guard. Success-gated snapshot, because `UsePreset` can throw at
+  `DefinedPresetIndexToQualityIndex` (`OptionsManager.cs:377,447`) *before* `SetQualityLevel` (`:384`) — at that point the
+  live `QualitySettings` are still the mod's own overrides, and snapshotting them would record them as "Vanilla".
+- **Fallback capture.** If no snapshot exists at the first mod write (preset applied before Harmony was
+  installed), the current values are captured right before that write. An uninitialised snapshot is never restored.
+- **Vignette** is captured per volume, before the first override, and written on `profile` — the runtime
+  clone vanilla writes (`LightingManager.cs:172-178`) — never `sharedProfile`. The write is followed by the
+  same invalidation vanilla performs at `LightingManager.cs:167`:
+  `PostProcessManager.NeedUpdateSettings = true` (`PostProcessManager.cs:25`). The volume is reacquired on
+  every seam because `LightingSettingsDef.ApplyTo` re-instantiates the lights prefab each level
+  (`LightingSettingsDef.cs:21-22`).
+- **Anisotropic restore** = the snapshot value plus `Texture.SetGlobalAnisotropicFilteringLimits(-1, -1)`,
+  the engine default. Coexistence with another mod's limits is not attempted.
+- **Seams:** `OptionsManager.UsePreset` finalizer (scalars + vignette), `LightingManager.ApplyPostProcessOptions`
+  postfix (vignette only — scalars are suppressed while `inUsePreset`), `RenderforgeMod.OnLevelStart` (everything).
+- **LOD slider positions are contiguous, values are not.** Valid biases are `0` (Vanilla) and `1.0 … 4.0`, so the slider
+  runs `0..31` and maps position → value (`1.0 + (pos - 1) * 0.1`) instead of scaling. A scaled `0..40` slider would snap
+  positions 1–9 back to 10 and trap keyboard/controller decrement at `1.0`.
+- **Row order in Options → Graphics:** LUT → Colour vision → Scene style → Quality rows.
+- **No "Extreme" shadow tier.** Unity 2019.4 caps custom shadow maps at 4096 dir / 2048 spot / 1024 point,
+  so a tier above `VeryHigh` would be meaningless. 11 of 71 lights cast shadows, all `FromQualitySettings`.
+
 ## Idea backlog (user, not scheduled)
 
 - **Color grading preset / LUT** (2026-09-02, "like Cyberpunk's natural-grey look"): PPv2 already
