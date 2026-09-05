@@ -184,7 +184,8 @@ struct SharpenPass12
             && psoHdr == SharpenIsHdr(od.Format) && psoGrade == colorGrade) return true;
 
         // PSOs/resources referenced by prior ring slots must stay alive until their fences retire.
-        if (target || pso) ring.WaitIdle();
+        // A timeout leaves the old PSO/target alive; callers skip the post pass for this frame.
+        if ((target || pso) && !ring.WaitIdle()) return false;
         if (!Ensure(SharpenIsHdr(od.Format), colorGrade)) return false;
         if (sameTarget) return true;
         if (target) { target->Release(); target = NULL; }
