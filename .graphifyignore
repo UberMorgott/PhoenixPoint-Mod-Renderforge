@@ -1,0 +1,30 @@
+# Keep source, probes, scripts and Markdown reports; skip generated runtime/evidence payloads.
+.serena/
+native/.serena/
+bin/
+obj/
+build/
+graphify-out/
+__pycache__/
+.pytest_cache/
+docs/shots/
+docs/character-mask-proof/
+docs/character-inventory-*.json
+
+# These folders contain generated comparison media/data. Their Python scripts and Markdown remain eligible.
+docs/procedural-head-prototype/*.png
+docs/procedural-head-prototype/*.jpg
+docs/procedural-head-prototype/*.gif
+docs/procedural-head-prototype/*.json
+docs/procedural-head-prototype/*.obj
+docs/procedural-head-prototype/*.bin
+docs/face-regeneration-prototype/*.png
+docs/face-regeneration-prototype/*.jpg
+docs/face-regeneration-prototype/*.gif
+docs/face-regeneration-prototype/*.json
+docs/face-regeneration-prototype/*.obj
+docs/face-regeneration-prototype/*.bin
+docs/lut-cinema-pack/*.png
+docs/lut-cinema-pack/*.json
+docs/scene-stylization/*.png
+docs/scene-stylization/*.json
