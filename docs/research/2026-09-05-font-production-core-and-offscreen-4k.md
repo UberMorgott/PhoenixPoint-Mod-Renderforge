@@ -4,6 +4,10 @@ The production correction from commit `28e9deb3f6d93b867bbd5c16a1dfd2433146219f`
 
 ## Same letter before and after
 
+![Same letter: live 2K and offscreen 4K, original versus corrected](font-final-proof-2026-09-05/comparison-2k-live-4k-offscreen.png)
+
+The combined sheet copies the four verified 8× images pixel-for-pixel; only captions and background were added.
+
 Assigned font: SourceHanSans-Medium; actual caption: `ХАРАКТЕРИСТИКИ`; public font size32 and normal style in every image. Each native letter crop is shown at exactly8× through integer pixel replication; every replicated output pixel was checked against its source. No1440p image was enlarged into a purported2160p render.
 
 | Actual render | Original A1 | Corrected B |
@@ -18,6 +22,7 @@ The letter is sharper with unchanged positions within each before/after pair. Th
 - `D:\RenderforgeWork\fonts-final-proof\FontsProbe.csproj` compiles the actual repository `src/FontRasterCorrection.cs` and `src/FontGlyphMapping.cs` through `Compile Include` links. The probe does not contain another copy of their algorithm. It invokes the production core directly; production Overlay-only eligibility remains in `CrispFonts` and was not loosened to permit the offscreen camera.
 - Live A1/B/A2 used actual game Text instances1199684/1211890, SourceHanSans `ХАРАКТЕРИСТИКИ` and Purista Semibold `ВЫНОСЛИВОСТЬ`. Both improved with exactly zero change to preferred width/height, emitted screen vertices, lines, characters and quads. Two explicit wrapped/rich-text/best-fit fixtures fell back safely, retaining original geometry. See the earlier [stage2 report](2026-09-05-font-render-only-proof.md) for the mechanism and safety limits.
 - These runs prove the production **core**. They do not claim that the final settings toggle/lifecycle wrapper or a newly deployed production DLL was exercised by this isolated harness.
+- Image provenance is fixed at commit `28e9deb3f6d93b867bbd5c16a1dfd2433146219f` and the hashes below. Later lifecycle hardening (retry settings keys, custom-material disable, and late foreign patch owners) has separate verification; these images do not claim to exercise those later changes. The image comparison remains applicable only while the glyph UV mapping and geometry algorithm remain unchanged.
 
 ## Offscreen calibration before extrapolation
 
