@@ -635,6 +635,12 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
   tweak of the existing `ColorGrading` settings. Independent of DLSS (grading runs before the
   upscale in the colour buffer). Could be a "Color preset" picker in this mod or a separate mod.
 
+- **Reflex standalone (FG off)** (2026-09-05, reviewed with Codex, deferred): Streamline
+  `Reflex|PCL` init on the game device + sleep/markers in the Present hook. Ship only with a real
+  `Update` simulation marker + input boundary (not the synthetic pair at `FgStreamline.cpp:375`),
+  measured input-to-photon gain, `lowLatencyAvailable` gate (GeForce 900+), and one shared SL
+  lifecycle with FG (`FgStreamline.cpp:117`). Spec: `docs\superpowers\specs\2026-09-05-quality-knobs-colour-vision-design.md` §C.
+
 ## Future scope (user, 2026-09-01)
 
 DLSS first; later FSR and XeSS through the same driver (the native shim's ABI is upscaler-shaped:
