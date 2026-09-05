@@ -154,7 +154,7 @@ struct Device11 : IDevice
 
     int Init(void* nativeResource, const wchar_t* inDllDir, const wchar_t* logDir) override
     {
-        if (ngxInitialized) return initCode;   // replay the real outcome, not a blanket OK
+        if (ngxInitialized || device) return initCode;   // replay the real outcome, not a blanket OK
         ID3D11Resource* res = NULL;
         if (FAILED(((IUnknown*)nativeResource)->QueryInterface(__uuidof(ID3D11Resource), (void**)&res)) || !res)
             return DLSS_ERR_NO_DEVICE;
@@ -171,7 +171,10 @@ struct Device11 : IDevice
 
         NVSDK_NGX_Result r = NVSDK_NGX_D3D11_Init_with_ProjectID(kProjectId, NVSDK_NGX_ENGINE_TYPE_UNITY, kEngineVersion,
                                                                  logDir ? logDir : L".", device, &common, NVSDK_NGX_Version_API);
-        if (NVSDK_NGX_FAILED(r)) { lastCreate = r; device->Release(); device = NULL; return DLSS_ERR_INIT_FAILED; }
+        // The device is the post pass's only dependency (Sharpen.cpp needs no NGX): keep it so Dlss_Init can
+        // answer DLSS_OK_POST_ONLY. ngxInitialized stays 0, so Shutdown() skips NVSDK_NGX_D3D11_Shutdown1
+        // and still releases this reference at Device11.cpp Shutdown().
+        if (NVSDK_NGX_FAILED(r)) { lastCreate = r; return initCode = DLSS_ERR_INIT_FAILED; }
         ngxInitialized = 1;
 
         r = NVSDK_NGX_D3D11_GetCapabilityParameters(&params);
