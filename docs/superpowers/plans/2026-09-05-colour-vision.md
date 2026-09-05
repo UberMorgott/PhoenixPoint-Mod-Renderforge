@@ -1337,22 +1337,34 @@ Start-Sleep -Seconds 2
 With the 6b helpers loaded this is one helper (`Rf-Call` returns the value, see 6b):
 
 ```powershell
+# Each status read is BRACKETED by a frameCount read before and after: the two PPCLI round-trips are
+# not simultaneous, so a single frame sample per readback lets a slow status call inflate or deflate
+# dGen. The conservative generated count uses the WIDEST frame window that can contain both status
+# reads: frames from FrameBefore of the first sample to FrameAfter of the second.
 function Rf-FgCounters {
-    $s = Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}'
+    $fb = Rf-Frame
+    $s  = Rf-Call '{"op":"invoke","type":"Renderforge.RenderforgeMod","member":"GetStatus","args":[]}'
+    $fa = Rf-Frame
     if ("$s" -notmatch 'presented=(\d+)') { throw "no presented= in status: $s" }
-    [pscustomobject]@{ Presented = [long]$Matches[1]; Frames = Rf-Frame; Status = "$s" }
+    [pscustomobject]@{ Presented = [long]$Matches[1]; FrameBefore = $fb; FrameAfter = $fa; Status = "$s" }
+}
+function Rf-FgDelta($a, $b) {
+    $dPres  = $b.Presented - $a.Presented
+    $dFrame = $b.FrameAfter - $a.FrameBefore          # widest window -> conservative (lowest) dGen
+    [pscustomobject]@{ dPres = $dPres; dFrame = $dFrame; dGen = $dPres - $dFrame }
 }
 $a = Rf-FgCounters; Start-Sleep -Seconds 2; $b = Rf-FgCounters
-$dPres = $b.Presented - $a.Presented
-$dFrame = $b.Frames - $a.Frames
-$dGen  = $dPres - $dFrame
-"presented $($a.Presented) -> $($b.Presented) (d=$dPres); frameCount $($a.Frames) -> $($b.Frames) (d=$dFrame); generated=$dGen"
+$d = Rf-FgDelta $a $b
+$dPres = $d.dPres; $dFrame = $d.dFrame; $dGen = $d.dGen
+"presented $($a.Presented) -> $($b.Presented) (d=$dPres); frameCount $($a.FrameBefore)/$($a.FrameAfter) -> $($b.FrameBefore)/$($b.FrameAfter) (widest d=$dFrame); generated>=$dGen"
 if ($dFrame -le 0) { throw "the engine presented nothing in 2 s - this readback is not FG evidence" }
 if ($dGen -le 0)   { throw "FG generated 0 frames in 2 s (presented advanced only by the real frames) - NOT active" }
 ```
 
 **Pass condition, every FG case and after every transition leg (`fg1-x2`, `fg2-off`, `fg3-x2`):** `$dGen > 0`,
 and at `multiplier=2` it should land near `$dFrame` — accept `$dGen -ge 0.5 * $dFrame`, report the actual pair.
+Both thresholds apply to the CONSERVATIVE bound (`Δpresented − (FrameAfter₁ − FrameBefore₀)`), so a slow
+status round-trip can only make the test stricter, never let it pass falsely.
 On the `Off` leg the required result is the opposite: `$dGen` = 0 (± the one frame a leg boundary can straddle).
 Record both `presented`/`frameCount` readbacks verbatim per leg — a single reading is not evidence.
 
@@ -1635,7 +1647,8 @@ try {
         $prov  = Rf-Call '{"op":"invoke","type":"Renderforge.Native","assembly":"Renderforge","member":"Fg_Provider","args":[]}'
         Start-Sleep -Seconds 2
         $c2 = Rf-FgCounters
-        $dPres = $c2.Presented - $c1.Presented; $dFrame = $c2.Frames - $c1.Frames; $dGen = $dPres - $dFrame
+        $d = Rf-FgDelta $c1 $c2                      # bracketed, conservative bound (6a)
+        $dPres = $d.dPres; $dFrame = $d.dFrame; $dGen = $d.dGen
         "$case fg$step-$fg alive=$alive provider=$prov dPresented=$dPres dFrame=$dFrame generated=$dGen`n  $($c1.Status)`n  $($c2.Status)" |
             Tee-Object -FilePath "$Out\cv-$case-fg.txt" -Append
         if ($dFrame -le 0) { throw "$case fg$step-$fg : frameCount did not advance in 2 s - this leg is not evidence" }
