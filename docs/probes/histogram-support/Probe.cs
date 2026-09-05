@@ -95,6 +95,7 @@ namespace UnityEngine
         public bool HasKernel(string name) { calls++; if (throws) throw new InvalidOperationException("disposed asset"); return kernels.Contains(name); }
     }
     public static class SystemInfo { public static GraphicsDeviceType graphicsDeviceType; }
+    public sealed class AssetBundle : Object { public static AssetBundle LoadFromFile(string path) => null; public T LoadAsset<T>(string name) where T : Object => null; }
 }
 namespace UnityEngine.Rendering { public enum GraphicsDeviceType { Direct3D11, Direct3D12 } }
 namespace UnityEngine.Rendering.PostProcessing
@@ -106,8 +107,11 @@ namespace UnityEngine.Rendering.PostProcessing
     public class LightMeterMonitor : Monitor { }
     public class OtherMonitor : Monitor { }
     public class PostProcessRenderContext { public PostProcessResources resources = new PostProcessResources(); }
-    public class PostProcessResources { public ComputeResources computeShaders = new ComputeResources(); }
-    public class ComputeResources { public ComputeShader exposureHistogram = new ComputeShader(), autoExposure = new ComputeShader(), lut3DBaker, gaussianDownsample; }
+    public class PostProcessResources
+    {
+        public ComputeShaders computeShaders = new ComputeShaders();
+        public sealed class ComputeShaders { public ComputeShader exposureHistogram = new ComputeShader(), autoExposure = new ComputeShader(), lut3DBaker, gaussianDownsample; }
+    }
     public class PostProcessLayer : UnityEngine.Object { }
     public class PostProcessVolume : UnityEngine.Object { public PostProcessProfile profile; }
     public class PostProcessProfile { public bool TryGetSettings(out AmbientOcclusion ao) { ao = null; return false; } }
@@ -116,6 +120,6 @@ namespace UnityEngine.Rendering.PostProcessing
 }
 namespace Renderforge
 {
-    public class RenderforgeMod { public static RenderforgeMod Instance; public Logger Logger = new Logger(); }
-    public class Logger { public void LogError(string message) { } public void LogWarning(string message) { } }
+    public class RenderforgeMod { public static RenderforgeMod Instance; public static string ModDir; public Logger Logger = new Logger(); }
+    public class Logger { public void LogError(string message) { } public void LogWarning(string message) { } public void LogInfo(string message) { } }
 }

@@ -48,6 +48,10 @@
       <HintPath>$(UnityManaged)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>$(UnityManaged)\UnityEngine.AssetBundleModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.ImageConversionModule">
       <HintPath>$(UnityManaged)\UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>

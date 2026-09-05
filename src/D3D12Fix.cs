@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
@@ -26,6 +27,13 @@ namespace Renderforge
         internal static bool DisableAo;
 
         private static bool loggedError;
+
+        // The shipped AutoExposure/ExposureHistogram assets target D3D11 only. rf-exposure-d3d12.bundle
+        // (assets\, copied beside Renderforge.dll) holds the same two shaders with identical DXBC retargeted
+        // to D3D12. Kept loaded for the process lifetime: the resources reference its shaders.
+        private const string ExposureBundle = "rf-exposure-d3d12.bundle";
+        private static AssetBundle exposureBundle;
+        private static bool exposureBundleTried;
 
         // Unity's supportsComputeShaders and a non-null shader do not prove that its D3D12 kernels shipped.
         // Cache by managed shader identity without retaining unloaded Unity assets. HasKernel is the installed
@@ -95,6 +103,7 @@ namespace Renderforge
                         // ScreenSpaceReflections.IsEnabledAndSupported returns this shader's truthiness after the same
                         // false-positive supportsComputeShaders gate; null = SSR skipped instead of dispatching an absent kernel.
                         res.computeShaders.gaussianDownsample = null;
+                        FixExposure(res.computeShaders);
                     }
                 }
                 foreach (var volume in UnityEngine.Object.FindObjectsOfType<PostProcessVolume>())
@@ -105,6 +114,40 @@ namespace Renderforge
                 if (!loggedError && RenderforgeMod.Instance != null)
                     RenderforgeMod.Instance.Logger.LogError("Renderforge D3D12 fix failed: " + ex);
                 loggedError = true;
+            }
+        }
+
+        /// <summary>Swap in the D3D12 bundle shaders when the stock ones lack their kernels. Idempotent: once
+        /// assigned, the new objects pass the kernel test, and the weak caches re-evaluate them by identity.</summary>
+        private static void FixExposure(PostProcessResources.ComputeShaders cs)
+        {
+            if (cs == null) return;
+            bool needHistogram = !(HasKernel(cs.exposureHistogram, "KEyeHistogramClear") && HasKernel(cs.exposureHistogram, "KEyeHistogram"));
+            bool needExposure = !HasKernel(cs.autoExposure, "KAutoExposureAvgLuminance_fixed");
+            if (!needHistogram && !needExposure) return;
+            if (exposureBundleTried && !exposureBundle) return; // Missing/unsupported bundle: keep the guarded dark path, warned once.
+            try
+            {
+                if (!exposureBundleTried)
+                {
+                    exposureBundleTried = true;
+                    string path = Path.Combine(RenderforgeMod.ModDir ?? ".", ExposureBundle);
+                    exposureBundle = AssetBundle.LoadFromFile(path);
+                    if (!exposureBundle) throw new InvalidOperationException("AssetBundle.LoadFromFile returned null for " + path);
+                }
+                var histogram = exposureBundle.LoadAsset<ComputeShader>("assets/renderforge-exposure-compat/exposurehistogram.compute");
+                var exposure = exposureBundle.LoadAsset<ComputeShader>("assets/renderforge-exposure-compat/autoexposure.compute");
+                bool histogramOk = HasKernel(histogram, "KEyeHistogramClear") && HasKernel(histogram, "KEyeHistogram");
+                bool exposureOk = HasKernel(exposure, "KAutoExposureAvgLuminance_fixed") && HasKernel(exposure, "KAutoExposureAvgLuminance_progressive");
+                if (!histogramOk || !exposureOk) throw new InvalidOperationException("bundle kernels histogram=" + histogramOk + " exposure=" + exposureOk);
+                if (needHistogram) cs.exposureHistogram = histogram;
+                if (needExposure) cs.autoExposure = exposure;
+                RenderforgeMod.Instance?.Logger.LogInfo("Renderforge D3D12: exposure histogram + auto-exposure kernels supported via " + ExposureBundle);
+            }
+            catch (Exception ex)
+            {
+                exposureBundle = null;
+                RenderforgeMod.Instance?.Logger.LogWarning("Renderforge D3D12: exposure bundle unavailable, auto exposure stays off: " + ex.Message);
             }
         }
 

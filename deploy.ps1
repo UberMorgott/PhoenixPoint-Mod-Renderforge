@@ -53,7 +53,7 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
 $out  = Join-Path $root "bin\$Configuration\Renderforge"
 $dest = Join-Path $PPRoot 'Mods\Renderforge'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-foreach ($file in @((Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.json'), $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) + $slDlls +
+foreach ($file in @((Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.json'), (Join-Path $root 'assets\rf-exposure-d3d12.bundle'), $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) + $slDlls +
                   @((Join-Path $root 'LICENSE-NVIDIA.txt'), (Join-Path $root 'LICENSE-NIS.txt'), (Join-Path $root 'LICENSE-AMD.txt'), (Join-Path $root 'LICENSE-INTEL.txt'),
                   (Join-Path $root 'LICENSE'), (Join-Path $root 'README.md'))) {
     Copy-Item $file $dest -Force
