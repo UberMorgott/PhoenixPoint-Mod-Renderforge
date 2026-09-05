@@ -1,0 +1,92 @@
+[
+  {
+    "phase": "A1",
+    "id": 1199684,
+    "crop": [
+      2325,
+      213,
+      19,
+      23
+    ],
+    "pixels": 437,
+    "differentPixels": 48,
+    "maxRGBA8Difference": 3,
+    "meanChannelAbsoluteDifference": 0.07437070938215103,
+    "offscreenCorrection": "original"
+  },
+  {
+    "phase": "A1",
+    "id": 1211890,
+    "crop": [
+      2103,
+      313,
+      20,
+      26
+    ],
+    "pixels": 520,
+    "differentPixels": 500,
+    "maxRGBA8Difference": 40,
+    "meanChannelAbsoluteDifference": 13.788461538461538,
+    "offscreenCorrection": "original"
+  },
+  {
+    "phase": "B2x",
+    "id": 1199684,
+    "crop": [
+      2325,
+      213,
+      19,
+      23
+    ],
+    "pixels": 437,
+    "differentPixels": 41,
+    "maxRGBA8Difference": 2,
+    "meanChannelAbsoluteDifference": 0.062356979405034325,
+    "offscreenCorrection": "corrected"
+  },
+  {
+    "phase": "B2x",
+    "id": 1211890,
+    "crop": [
+      2103,
+      313,
+      20,
+      26
+    ],
+    "pixels": 520,
+    "differentPixels": 457,
+    "maxRGBA8Difference": 40,
+    "meanChannelAbsoluteDifference": 13.285096153846155,
+    "offscreenCorrection": "corrected"
+  },
+  {
+    "phase": "A2",
+    "id": 1199684,
+    "crop": [
+      2325,
+      213,
+      19,
+      23
+    ],
+    "pixels": 437,
+    "differentPixels": 48,
+    "maxRGBA8Difference": 3,
+    "meanChannelAbsoluteDifference": 0.07437070938215103,
+    "offscreenCorrection": "original"
+  },
+  {
+    "phase": "A2",
+    "id": 1211890,
+    "crop": [
+      2103,
+      313,
+      20,
+      26
+    ],
+    "pixels": 520,
+    "differentPixels": 500,
+    "maxRGBA8Difference": 40,
+    "meanChannelAbsoluteDifference": 13.776923076923078,
+    "offscreenCorrection": "original"
+  }
+]
