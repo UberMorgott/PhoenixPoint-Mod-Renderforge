@@ -14,6 +14,9 @@ namespace Renderforge
         // `new`: hides ModMain.Instance (the loader's ModInstance), which we reach via base.Instance.
         public static new RenderforgeMod Instance { get; private set; }
         public static bool Available { get; private set; }
+        /// <summary>The shim came up WITHOUT an upscaler: Dlss_Init answered DLSS_OK_POST_ONLY. Available is true,
+        /// the mode is forced Off and every generation is a passthrough one carrying the analytic post pass.</summary>
+        public static bool PostOnly { get; private set; }
         public static int InitCode { get; private set; } = -1;
         /// <summary>ModEntry.Directory (ModEntry.cs:13). The loader uses Assembly.Load(byte[]) (ModSDKContext.cs:63),
         /// so Assembly.Location is empty and this is the only source of the mod folder.</summary>
@@ -43,6 +46,7 @@ namespace Renderforge
             Instance = this;
             ModDir = base.Instance?.Entry?.Directory ?? ".";
             Available = false;
+            PostOnly = false;
             Diagnostics.Reset();
             RendererSwitch.SelfTest();   // [Conditional("DEBUG")]: compiled out of Release
             ApplyFrameRate();
@@ -71,7 +75,8 @@ namespace Renderforge
                 }
                 if (!Available && Upscalers.Failed == UpscalerKind.Off)   // DLL never loaded / threw: the row still says why
                 { Upscalers.Failed = Upscalers.Resolve(Cfg.Upscaler); Upscalers.FailedCode = InitCode; }
-                Logger.LogInfo((Available ? "upscaler available" : "upscaler unavailable (code " + InitCode + "): " + Reason(InitCode))
+                Logger.LogInfo((Available ? (PostOnly ? "post pass only (no upscaler, code " + Native.PostOnlyReason() + ")" : "upscaler available")
+                                          : "upscaler unavailable (code " + InitCode + "): " + Reason(InitCode))
                                + " provider=" + Upscalers.Running + " version=" + Native.ProviderVersion()
                                + " api=" + Native.Api() + " unityIface=" + Native.UnityIface() + " renderer=" + Availability.ApiName + " unity=" + Application.unityVersion);
             }
@@ -100,11 +105,13 @@ namespace Renderforge
         private static bool InitNative(UpscalerKind want)
         {
             var m = Instance;
-            Upscalers.Running = Upscalers.Resolve(want);
+            UpscalerKind first = Upscalers.Running = Upscalers.Resolve(want);
             Native.SetProvider(Upscalers.ProviderOf(Upscalers.Running));
             InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
+            UpscalerKind postCarrier = UpscalerKind.Off;      // first provider whose device survived its failure
             while (InitCode != Native.DLSS_OK && want == UpscalerKind.Auto)
             {
+                if (InitCode == Native.DLSS_OK_POST_ONLY && postCarrier == UpscalerKind.Off) postCarrier = Upscalers.Running;
                 UpscalerKind next = Upscalers.NextFallback(Upscalers.Running);
                 if (next == UpscalerKind.Off) break;
                 m.Logger.LogInfo(Upscalers.Running + " init failed (code " + InitCode + "): Auto falls back to " + next);
@@ -113,8 +120,40 @@ namespace Renderforge
                 Native.SetProvider(Upscalers.ProviderOf(next));
                 InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
             }
-            Available = InitCode == Native.DLSS_OK;
-            if (Available) Upscalers.Failed = UpscalerKind.Off;
+            // An Auto chain that started on FSR/XeSS can exhaust itself without ever meeting an NGX backend, and
+            // those two release the device on every failure path (Fsr12.cpp:147,156; Xess12.cpp:202,212) - so no
+            // carrier was recorded and the post pass would die with them. NGX is the only backend that keeps its
+            // device, and NextFallback never returns DLSS (Upscaler.cs:52-59), so probe it once, here. Skipped when
+            // Auto already started on DLSS: it was tried, and a retry answers the same code.
+            if (InitCode != Native.DLSS_OK && InitCode != Native.DLSS_OK_POST_ONLY
+                && postCarrier == UpscalerKind.Off && want == UpscalerKind.Auto && first != UpscalerKind.DLSS)
+            {
+                Native.Dlss_Shutdown();
+                Upscalers.Running = UpscalerKind.DLSS;
+                Native.SetProvider(Upscalers.ProviderOf(UpscalerKind.DLSS));
+                InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
+                if (InitCode == Native.DLSS_OK_POST_ONLY) postCarrier = UpscalerKind.DLSS;
+                m.Logger.LogInfo("no upscaler available: NGX probed as the post carrier (code " + InitCode + ")");
+            }
+            // Every alternative upscaler is gone too: stand the post-only carrier back up so the LUT, the scene
+            // styles, the colour-vision correction and NIS sharpen still have a live device to run on.
+            if (InitCode != Native.DLSS_OK && InitCode != Native.DLSS_OK_POST_ONLY && postCarrier != UpscalerKind.Off)
+            {
+                Native.Dlss_Shutdown();
+                Upscalers.Running = postCarrier;
+                Native.SetProvider(Upscalers.ProviderOf(postCarrier));
+                InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
+                m.Logger.LogInfo("no upscaler available: post pass only, on " + postCarrier + " (code " + InitCode + ")");
+            }
+            PostOnly = InitCode == Native.DLSS_OK_POST_ONLY;
+            Available = InitCode == Native.DLSS_OK || PostOnly;
+            // The carrier in its own field, latched here while Upscalers.Running still holds it. Never re-derived
+            // from Upscalers.Failed: that slot belongs to the picker and the next failed switch overwrites it.
+            Upscalers.PostCarrier = PostOnly ? Upscalers.Running : UpscalerKind.Off;
+            // In post-only the failed provider STAYS recorded with its real code, so the picker greys the row with
+            // the true reason (Availability.Reason reads Upscalers.Failed/FailedCode) instead of claiming success.
+            if (PostOnly) { Upscalers.Failed = Upscalers.Running; Upscalers.FailedCode = Native.PostOnlyReason(); Upscalers.Running = UpscalerKind.Off; }
+            else if (Available) Upscalers.Failed = UpscalerKind.Off;
             else { Upscalers.Failed = Upscalers.Running; Upscalers.FailedCode = InitCode; Upscalers.Running = UpscalerKind.Off; }
             return Available;
         }
@@ -127,16 +166,27 @@ namespace Renderforge
             var m = Instance;
             if (m == null || probeTex == null) return;
             UpscalerKind prev = Upscalers.Running;
+            // In post-only Running is Off and the live carrier sits in Upscalers.PostCarrier (6.2b). Read it from
+            // THERE: Upscalers.Failed is about to be overwritten with the provider this switch is trying, so a
+            // carrier derived from Failed would be correct for the first rollback and wrong for every one after it.
+            UpscalerKind prevCarrier = Upscalers.PostCarrier;
             Native.Dlss_Shutdown();
-            if (InitNative(want))
+            // Post-only is a good answer when nothing was running; it is a regression when it replaces a live
+            // provider, so treat that exactly as a hard failure and roll back.
+            if (InitNative(want) && !(PostOnly && prev != UpscalerKind.Off))
             {
-                m.Logger.LogInfo("upscaler switched to " + Upscalers.Running + " version=" + Native.ProviderVersion());
+                m.Logger.LogInfo("upscaler switched to " + Upscalers.Running + (PostOnly ? " (post pass only)" : " version=" + Native.ProviderVersion()));
                 return;
             }
-            m.Logger.LogWarning(Upscalers.Failed + " init failed (code " + InitCode + "): back to " + prev);
+            m.Logger.LogWarning(Upscalers.Failed + " init failed (code " + InitCode + "): back to "
+                                + (prev != UpscalerKind.Off ? prev.ToString() : prevCarrier + " (post pass only)"));
             UpscalerKind failed = Upscalers.Failed; int code = Upscalers.FailedCode;
             Native.Dlss_Shutdown();
-            if (prev != UpscalerKind.Off && InitNative(prev)) { Upscalers.Failed = failed; Upscalers.FailedCode = code; }
+            UpscalerKind back = prev != UpscalerKind.Off ? prev : prevCarrier;
+            // Restoring the carrier lands on POST_ONLY again, which is a SUCCESS for this call: InitNative sets
+            // PostOnly/Available and re-latches Upscalers.PostCarrier itself, so the NEXT failed switch still finds
+            // it; only Failed/FailedCode are put back by hand, to keep the reason of the provider the user asked for.
+            if (back != UpscalerKind.Off && InitNative(back)) { Upscalers.Failed = failed; Upscalers.FailedCode = code; }
         }
 
         public override void OnModDisabled()
@@ -147,7 +197,7 @@ namespace Renderforge
                 FrameGen.Stop();
                 // Keep one persistent owner pumping render-thread retirement after unpatch/disable.
                 if (DlssDriver.Instance != null) DlssDriver.Instance.RequestShutdown();
-                else if (InitCode == Native.DLSS_OK) DlssDriver.Create().RequestShutdown();
+                else if (Available) DlssDriver.Create().RequestShutdown();
                 Overlay.Destroy();
                 Pickers.Clear();
                 if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
@@ -155,6 +205,7 @@ namespace Renderforge
             catch (Exception ex) { Logger.LogError("Renderforge disable THREW " + ex); }
             Application.targetFrameRate = 60;   // the game's own value (OptionsManager.cs:505)
             Available = false;
+            PostOnly = false;
             InitCode = -1;
             Instance = null;
         }
@@ -499,7 +550,7 @@ namespace Renderforge
             " jitterSign=" + Diagnostics.JitterReportSignX + "," + Diagnostics.JitterReportSignY + " jitterScale=" + Diagnostics.JitterScale.ToString("R") + " jitterSwapXY=" + Diagnostics.JitterReportSwapXY
             + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset;
 
-        public static string GetStatus() => "provider=" + Upscalers.Running + " lut=" + (Instance?.Cfg?.Lut ?? LutPreset.Off) + " lutStrength=" + (Instance?.Cfg?.LutStrength ?? 0) + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
+        public static string GetStatus() => "provider=" + Upscalers.Running + " postOnly=" + PostOnly + " postOnlyReason=" + Native.PostOnlyReason() + " postCarrier=" + Upscalers.PostCarrier + " lut=" + (Instance?.Cfg?.Lut ?? LutPreset.Off) + " lutStrength=" + (Instance?.Cfg?.LutStrength ?? 0) + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))
                                           + " sceneStyle=" + (Instance?.Cfg?.SceneStyle ?? SceneStyle.Off)
                                           + " styleStrength=" + (Instance?.Cfg?.SceneStyleStrength ?? 0) + " pixelSize=" + (Instance?.Cfg?.PixelSize ?? 2)
@@ -516,6 +567,7 @@ namespace Renderforge
                 case Native.DLSS_ERR_NO_UNITY_IFACE: return "Unity never handed the plugin its D3D12 interface (UnityPluginLoad did not run)";
                 case Native.DLSS_ERR_NO_PROVIDER_DLL: return "amd_fidelityfx_*_dx12.dll missing from the mod folder";
                 case Native.DLSS_ERR_PROVIDER_UNSUPPORTED: return "this upscaler needs DirectX 12 (or is not implemented yet)";
+                case Native.DLSS_OK_POST_ONLY: return "no upscaler on this GPU; post pass only";
                 default: return "unknown";
             }
         }

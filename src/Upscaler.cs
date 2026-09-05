@@ -17,6 +17,10 @@ namespace Renderforge
         /// "init failed" reason after a live switch fell back to the previous provider.</summary>
         internal static UpscalerKind Failed = UpscalerKind.Off;
         internal static int FailedCode;
+        /// <summary>In a post-only session, the provider whose D3D device is carrying the post pass; Running is Off
+        /// then and Failed holds the picker's reason, which the NEXT failed switch overwrites - so the rollback in
+        /// RenderforgeMod.ReinitNative reads THIS field, never Failed. Off whenever PostOnly is false.</summary>
+        internal static UpscalerKind PostCarrier = UpscalerKind.Off;
 
         internal static UpscalerKind Wanted
         {
