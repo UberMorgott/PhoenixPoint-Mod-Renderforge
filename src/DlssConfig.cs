@@ -1,4 +1,8 @@
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
 using PhoenixPoint.Modding;
 using UnityEngine;
 
@@ -37,8 +41,8 @@ namespace Renderforge
     public enum AnisotropicMode { Vanilla, Force16 }
 
     /// <summary>Public fields = the in-game mod settings UI + ModConfig.json (ModConfig.GetConfigFields).
-    /// [ConfigField] = the English label; GetConfigFields swaps in Russian when the game runs in Russian
-    /// (same shape as PerkOracle's OracleConfig.GetConfigFields, minus the CSV: two languages, inline).</summary>
+    /// [ConfigField] = the English label; GetConfigFields routes label + description through Loc, so the embedded
+    /// strings.csv translates them like every other string and the Ru dictionary stays the fallback.</summary>
     public class DlssConfig : ModConfig
     {
         // These values stay in GetConfigFields for the loader's serializer. ModSettingsFilter marks only the
@@ -133,13 +137,112 @@ namespace Renderforge
             { nameof(LodBias), new[] { "Детализация LOD", "0 = как в игре. 1.0 … 4.0 — модели дольше остаются детальными вдали; расход GPU и видеопамяти растёт. Также в Настройки → Графика." } },
         };
 
-        /// <summary>True while the game runs in Russian (I2 LocalizationManager.CurrentLanguage, "English"/"Russian"/…).</summary>
-        internal static bool IsRussian
+        // ---- Language table: src\Localization\strings.csv, embedded as "Renderforge.strings.csv". Key = the English
+        // string exactly as written at the call site; the other columns carry TFTV's language names. A missing file,
+        // a bad header or an empty cell fall back to the inline EN/RU pair at the call site.
+        private static readonly Dictionary<string, string> ColumnCodes = new Dictionary<string, string>
         {
-            get { try { return I2.Loc.LocalizationManager.CurrentLanguage == "Russian"; } catch { return false; } }
+            { "Russian", "ru" }, { "Chinese (Simplified)", "zh-CN" }, { "French", "fr" }, { "German", "de" },
+            { "Italian", "it" }, { "Polish", "pl" }, { "Spanish", "es" }
+        };
+        private static Dictionary<string, int> columnByCode;      // I2 language code -> cell index
+        private static Dictionary<string, string[]> strings;      // EN key -> row cells
+
+        /// <summary>I2 language code: "en", "ru", "zh-CN", … (LocalizationManager.cs:82, a field read after
+        /// InitializeIfNeeded). "en" before I2 is up or on any failure.</summary>
+        internal static string Language
+        {
+            get { try { return I2.Loc.LocalizationManager.CurrentLanguageCode ?? "en"; } catch { return "en"; } }
         }
 
-        internal static string Loc(string en, string ru) => IsRussian && ru != null ? ru : en;
+        /// <summary>The table's cell for the current language when it has one; else the inline RU while the game
+        /// runs in Russian; else EN. One dictionary lookup per call - it runs from UI code.</summary>
+        internal static string Loc(string en, string ru)
+        {
+            string lang = Language;
+            string[] row; int col;
+            if (strings != null && en != null && strings.TryGetValue(en, out row)
+                && ColumnOf(lang, out col) && col < row.Length && row[col].Length > 0)
+                return row[col];
+            return ru != null && (lang == "ru" || lang.StartsWith("ru-")) ? ru : en;
+        }
+
+        private static bool ColumnOf(string lang, out int col)
+        {
+            col = 0;
+            if (columnByCode == null) return false;
+            if (columnByCode.TryGetValue(lang, out col)) return true;
+            int dash = lang.IndexOf('-');
+            return dash > 0 && columnByCode.TryGetValue(lang.Substring(0, dash), out col);
+        }
+
+        /// <summary>Parse the embedded CSV once (OnModEnabled). Any problem: report it, keep the inline fallback.</summary>
+        internal static void LoadStrings(Action<string> log)
+        {
+            strings = null; columnByCode = null;
+            try
+            {
+                using (var stream = typeof(DlssConfig).Assembly.GetManifestResourceStream("Renderforge.strings.csv"))
+                {
+                    if (stream == null) { log("strings.csv missing from the assembly - EN/RU fallback"); return; }
+                    List<string[]> rows;
+                    using (var reader = new StreamReader(stream, Encoding.UTF8, true)) rows = ParseCsv(reader.ReadToEnd());   // BOM dropped
+                    if (rows.Count == 0 || rows[0][0] != "Key") { log("strings.csv header must start with Key - EN/RU fallback"); return; }
+                    var cols = new Dictionary<string, int>();
+                    for (int i = 1; i < rows[0].Length; i++)
+                    {
+                        string code;
+                        if (!ColumnCodes.TryGetValue(rows[0][i], out code)) { log("strings.csv unknown column '" + rows[0][i] + "' - EN/RU fallback"); return; }
+                        cols[code] = i;
+                    }
+                    var table = new Dictionary<string, string[]>();
+                    for (int r = 1; r < rows.Count; r++)
+                        if (rows[r].Length > 1 && rows[r][0].Length > 0) table[rows[r][0]] = rows[r];
+                    columnByCode = cols; strings = table;
+                    log("strings.csv: " + table.Count + " keys, " + cols.Count + " languages");
+                }
+            }
+            catch (Exception ex) { strings = null; columnByCode = null; log("strings.csv parse failed - EN/RU fallback: " + ex.Message); }
+        }
+
+        /// <summary>RFC 4180: a quoted field may hold commas, quotes ("" = one quote) and newlines. Blank lines skipped.</summary>
+        internal static List<string[]> ParseCsv(string text)
+        {
+            var rows = new List<string[]>();
+            var row = new List<string>();
+            var cell = new StringBuilder();
+            bool quoted = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (quoted)
+                {
+                    if (c == '"' && i + 1 < text.Length && text[i + 1] == '"') { cell.Append('"'); i++; }
+                    else if (c == '"') quoted = false;
+                    else cell.Append(c);
+                }
+                else if (c == '"') quoted = true;
+                else if (c == ',') { row.Add(cell.ToString()); cell.Length = 0; }
+                else if (c == '\r') { }
+                else if (c == '\n')
+                {
+                    row.Add(cell.ToString()); cell.Length = 0;
+                    if (row.Count > 1 || row[0].Length > 0) rows.Add(row.ToArray());
+                    row.Clear();
+                }
+                else cell.Append(c);
+            }
+            if (cell.Length > 0 || row.Count > 0) { row.Add(cell.ToString()); rows.Add(row.ToArray()); }
+            return rows;
+        }
+
+        [Conditional("DEBUG")]
+        internal static void SelfTest()
+        {
+            var rows = ParseCsv("Key,Russian\r\n\"a,b\",\"say \"\"hi\"\"\nthere\"\n\nplain,\n");
+            if (rows.Count != 3 || rows[1][0] != "a,b" || rows[1][1] != "say \"hi\"\nthere" || rows[2][0] != "plain" || rows[2][1] != "")
+                throw new InvalidOperationException("DlssConfig.SelfTest: CSV parser broke");
+        }
 
         public override List<ModConfigField> GetConfigFields()
         {

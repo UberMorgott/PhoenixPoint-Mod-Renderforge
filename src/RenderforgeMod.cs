@@ -49,6 +49,8 @@ namespace Renderforge
             PostOnly = false;
             Diagnostics.Reset();
             RendererSwitch.SelfTest();   // [Conditional("DEBUG")]: compiled out of Release
+            DlssConfig.SelfTest();
+            DlssConfig.LoadStrings(s => Logger.LogInfo("Renderforge " + s));
             ApplyFrameRate();
             // Every API: harmless under D3D11, and the switch to D3D12 always goes through a restart, so the copy is there by then.
             Native.EnsureStaged(ModDir, s => Logger.LogInfo(s));

@@ -32,6 +32,7 @@
 
   <ItemGroup>
     <Compile Include="src\**\*.cs" />
+    <EmbeddedResource Include="src\Localization\strings.csv" LogicalName="Renderforge.strings.csv" />
     <None Include="meta.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

@@ -85,13 +85,14 @@ namespace Renderforge
             get
             {
                 UpscalerKind k = Resolve(Wanted);
-                string native = k == UpscalerKind.DLSS ? "DLAA" : "Native AA";
-                var common = new[] { "Off", "Auto", native, "Quality", "Balanced", "Performance", "Ultra Performance" };
+                string native = k == UpscalerKind.DLSS ? "DLAA" : DlssConfig.Loc("Native AA", null);
+                var common = new[] { DlssConfig.Loc("Off", "Выкл"), DlssConfig.Loc("Auto", "Авто"), native, DlssConfig.Loc("Quality", null),
+                                     DlssConfig.Loc("Balanced", null), DlssConfig.Loc("Performance", null), DlssConfig.Loc("Ultra Performance", null) };
                 if (k != UpscalerKind.XeSS) return common;
                 var all = new string[common.Length + 2];
                 common.CopyTo(all, 0);
-                all[common.Length] = "Ultra Quality";
-                all[common.Length + 1] = "Ultra Quality Plus";
+                all[common.Length] = DlssConfig.Loc("Ultra Quality", null);
+                all[common.Length + 1] = DlssConfig.Loc("Ultra Quality Plus", null);
                 return all;
             }
         }
