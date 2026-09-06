@@ -1,0 +1,48 @@
+[b]Renderforge 是 Windows 版 Phoenix Point 的图形与渲染器模组：提供超分辨率、锐化、帧生成、色彩滤镜、画质调节、FPS 限制器和性能叠加层。[/b]
+
+[hr][/hr]
+
+[h1]功能[/h1]
+[list]
+[*][b]超分辨率与抗锯齿：[/b]DLSS Super Resolution、原生分辨率 DLAA、FSR 和 XeSS；Auto 根据 GPU 和渲染器选择可用的超分辨率方案。
+[*][b]锐化：[/b]超分辨率设为 Off 时仍可使用 NIS，并保留游戏自身的抗锯齿；将锐度设为 0 可关闭 NIS。
+[*][b]帧生成：[/b]DirectX 12 下启用超分辨率后，DLSS-G、FSR 和 XeSS-FG 支持 2x；RTX 50 上的 DLSS-G 还提供 3x/4x。默认关闭。
+[*][b]图像：[/b]战术任务可使用 LUT 色彩滤镜，另有 Cartoon/PixelArt 场景风格，均可调节强度；HUD 保持不变。
+[*][b]色觉：[/b]提供绿色盲、红色盲和蓝色盲校正，可与 LUT 滤镜或场景风格叠加。仅作用于战术场景；HUD 和菜单保持不变。
+[*][b]画质：[/b]关闭战术暗角、选择极高阴影、强制 16x 各向异性过滤，并通过 LOD 提高远处模型的细节。每项的 Vanilla 档位都会恢复画质预设的原值。
+[*][b]渲染器：[/b]在游戏内切换 DirectX 11 / DirectX 12；需要重启。
+[*][b]FPS 与字体：[/b]移除原版 60 FPS 锁定；可选的 30–300 FPS 限制包含生成帧。为受支持的动态界面文本提供更清晰的字体。
+[*][b]快捷键：[/b]Ctrl+Alt+O 切换性能测量叠加层（渲染器、超分辨率方案、分辨率、帧耗时和 FPS）；Ctrl+Alt+U 关闭/开启超分辨率。
+[/list]
+
+[h1]硬件与渲染器[/h1]
+[list]
+[*]DLSS / DLAA：NVIDIA GeForce RTX，DirectX 11 或 DirectX 12。
+[*]DLSS-G：NVIDIA RTX 40 或更新系列，DirectX 12；3x/4x 需要 RTX 50。
+[*]FSR / XeSS 超分辨率和 2x 帧生成：任何现代 GPU，DirectX 12。
+[*]NIS、LUT 滤镜、色觉校正、mip 偏移、FPS 控制和叠加层：任何受支持的 GPU，DirectX 11 或 DirectX 12。
+[*]不启用超分辨率时的后处理：已在 NVIDIA RTX 上验证；AMD、Intel 和 GTX 尚未进行基本运行测试。
+[*]默认使用 DirectX 11。DirectX 12 是可选的实验性模式；更改分辨率可能导致 DLSS 关闭。
+[*]帧生成需要窗口或无边框模式，可能增加延迟并产生画面瑕疵。游戏失去焦点时，DLSS-G 会暂停。
+[/list]
+
+[h1]使用方法[/h1]
+[list=1]
+[*]在模组菜单中启用 Renderforge，然后重启一次。更新后也可能需要再次重启。
+[*]选项 > 图形：渲染器、超分辨率、质量、帧生成、锐度、图像滤镜和画质调节。
+[*]选项 > 屏幕：FPS 限制器和清晰字体。模组 > Renderforge：仅包含叠加层和快捷键设置。
+[*]除渲染器外，设置均即时生效：选择渲染器后点击应用并确认重启。不受支持的选项会显示为灰色。
+[/list]
+
+[h1]语言[/h1]
+模组界面跟随游戏语言：英语、俄语、简体中文、法语、德语、意大利语、波兰语和西班牙语。提示框会说明各项设置的适用条件。
+
+[h1]问题反馈[/h1]
+[b]请在 [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url] 报告问题。[/b]模板要求提供叠加层截图和 Player.log。Steam 评论很少查看，留言可能得不到回复。
+
+[h1]源代码、发行版与许可[/h1]
+[list]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge]源代码[/url]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]发行版与 ZIP 下载[/url]：将 Full ZIP 解压到游戏的 Mods 文件夹，得到 Mods\Renderforge\。
+[/list]
+作者：Morgott。许可：CC BY-NC 4.0。NVIDIA DLSS/Streamline/NIS、AMD FidelityFX 和 Intel XeSS 运行库按各自的许可再分发。本模组与 NVIDIA、AMD、Intel 或 Snapshot Games 无关联。

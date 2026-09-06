@@ -1,0 +1,48 @@
+[b]Renderforge to mod grafiki i renderera dla Phoenix Point na Windows: skalowanie obrazu, wyostrzanie, generowanie klatek, filtry kolorów, ustawienia jakości, limit FPS i nakładka wydajności.[/b]
+
+[hr][/hr]
+
+[h1]Funkcje[/h1]
+[list]
+[*][b]Skalowanie i antyaliasing:[/b] DLSS Super Resolution i DLAA w natywnej rozdzielczości, FSR i XeSS; Auto wybiera dostępny upscaler dla GPU i renderera.
+[*][b]Wyostrzanie:[/b] NIS działa też przy wyłączonym upscalerze (Off), zachowując antyaliasing gry; ustaw ostrość na 0, aby wyłączyć NIS.
+[*][b]Generowanie klatek:[/b] DLSS-G, FSR i XeSS-FG w 2x na DirectX 12 z aktywnym upscalerem; DLSS-G oferuje też 3x/4x na RTX 50. Domyślnie wyłączone.
+[*][b]Obraz:[/b] filtry kolorów LUT dla misji taktycznych i style sceny Cartoon/PixelArt z regulacją siły efektu; HUD pozostaje bez zmian.
+[*][b]Widzenie barw:[/b] korekcja deuteranopii, protanopii i tritanopii, łączona z filtrami LUT lub stylami. Tylko scena taktyczna; HUD i menu pozostają bez zmian.
+[*][b]Jakość:[/b] wyłączenie winiety w taktyce, bardzo wysokie cienie, wymuszenie filtrowania anizotropowego 16x i więcej detali odległych modeli przez LOD. Pozycja Vanilla przywraca wartość z presetu graficznego.
+[*][b]Renderer:[/b] przełączanie DirectX 11 / DirectX 12 w grze; wymaga restartu.
+[*][b]FPS i czcionki:[/b] usunięcie oryginalnej blokady 60 FPS; opcjonalny limit 30–300 FPS obejmuje generowane klatki. Ostrzejsze czcionki dla obsługiwanego dynamicznego tekstu interfejsu.
+[*][b]Skróty:[/b] Ctrl+Alt+O włącza/wyłącza nakładkę pomiarową (renderer, upscaler, rozdzielczość, czas klatki i FPS); Ctrl+Alt+U wyłącza/włącza upscaler.
+[/list]
+
+[h1]Sprzęt i renderer[/h1]
+[list]
+[*]DLSS / DLAA: NVIDIA GeForce RTX, DirectX 11 lub DirectX 12.
+[*]DLSS-G: NVIDIA RTX 40 lub nowsze, DirectX 12; 3x/4x wymagają RTX 50.
+[*]Skalowanie FSR / XeSS i generowanie klatek 2x: dowolny nowoczesny GPU, DirectX 12.
+[*]NIS, filtry LUT, korekcja widzenia barw, mip bias, regulacja FPS i nakładka: dowolny obsługiwany GPU, DirectX 11 lub DirectX 12.
+[*]Postprocessing bez upscalera: sprawdzony na NVIDIA RTX; podstawowe testy na AMD, Intel i GTX nie zostały jeszcze wykonane.
+[*]Domyślnie DirectX 11. DirectX 12 jest opcjonalny i eksperymentalny; zmiana rozdzielczości może wyłączyć DLSS.
+[*]Generowanie klatek wymaga trybu okna lub okna bez ramek; może zwiększać opóźnienia i powodować artefakty. DLSS-G wstrzymuje pracę, gdy okno gry traci fokus.
+[/list]
+
+[h1]Jak używać[/h1]
+[list=1]
+[*]Włącz Renderforge w Mods i uruchom grę ponownie. Aktualizacja może wymagać kolejnego restartu.
+[*]Opcje > Grafika: renderer, upscaler, jakość, generowanie klatek, ostrość, filtry i ustawienia jakości.
+[*]Opcje > Ekran: limit FPS i ostre czcionki. Mods > Renderforge: tylko ustawienia nakładki i skrótów.
+[*]Ustawienia działają od razu, poza rendererem: wybierz go, naciśnij Zastosuj i potwierdź restart. Nieobsługiwane opcje są wyszarzone.
+[/list]
+
+[h1]Języki[/h1]
+Interfejs moda używa języka gry: angielskiego, rosyjskiego, chińskiego (uproszczonego), francuskiego, niemieckiego, włoskiego, polskiego lub hiszpańskiego. Podpowiedzi wskazują, gdzie działa każde ustawienie.
+
+[h1]Zgłaszanie błędów[/h1]
+[b]Zgłaszaj problemy przez [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] Szablon wymaga zrzutu nakładki i Player.log. Komentarze na Steam są czytane rzadko i mogą pozostać bez odpowiedzi.
+
+[h1]Kod źródłowy, wydania i licencja[/h1]
+[list]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge]Kod źródłowy[/url]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]Wydania i plik ZIP[/url]: wypakuj ZIP Full do folderu Mods gry, aby uzyskać Mods\Renderforge\.
+[/list]
+Autor: Morgott. Licencja: CC BY-NC 4.0. Biblioteki NVIDIA DLSS/Streamline/NIS, AMD FidelityFX i Intel XeSS są rozpowszechniane na własnych licencjach. Mod nie jest powiązany z NVIDIA, AMD, Intel ani Snapshot Games.

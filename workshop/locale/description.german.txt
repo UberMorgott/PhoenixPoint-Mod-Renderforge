@@ -1,0 +1,48 @@
+[b]Renderforge ist ein Grafik- und Renderer-Mod für Phoenix Point unter Windows: Upscaling, Schärfung, Frame-Generierung, Farbfilter, Qualitätsregler, FPS-Limit und Leistungsoverlay.[/b]
+
+[hr][/hr]
+
+[h1]Funktionen[/h1]
+[list]
+[*][b]Upscaling und Kantenglättung:[/b] DLSS Super Resolution und DLAA in nativer Auflösung, FSR und XeSS; Auto wählt einen verfügbaren Upscaler für GPU und Renderer.
+[*][b]Schärfung:[/b] NIS funktioniert auch bei ausgeschaltetem Upscaler (Off), ohne die Kantenglättung des Spiels zu ändern; Schärfe 0 schaltet NIS ab.
+[*][b]Frame-Generierung:[/b] DLSS-G, FSR und XeSS-FG mit 2x unter DirectX 12 bei aktivem Upscaler; DLSS-G bietet auf RTX 50 auch 3x/4x. Standardmäßig aus.
+[*][b]Bild:[/b] LUT-Farbfilter für taktische Missionen und Szenenstile Cartoon/PixelArt mit einstellbarer Stärke; das HUD bleibt unverändert.
+[*][b]Farbsehen:[/b] Korrektur für Deuteranopie, Protanopie und Tritanopie, kombinierbar mit LUT-Filtern oder Szenenstilen. Nur die taktische Szene; HUD und Menüs bleiben unverändert.
+[*][b]Qualität:[/b] taktische Vignette abschalten, sehr hohe Schatten wählen, anisotrope Filterung mit 16x erzwingen und entfernte Modelle über LOD detaillierter darstellen. Jede Vanilla-Stellung stellt den Wert der Grafikvoreinstellung wieder her.
+[*][b]Renderer:[/b] im Spiel zwischen DirectX 11 und DirectX 12 wechseln; Neustart erforderlich.
+[*][b]FPS und Schrift:[/b] hebt die ursprüngliche 60-FPS-Begrenzung auf; optionales Limit von 30–300 FPS einschließlich generierter Frames. Schärfere Schrift für unterstützten dynamischen Oberflächentext.
+[*][b]Tastenkürzel:[/b] Ctrl+Alt+O schaltet das Benchmark-Overlay um (Renderer, Upscaler, Auflösung, Framezeit und FPS); Ctrl+Alt+U schaltet den Upscaler aus/ein.
+[/list]
+
+[h1]Hardware und Renderer[/h1]
+[list]
+[*]DLSS / DLAA: NVIDIA GeForce RTX, DirectX 11 oder DirectX 12.
+[*]DLSS-G: NVIDIA RTX 40 oder neuer, DirectX 12; 3x/4x erfordern RTX 50.
+[*]FSR / XeSS-Upscaling und 2x-Frame-Generierung: jede moderne GPU, DirectX 12.
+[*]NIS, LUT-Filter, Farbsehkorrektur, Mip-Bias, FPS-Regler und Overlay: jede unterstützte GPU, DirectX 11 oder DirectX 12.
+[*]Nachbearbeitung ohne Upscaler: auf NVIDIA RTX geprüft; grundlegende Tests auf AMD, Intel und GTX stehen noch aus.
+[*]DirectX 11 ist Standard. DirectX 12 ist optional und experimentell; ein Auflösungswechsel kann DLSS abschalten.
+[*]Frame-Generierung benötigt Fenstermodus oder randloses Fenster; Latenz und Artefakte sind möglich. DLSS-G pausiert, wenn das Spiel den Fokus verliert.
+[/list]
+
+[h1]Verwendung[/h1]
+[list=1]
+[*]Aktiviere Renderforge unter Mods und starte einmal neu. Nach einem Update kann ein weiterer Neustart nötig sein.
+[*]Optionen > Grafik: Renderer, Upscaler, Qualität, Frame-Generierung, Schärfe, Bildfilter und Qualitätsregler.
+[*]Optionen > Bildschirm: FPS-Limit und schärfere Schrift. Mods > Renderforge: nur Overlay- und Tastenkürzel-Einstellungen.
+[*]Einstellungen wirken sofort, außer dem Renderer: auswählen, Übernehmen drücken und den Neustart bestätigen. Nicht unterstützte Optionen sind ausgegraut.
+[/list]
+
+[h1]Sprachen[/h1]
+Die Mod-Oberfläche folgt der Spielsprache: Englisch, Russisch, Chinesisch (vereinfacht), Französisch, Deutsch, Italienisch, Polnisch und Spanisch. Tooltips erklären, wo jede Einstellung funktioniert.
+
+[h1]Fehlerberichte[/h1]
+[b]Melde Probleme über [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] Die Vorlage fragt nach einem Overlay-Screenshot und Player.log. Steam-Kommentare werden selten gelesen und können unbeantwortet bleiben.
+
+[h1]Quellcode, Releases und Lizenz[/h1]
+[list]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge]Quellcode[/url]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]Releases und ZIP-Download[/url]: Full-ZIP in den Mods-Ordner des Spiels entpacken, sodass Mods\Renderforge\ entsteht.
+[/list]
+Von Morgott. Lizenz: CC BY-NC 4.0. Die Laufzeitbibliotheken NVIDIA DLSS/Streamline/NIS, AMD FidelityFX und Intel XeSS werden unter ihren eigenen Lizenzen weitergegeben. Keine Verbindung zu NVIDIA, AMD, Intel oder Snapshot Games.

@@ -1,0 +1,48 @@
+[b]Renderforge is a graphics and renderer mod for Phoenix Point on Windows: upscaling, sharpening, frame generation, colour filters, quality controls, an FPS limiter and a performance overlay.[/b]
+
+[hr][/hr]
+
+[h1]Features[/h1]
+[list]
+[*][b]Upscaling and anti-aliasing:[/b] DLSS Super Resolution and native-resolution DLAA, FSR and XeSS; Auto selects an available upscaler for your GPU and renderer.
+[*][b]Sharpening:[/b] NIS also works with the upscaler Off, preserving the game's anti-aliasing; set sharpness to 0 to disable it.
+[*][b]Frame generation:[/b] DLSS-G, FSR and XeSS-FG at 2x on DirectX 12 with an active upscaler; DLSS-G also offers 3x/4x on RTX 50. Off by default.
+[*][b]Image:[/b] LUT colour filters for tactical missions and Cartoon/PixelArt scene styles, with adjustable strength; the HUD stays unchanged.
+[*][b]Colour vision:[/b] Deuteranopia, Protanopia and Tritanopia correction, combined with LUT filters or scene styles. Tactical scene only; HUD and menus stay unchanged.
+[*][b]Quality controls:[/b] disable tactical vignette, select Very High shadows, force 16x anisotropic filtering and increase distant model detail with LOD. Each Vanilla position restores the graphics preset's value.
+[*][b]Renderer:[/b] switch between DirectX 11 and DirectX 12 in-game; requires a restart.
+[*][b]FPS and fonts:[/b] removes the vanilla 60 FPS pin; optional 30–300 FPS limit includes generated frames. Crisp fonts for supported dynamic interface text.
+[*][b]Hotkeys:[/b] Ctrl+Alt+O toggles the benchmark overlay (renderer, upscaler, resolution, frame time and FPS); Ctrl+Alt+U toggles the upscaler off/on.
+[/list]
+
+[h1]Hardware and renderer[/h1]
+[list]
+[*]DLSS / DLAA: NVIDIA GeForce RTX, DirectX 11 or DirectX 12.
+[*]DLSS-G: NVIDIA RTX 40 or newer, DirectX 12; 3x/4x require RTX 50.
+[*]FSR / XeSS upscaling and 2x frame generation: any modern GPU, DirectX 12.
+[*]NIS, LUT filters, colour vision correction, mip bias, FPS controls and overlay: any supported GPU, DirectX 11 or DirectX 12.
+[*]Post-processing without an upscaler: verified on NVIDIA RTX; AMD, Intel and GTX have not yet been smoke-tested.
+[*]DirectX 11 is the default. DirectX 12 is optional and experimental; changing resolution may disable DLSS.
+[*]Frame generation needs windowed or borderless mode; it can add latency and artefacts. DLSS-G pauses when the game loses focus.
+[/list]
+
+[h1]How to use[/h1]
+[list=1]
+[*]Enable Renderforge under Mods and restart once. An update may require another restart.
+[*]Options > Graphics: renderer, upscaler, quality, frame generation, sharpness, image filters and quality controls.
+[*]Options > Screen: FPS limiter and crisp fonts. Mods > Renderforge: overlay and hotkey preferences only.
+[*]Settings apply live except the renderer: choose it, press Apply and accept the restart. Unsupported choices are greyed out.
+[/list]
+
+[h1]Languages[/h1]
+The mod's UI follows the game language: English, Russian, Chinese (Simplified), French, German, Italian, Polish and Spanish. Tooltips state where each setting works.
+
+[h1]Bug reports[/h1]
+[b]Report problems on [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] The template asks for an overlay screenshot and Player.log. Steam comments are read rarely; a Steam comment may go unanswered.
+
+[h1]Source, releases and license[/h1]
+[list]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge]Source code[/url]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]Releases and ZIP download[/url]: extract the Full ZIP into the game's Mods folder to get Mods\Renderforge\.
+[/list]
+By Morgott. License: CC BY-NC 4.0. NVIDIA DLSS/Streamline/NIS, AMD FidelityFX and Intel XeSS runtimes are redistributed under their own licenses. Not affiliated with NVIDIA, AMD, Intel or Snapshot Games.

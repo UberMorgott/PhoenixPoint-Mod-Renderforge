@@ -1,0 +1,48 @@
+[b]Renderforge è un mod grafico e di rendering per Phoenix Point su Windows: upscaling, nitidezza, generazione di fotogrammi, filtri colore, controlli di qualità, limite FPS e overlay delle prestazioni.[/b]
+
+[hr][/hr]
+
+[h1]Funzioni[/h1]
+[list]
+[*][b]Upscaling e antialiasing:[/b] DLSS Super Resolution e DLAA a risoluzione nativa, FSR e XeSS; Auto sceglie un upscaler disponibile per GPU e renderer.
+[*][b]Nitidezza:[/b] NIS funziona anche con l'upscaler disattivato (Off), mantenendo l'antialiasing del gioco; imposta la nitidezza a 0 per disattivare NIS.
+[*][b]Generazione di fotogrammi:[/b] DLSS-G, FSR e XeSS-FG a 2x su DirectX 12 con un upscaler attivo; DLSS-G offre anche 3x/4x su RTX 50. Disattivata di default.
+[*][b]Immagine:[/b] filtri colore LUT per le missioni tattiche e stili di scena Cartoon/PixelArt, con intensità regolabile; l'HUD resta invariato.
+[*][b]Visione dei colori:[/b] correzione per deuteranopia, protanopia e tritanopia, combinabile con filtri LUT o stili. Solo la scena tattica; HUD e menu restano invariati.
+[*][b]Qualità:[/b] disattiva la vignettatura tattica, scegli ombre molto alte, forza il filtro anisotropico 16x e aumenta il dettaglio dei modelli lontani tramite LOD. Ogni posizione Vanilla ripristina il valore del preset grafico.
+[*][b]Renderer:[/b] passa da DirectX 11 a DirectX 12 e viceversa dal gioco; richiede un riavvio.
+[*][b]FPS e caratteri:[/b] rimuove il blocco originale a 60 FPS; limite opzionale di 30–300 FPS, inclusi i fotogrammi generati. Caratteri più nitidi per il testo dinamico dell'interfaccia supportato.
+[*][b]Scorciatoie:[/b] Ctrl+Alt+O mostra/nasconde l'overlay di misurazione (renderer, upscaler, risoluzione, tempo per fotogramma e FPS); Ctrl+Alt+U disattiva/attiva l'upscaler.
+[/list]
+
+[h1]Hardware e renderer[/h1]
+[list]
+[*]DLSS / DLAA: NVIDIA GeForce RTX, DirectX 11 o DirectX 12.
+[*]DLSS-G: NVIDIA RTX 40 o successive, DirectX 12; 3x/4x richiedono RTX 50.
+[*]Upscaling FSR / XeSS e generazione di fotogrammi 2x: qualsiasi GPU moderna, DirectX 12.
+[*]NIS, filtri LUT, correzione della visione dei colori, mip bias, controlli FPS e overlay: qualsiasi GPU supportata, DirectX 11 o DirectX 12.
+[*]Post-elaborazione senza upscaler: verificata su NVIDIA RTX; i test di base su AMD, Intel e GTX non sono ancora stati eseguiti.
+[*]DirectX 11 è il predefinito. DirectX 12 è opzionale e sperimentale; cambiare risoluzione può disattivare DLSS.
+[*]La generazione di fotogrammi richiede la modalità finestra o senza bordi; può aggiungere latenza e artefatti. DLSS-G si ferma quando il gioco perde il focus.
+[/list]
+
+[h1]Utilizzo[/h1]
+[list=1]
+[*]Attiva Renderforge in Mods e riavvia una volta. Un aggiornamento può richiedere un altro riavvio.
+[*]Opzioni > Grafica: renderer, upscaler, qualità, generazione di fotogrammi, nitidezza, filtri e controlli di qualità.
+[*]Opzioni > Schermo: limite FPS e caratteri nitidi. Mods > Renderforge: solo preferenze dell'overlay e delle scorciatoie.
+[*]Le impostazioni si applicano subito, tranne il renderer: selezionalo, premi Applica e conferma il riavvio. Le opzioni non supportate sono disabilitate.
+[/list]
+
+[h1]Lingue[/h1]
+L'interfaccia del mod segue la lingua del gioco: inglese, russo, cinese (semplificato), francese, tedesco, italiano, polacco e spagnolo. I tooltip indicano dove funziona ogni impostazione.
+
+[h1]Segnalazioni di bug[/h1]
+[b]Segnala i problemi su [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] Il modello richiede uno screenshot dell'overlay e Player.log. I commenti di Steam vengono letti raramente e possono restare senza risposta.
+
+[h1]Sorgente, versioni e licenza[/h1]
+[list]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge]Codice sorgente[/url]
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]Versioni e download ZIP[/url]: estrai lo ZIP Full nella cartella Mods del gioco per ottenere Mods\Renderforge\.
+[/list]
+Di Morgott. Licenza: CC BY-NC 4.0. Le librerie NVIDIA DLSS/Streamline/NIS, AMD FidelityFX e Intel XeSS sono ridistribuite secondo le rispettive licenze. Nessuna affiliazione con NVIDIA, AMD, Intel o Snapshot Games.
