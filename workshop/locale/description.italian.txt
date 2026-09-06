@@ -5,11 +5,11 @@
 [h1]Funzioni[/h1]
 [list]
 [*][b]Upscaling e antialiasing:[/b] DLSS Super Resolution e DLAA a risoluzione nativa, FSR e XeSS; Auto sceglie un upscaler disponibile per GPU e renderer.
-[*][b]Nitidezza:[/b] NIS funziona anche con l'upscaler disattivato (Off), mantenendo l'antialiasing del gioco; imposta la nitidezza a 0 per disattivare NIS.
+[*][b]Nitidezza:[/b] NIS funziona anche con l'upscaler su «Disattivato», mantenendo l'antialiasing del gioco; imposta la nitidezza a 0 per disattivare NIS.
 [*][b]Generazione di fotogrammi:[/b] DLSS-G, FSR e XeSS-FG a 2x su DirectX 12 con un upscaler attivo; DLSS-G offre anche 3x/4x su RTX 50. Disattivata di default.
 [*][b]Immagine:[/b] filtri colore LUT per le missioni tattiche e stili di scena Cartoon/PixelArt, con intensità regolabile; l'HUD resta invariato.
 [*][b]Visione dei colori:[/b] correzione per deuteranopia, protanopia e tritanopia, combinabile con filtri LUT o stili. Solo la scena tattica; HUD e menu restano invariati.
-[*][b]Qualità:[/b] disattiva la vignettatura tattica, scegli ombre molto alte, forza il filtro anisotropico 16x e aumenta il dettaglio dei modelli lontani tramite LOD. Ogni posizione Vanilla ripristina il valore del preset grafico.
+[*][b]Qualità:[/b] disattiva la vignettatura tattica, scegli ombre molto alte, forza il filtro anisotropico 16x e aumenta il dettaglio dei modelli lontani tramite LOD. Ogni posizione «Come nel gioco» ripristina il valore del preset grafico.
 [*][b]Renderer:[/b] passa da DirectX 11 a DirectX 12 e viceversa dal gioco; richiede un riavvio.
 [*][b]FPS e caratteri:[/b] rimuove il blocco originale a 60 FPS; limite opzionale di 30–300 FPS, inclusi i fotogrammi generati. Caratteri più nitidi per il testo dinamico dell'interfaccia supportato.
 [*][b]Scorciatoie:[/b] Ctrl+Alt+O mostra/nasconde l'overlay di misurazione (renderer, upscaler, risoluzione, tempo per fotogramma e FPS); Ctrl+Alt+U disattiva/attiva l'upscaler.
@@ -23,7 +23,7 @@
 [*]NIS, filtri LUT, correzione della visione dei colori, mip bias, controlli FPS e overlay: qualsiasi GPU supportata, DirectX 11 o DirectX 12.
 [*]Post-elaborazione senza upscaler: verificata su NVIDIA RTX; i test di base su AMD, Intel e GTX non sono ancora stati eseguiti.
 [*]DirectX 11 è il predefinito. DirectX 12 è opzionale e sperimentale; cambiare risoluzione può disattivare DLSS.
-[*]La generazione di fotogrammi richiede la modalità finestra o senza bordi; può aggiungere latenza e artefatti. DLSS-G si ferma quando il gioco perde il focus.
+[*]La generazione di fotogrammi richiede la modalità finestra o senza bordi; può aggiungere latenza e artefatti. DLSS-G si mette in pausa quando il gioco perde il focus.
 [/list]
 
 [h1]Utilizzo[/h1]
