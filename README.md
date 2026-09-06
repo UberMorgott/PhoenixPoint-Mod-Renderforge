@@ -1,5 +1,7 @@
 # Renderforge
 
+![Renderforge](workshop/image/github_social.jpg)
+
 Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruction, sharpening, frame generation, frame-rate controls, and a useful performance overlay. Phoenix Point is a Unity game that normally uses Direct3D 11; Renderforge keeps that path and also makes an experimental Direct3D 12 path available for features that need it.
 
 ## What it does
