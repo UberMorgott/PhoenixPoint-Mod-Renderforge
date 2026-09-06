@@ -94,6 +94,7 @@ namespace Renderforge
                 CrispFonts.Apply(Cfg.CrispFonts);
                 if (RendererSwitch.Wants12(Cfg) && !Availability.IsD3D12) RendererSwitch.ArmStartupRestart();
                 AttachAndApply();
+                QualityKnobs.ApplyAll();   // re-enable without a settings change: Disable() cleared the snapshot, ApplyScalars re-takes it
             }
             catch (Exception ex) { Logger.LogError("Renderforge enable THREW " + ex); }
         }
