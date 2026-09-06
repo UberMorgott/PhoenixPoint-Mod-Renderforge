@@ -104,7 +104,7 @@ Four settings the game itself never exposes, in **Options → Graphics**. Every 
 | Anisotropic filtering | Vanilla / 16x | Forces 16 samples on every texture — sharper ground and walls at grazing angles. |
 | LOD detail | 0 (Vanilla) / 1.0 … 4.0 | Keeps higher-detail models at distance. |
 
-Measured on an RTX 5070 Ti at 1440p borderless in a tactical mission (~238 FPS baseline): every knob's frame-time cost is within measurement noise (±0.03 ms per frame). VRAM changes are within the ±100 MiB system-wide noise band; Very High shadows show a small consistent increase (~30–90 MiB). All knobs default to Vanilla.
+Measured on an RTX 5070 Ti at 1440p in a 153-actor tactical scene at ~240 FPS: the costliest knob (Aniso 16x) adds ~8 pp GPU utilization; no knob measurably affects frame time or VRAM on this GPU. All knobs default to Vanilla.
 
 `Ctrl+Alt+U` toggles the current upscaler off and back on. The letter keys for both shortcuts, the overlay position and scale, and the option to show Renderforge rows in Graphics settings can be changed under **Mods → Renderforge**.
 
