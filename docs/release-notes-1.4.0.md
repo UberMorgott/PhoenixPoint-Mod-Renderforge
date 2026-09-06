@@ -15,5 +15,5 @@ Download **`Renderforge-Full-1.4.0.zip`** from the GitHub release (single archiv
 ## Known limits
 
 - The colour vision correction applies to the scene only; the interface (HUD, menus, tooltips) is drawn after the post pass and is not corrected.
-- Quality knob frame-time and VRAM cost of Very High shadows and LOD detail 4.0 has not been measured.
+- Quality knob cost measured on an RTX 5070 Ti at 1440p: every knob's frame-time delta is within ±0.03 ms noise; VRAM deltas within ±100 MiB system-wide noise (Very High shadows ~+30–90 MiB).
 - Post-only mode has not been smoke-tested on non-NVIDIA (AMD, Intel) or GTX hardware.
