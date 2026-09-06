@@ -142,7 +142,7 @@ The last command builds the release archives in `build\release\`: Core, NVIDIA, 
 
 Renderforge is created by **Morgott** and uses the mod ID `com.morgott.Renderforge`.
 
-- Renderforge source code is available under the [MIT License](LICENSE).
+- Renderforge © 2026 Morgott. [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) ([LICENSE](LICENSE)) — free to use and modify for non-commercial purposes with attribution.
 - NVIDIA DLSS and Streamline are covered by [LICENSE-NVIDIA.txt](LICENSE-NVIDIA.txt).
 - NVIDIA Image Scaling is covered by [LICENSE-NIS.txt](LICENSE-NIS.txt).
 - AMD FidelityFX (FSR upscaling and frame generation) is covered by [LICENSE-AMD.txt](LICENSE-AMD.txt).

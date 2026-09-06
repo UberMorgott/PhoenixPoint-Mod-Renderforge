@@ -1,7 +1,7 @@
 # build\release.ps1 - assemble the Renderforge release artefacts.
 #
 # Produces, in build\release\:
-#   Renderforge-Core-<v>.zip     managed DLL + native shim + meta.json + exposure bundle + README + MIT + NIS licence
+#   Renderforge-Core-<v>.zip     managed DLL + native shim + meta.json + exposure bundle + README + LICENSE (CC BY-NC 4.0) + NIS licence
 #   Renderforge-NVIDIA-<v>.zip   DLSS SR (+ DLSS-G with -WithFrameGen)
 #   Renderforge-AMD-<v>.zip      amd_fidelityfx_*_dx12.dll
 #   Renderforge-Intel-<v>.zip    libxess.dll (+ libxess_fg.dll, libxell.dll with -WithFrameGen)
