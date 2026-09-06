@@ -12,7 +12,7 @@
 [*][b]Qualität:[/b] taktische Vignette abschalten, sehr hohe Schatten wählen, anisotrope Filterung mit 16x erzwingen und entfernte Modelle über LOD detaillierter darstellen. Jede Stellung „Wie im Spiel“ stellt den Wert der Grafikvoreinstellung wieder her.
 [*][b]Renderer:[/b] im Spiel zwischen DirectX 11 und DirectX 12 wechseln; Neustart erforderlich.
 [*][b]FPS und Schrift:[/b] hebt die ursprüngliche 60-FPS-Begrenzung auf; optionales Limit von 30–300 FPS einschließlich generierter Frames. Schärfere Schrift für unterstützten dynamischen Oberflächentext.
-[*][b]Tastenkürzel:[/b] Ctrl+Alt+O schaltet das Benchmark-Overlay um (Renderer, Upscaler, Auflösung, Framezeit und FPS); Ctrl+Alt+U schaltet den Upscaler aus/ein.
+[*][b]Tastenkürzel:[/b] Strg+Alt+O schaltet das Benchmark-Overlay um (Renderer, Upscaler, Auflösung, Framezeit und FPS); Strg+Alt+U schaltet den Upscaler aus/ein.
 [/list]
 
 [h1]Hardware und Renderer[/h1]
