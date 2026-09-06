@@ -74,5 +74,9 @@ $g.DrawString('DLSS / FSR / XeSS for Phoenix Point', $sub, ([System.Drawing.Soli
 $title.Dispose(); $sub.Dispose(); $shadow.Dispose(); $g.Dispose()
 $out = Join-Path $here 'github_social.png'
 $gh.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
-$gh.Dispose()
 Write-Host ("github_social.png  1280x640  {0:N0} bytes" -f (Get-Item $out).Length)
+# GitHub's social-preview upload rejects files >= 1 MB; the PNG is ~1.4 MB, so upload the JPEG.
+$outJpg = Join-Path $here 'github_social.jpg'
+Save-Jpeg $gh $outJpg 90
+$gh.Dispose()
+Write-Host ("github_social.jpg  1280x640  q90  {0:N0} bytes  (upload THIS one to GitHub Settings > Social preview)" -f (Get-Item $outJpg).Length)
