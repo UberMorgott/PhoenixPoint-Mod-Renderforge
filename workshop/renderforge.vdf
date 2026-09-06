@@ -1,0 +1,28 @@
+// SteamCMD Workshop build item descriptor for Renderforge (Phoenix Point).
+//
+// Usage:
+//   steamcmd +login <user> +workshop_build_item "<abs path to this .vdf>" +quit
+//
+//   publishedfileid "0"            -> CREATE a brand-new Workshop item.
+//   publishedfileid "<real id>"    -> UPDATE the existing item with that id.
+//
+// NOTE: The primary publisher is workshop\steamugc\publish_ugc.py (headless,
+//       rides the logged-in Steam client). It stamps the real publishedfileid
+//       into this file after --create. SteamCMD + update.ps1 is the fallback.
+//
+//   contentfolder  = absolute path to the assembled /Dist (contents of the
+//                    Full release stage). Run workshop\pack-dist.ps1 first.
+//   previewfile    = absolute path to the preview image (<= 1 MB).
+//   changenote     = shown in the item's change history.
+//
+// Paths below assume the repo lives at E:\DEV\PhoenixPoint\Renderforge.
+// Adjust if your checkout is elsewhere.
+
+"workshopitem"
+{
+	"appid"           "839770"
+	"publishedfileid" "0"
+	"contentfolder"   "E:\DEV\PhoenixPoint\Renderforge\workshop\Dist"
+	"previewfile"     "E:\DEV\PhoenixPoint\Renderforge\workshop\image\steam_preview.jpg"
+	"changenote"      ""
+}

@@ -69,7 +69,13 @@ gh release create v<x.y.z> `
 
 ## 8. Steam Workshop — **USER-GATED**
 
-The Workshop item ships the **Full** zip's content. Procedure and prerequisites:
-`E:\DEV\PhoenixPoint\PerkOracle\docs\OPERATIONS.md` (SteamworksPy publisher, appid 839770, Steam client
-running and logged in as the owner). Renderforge's `publishedfileid` is recorded in `docs\DESIGN.md`
-under "Packaging".
+The Workshop item ships the **Full** zip's content (the stage folder, flat). Procedure and
+prerequisites: `docs\OPERATIONS.md` §Workshop (SteamworksPy publisher, appid 839770, Steam client
+running and logged in as the owner); playbook `workshop\WORKSHOP.md`.
+
+```powershell
+pwsh -File workshop\pack-dist.ps1     # Full stage -> workshop\Dist, version-checked
+python workshop\steamugc\publish_ugc.py --update --item <id> --changenote "v<x.y.z> - <what changed>"
+```
+
+Renderforge's `publishedfileid` lives in `workshop\steamugc\published_id.txt` (and `workshop\renderforge.vdf`).

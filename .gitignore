@@ -14,3 +14,19 @@ nvsdk_ngx.log
 
 docs/shots/darkfps/
 
+# Steam Workshop generated content folder (rebuilt by workshop/pack-dist.ps1)
+workshop/Dist/
+
+# Python
+**/__pycache__/
+*.pyc
+
+# SteamworksPy publisher: native binaries + appid file are environment-local.
+# (Tooling scripts + published_id.txt + README ARE committed.)
+workshop/steamugc/steam_api64.dll
+workshop/steamugc/SteamworksPy*.dll
+workshop/steamugc/steam_appid.txt
+workshop/steamugc/*.so
+workshop/steamugc/*.dylib
+workshop/steamugc/steamworks/
+
