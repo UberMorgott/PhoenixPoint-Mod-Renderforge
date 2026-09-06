@@ -61,6 +61,17 @@ if (-not (Test-Path $srcPath)) { throw "Missing $srcPath" }
 $src = [System.Drawing.Image]::FromFile($srcPath)
 $gh  = Resize-Cover $src 1280 640
 $src.Dispose()
+# Title on the empty right third the art was generated with.
+$g = [System.Drawing.Graphics]::FromImage($gh)
+$g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+$title = New-Object System.Drawing.Font 'Segoe UI', 78, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+$sub   = New-Object System.Drawing.Font 'Segoe UI', 28, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+$x = 760.0; $y = 250.0
+$shadow = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(160, 0, 0, 0))
+$g.DrawString('Renderforge', $title, $shadow, $x + 3, $y + 3)
+$g.DrawString('Renderforge', $title, [System.Drawing.Brushes]::White, $x, $y)
+$g.DrawString('DLSS / FSR / XeSS for Phoenix Point', $sub, ([System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 140, 190, 255))), $x + 6, $y + 100)
+$title.Dispose(); $sub.Dispose(); $shadow.Dispose(); $g.Dispose()
 $out = Join-Path $here 'github_social.png'
 $gh.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
 $gh.Dispose()
