@@ -116,6 +116,7 @@ namespace Renderforge
             if (usePresetDepth > 0) return;
             if (succeeded) Snapshot();
             ApplyAll();   // re-assert our values either way: a partial apply may have clobbered them
+            QualityPanel.Sync();   // open Options: "Vanilla (…)" labels/tips name the NEW preset's values; no-op without a panel
         }
 
         /// <summary>Every seam that needs the full set: OnLevelStart, OnConfigChanged, the UI rows, the UsePreset unwind.</summary>
