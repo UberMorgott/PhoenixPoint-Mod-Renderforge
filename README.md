@@ -2,6 +2,8 @@
 
 ![Renderforge](workshop/image/github_social.jpg)
 
+[![version](https://img.shields.io/github/v/release/UberMorgott/PhoenixPoint-Mod-Renderforge?include_prereleases&label=version&color=blue)](https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases/latest) [![downloads](https://img.shields.io/github/downloads/UberMorgott/PhoenixPoint-Mod-Renderforge/total?label=downloads&color=success)](https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases/latest) [![stars](https://img.shields.io/github/stars/UberMorgott/PhoenixPoint-Mod-Renderforge?label=stars&color=yellow)](https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/stargazers) [![Steam Workshop](https://img.shields.io/badge/Steam-Workshop-1b2838?logo=steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=3796708495) [![bug report](https://img.shields.io/badge/bug_report-open_an_issue-critical)](https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues/new/choose) [![license](https://img.shields.io/badge/license-CC_BY--NC_4.0-lightgrey)](LICENSE)
+
 Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruction, sharpening, frame generation, frame-rate controls, and a useful performance overlay. Phoenix Point is a Unity game that normally uses Direct3D 11; Renderforge keeps that path and also makes an experimental Direct3D 12 path available for features that need it.
 
 ## What it does
