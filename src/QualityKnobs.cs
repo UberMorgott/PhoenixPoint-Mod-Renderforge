@@ -75,6 +75,26 @@ namespace Renderforge
             catch (Exception ex) { Log("baseline restore failed", ex); }
         }
 
+        /// <summary>OnModDisabled: put vanilla back (scalars + vignette) and forget both baselines, so a re-enable
+        /// re-snapshots whatever the game wrote while the UsePreset patch was gone. No-op when nothing was captured.</summary>
+        internal static void Disable()
+        {
+            RestoreBaseline();
+            haveSnapshot = false;
+            try
+            {
+                Vignette vignette;
+                if (haveVignetteBase && volume != null && volume.profile != null && volume.profile.TryGetSettings(out vignette) && vignette != null)
+                {
+                    vignette.enabled.value = baseVignette;
+                    PostProcessManager.NeedUpdateSettings = true;
+                }
+            }
+            catch (Exception ex) { Log("vignette restore failed", ex); }
+            volume = null;
+            haveVignetteBase = false;
+        }
+
         /// <summary>Guard down, take the fresh baseline, put our values back on top. Called from a HarmonyFinalizer, so a
         /// throw inside UsePreset cannot leave the guard latched and the knobs frozen.
         ///

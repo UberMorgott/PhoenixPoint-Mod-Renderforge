@@ -214,6 +214,7 @@ namespace Renderforge
                 else if (Available) DlssDriver.Create().RequestShutdown();
                 Overlay.Destroy();
                 Pickers.Clear();
+                QualityKnobs.Disable();   // vanilla aniso / LOD bias / shadow res / vignette back before the UsePreset patch goes
                 if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
             }
             catch (Exception ex) { Logger.LogError("Renderforge disable THREW " + ex); }
