@@ -22,9 +22,55 @@ namespace Renderforge
         private static bool loggedError;
 
         private static string Vanilla { get { return DlssConfig.Loc("Vanilla", "Как в игре"); } }
-        private static string[] VignetteLabels { get { return new[] { Vanilla, DlssConfig.Loc("Off", "Выкл") }; } }
-        private static string[] ShadowLabels { get { return new[] { Vanilla, DlssConfig.Loc("Very High", "Очень высокое") }; } }
-        private static string[] AnisoLabels { get { return new[] { Vanilla, "16x" }; } }
+        /// <summary>"Vanilla (High)": the Vanilla position names the value it currently stands for (QualityKnobs baseline).</summary>
+        private static string VanillaWith(string live) { return live == null ? Vanilla : Vanilla + " (" + live + ")"; }
+        private static string[] VignetteLabels { get { return new[] { VanillaWith(VignetteLive), DlssConfig.Loc("Off", "Выкл") }; } }
+        private static string[] ShadowLabels { get { return new[] { VanillaWith(ShadowLive), DlssConfig.Loc("Very High", "Очень высокое") }; } }
+        private static string[] AnisoLabels { get { return new[] { VanillaWith(AnisoLive), "16x" }; } }
+
+        private static string VignetteLive
+        {
+            get
+            {
+                bool? on = QualityKnobs.VanillaVignette;
+                return on == null ? null : on.Value ? DlssConfig.Loc("On", "Вкл") : DlssConfig.Loc("Off", "Выкл");
+            }
+        }
+
+        private static string ShadowLive
+        {
+            get
+            {
+                switch (QualityKnobs.VanillaShadowRes)
+                {
+                    case ShadowResolution.Low: return DlssConfig.Loc("Low", "Низкое");
+                    case ShadowResolution.Medium: return DlssConfig.Loc("Medium", "Среднее");
+                    case ShadowResolution.High: return DlssConfig.Loc("High", "Высокое");
+                    default: return DlssConfig.Loc("Very High", "Очень высокое");
+                }
+            }
+        }
+
+        private static string AnisoLive
+        {
+            get
+            {
+                switch (QualityKnobs.VanillaAniso)
+                {
+                    case AnisotropicFiltering.Disable: return DlssConfig.Loc("Off", "Выкл");
+                    case AnisotropicFiltering.ForceEnable: return DlssConfig.Loc("forced", "принудительно");
+                    default: return DlssConfig.Loc("per-texture", "по текстуре");
+                }
+            }
+        }
+
+        private static string LodLive { get { return QualityKnobs.VanillaLodBias.ToString("F1"); } }
+
+        /// <summary>" Currently X." appended to a knob tooltip; nothing when the value is unknown (vignette outside a mission).</summary>
+        private static string Currently(string live)
+        {
+            return live == null ? "" : " " + DlssConfig.Loc("Currently {0}.", "Сейчас: {0}.").Replace("{0}", live);
+        }
 
         /// <summary>Adds the four rows after `after` and returns the last one, so the caller can keep chaining.</summary>
         internal static Transform Build(UIModuleGraphicsOptionsPanel panel, Transform after, DlssConfig cfg)
@@ -119,13 +165,13 @@ namespace Renderforge
             if (cfg == null) return;
             Show(vignette, VignetteLabels, (int)cfg.Vignette, OnVignette, DlssConfig.Loc(
                 "Tactical missions only. Vanilla keeps the mission's own vignette; Off removes the darkened frame edges.",
-                "Только тактические миссии. «Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра."));
+                "Только тактические миссии. «Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра.") + Currently(VignetteLive));
             Show(shadow, ShadowLabels, (int)cfg.ShadowResolution, OnShadow, DlssConfig.Loc(
                 "Vanilla keeps the graphics preset's value; Very High raises the shadow map size.",
-                "«Как в игре» — значение выбранного пресета; «Очень высокое» увеличивает размер карты теней."));
+                "«Как в игре» — значение выбранного пресета; «Очень высокое» увеличивает размер карты теней.") + Currently(ShadowLive));
             Show(aniso, AnisoLabels, (int)cfg.Anisotropic, OnAniso, DlssConfig.Loc(
                 "Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture.",
-                "«Как в игре» ничего не меняет; «16x» включает 16 выборок для всех текстур."));
+                "«Как в игре» ничего не меняет; «16x» включает 16 выборок для всех текстур.") + Currently(AnisoLive));
             if (lod != null) lod.SetValueWithoutNotify(PosFromBias(cfg.LodBias));
             ShowLod(cfg.LodBias);
         }
@@ -145,7 +191,10 @@ namespace Renderforge
         {
             if (lodValue == null) return;
             GraphicsPanel.SetRaw(lodValue.GetComponent<Localize>(), lodValue.GetComponent<Text>(),
-                bias > 0f ? bias.ToString("F1") : Vanilla);
+                bias > 0f ? bias.ToString("F1") : VanillaWith(LodLive));
+            if (lod != null) GraphicsPanel.Tip(lod.gameObject, DlssConfig.Loc(
+                "0 = the graphics preset's own value (currently {0}). Higher keeps detailed models further away; below the preset's value = less detail.",
+                "0 = значение выбранного пресета (сейчас {0}). Выше — модели дольше остаются детальными вдали; ниже значения пресета — меньше деталей.").Replace("{0}", LodLive));
         }
 
         internal static void Hide(Transform content)

@@ -105,7 +105,7 @@ namespace Renderforge
         public ShadowResolutionMode ShadowResolution = ShadowResolutionMode.Vanilla;
         [ConfigField("Anisotropic filtering", "Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture. Also in Options → Graphics.")]
         public AnisotropicMode Anisotropic = AnisotropicMode.Vanilla;
-        [ConfigField("LOD detail", "0 = vanilla. 1.0 … 4.0 keeps higher-detail models at distance; costs GPU time and VRAM. Also in Options → Graphics.")]
+        [ConfigField("LOD detail", "0 = the graphics preset's own value. 1.0 … 4.0 keeps higher-detail models at distance (below the preset's value = less detail); costs GPU time and VRAM. Also in Options → Graphics.")]
         public float LodBias = 0f;             // 0 = vanilla (write the captured baseline back); otherwise clamped to 1..4
 
         // field ID -> (RU label, RU description); English comes from the attribute above.
@@ -134,7 +134,7 @@ namespace Renderforge
             { nameof(Vignette), new[] { "Виньетка", "Только тактические миссии. «Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра. Также в Настройки → Графика." } },
             { nameof(ShadowResolution), new[] { "Разрешение теней", "«Как в игре» — значение выбранного пресета; «Очень высокое» увеличивает размер карты теней. Также в Настройки → Графика." } },
             { nameof(Anisotropic), new[] { "Анизотропная фильтрация", "«Как в игре» ничего не меняет; «16x» включает 16 выборок для всех текстур. Также в Настройки → Графика." } },
-            { nameof(LodBias), new[] { "Детализация LOD", "0 = как в игре. 1.0 … 4.0 — модели дольше остаются детальными вдали; расход GPU и видеопамяти растёт. Также в Настройки → Графика." } },
+            { nameof(LodBias), new[] { "Детализация LOD", "0 = значение выбранного пресета. 1.0 … 4.0 — модели дольше остаются детальными вдали (ниже значения пресета — меньше деталей); расход GPU и видеопамяти растёт. Также в Настройки → Графика." } },
         };
 
         // ---- Language table: src\Localization\strings.csv, embedded as "Renderforge.strings.csv". Key = the English

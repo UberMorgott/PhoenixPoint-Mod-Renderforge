@@ -33,6 +33,13 @@ namespace Renderforge
         private static bool haveVignetteBase;
         private static bool baseVignette;
 
+        // What "Vanilla" means right now, for the UI rows: the captured baseline, else the live value (nothing of
+        // ours has been written before the first snapshot, so live == vanilla there). Vignette is null without a volume.
+        internal static float VanillaLodBias { get { return haveSnapshot ? baseLodBias : QualitySettings.lodBias; } }
+        internal static ShadowResolution VanillaShadowRes { get { return haveSnapshot ? baseShadowRes : QualitySettings.shadowResolution; } }
+        internal static AnisotropicFiltering VanillaAniso { get { return haveSnapshot ? baseAniso : QualitySettings.anisotropicFiltering; } }
+        internal static bool? VanillaVignette { get { return haveVignetteBase ? baseVignette : (bool?)null; } }
+
         /// <summary>What vanilla left behind. Taken when UsePreset unwinds, and - as a fallback - immediately before the
         /// mod's first write, for the case where a preset was applied before Harmony was installed.</summary>
         internal static void Snapshot()
