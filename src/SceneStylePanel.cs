@@ -93,8 +93,8 @@ namespace Renderforge
                 Pickers.ReInit(picker, Labels.Length, index, OnStyle);
                 GraphicsPanel.SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[index]);
                 GraphicsPanel.Tip(picker.CentralButton.gameObject, DlssConfig.Loc(
-                    "Cartoon: colour bands and contrast outlines. Pixel art: 4-pixel blocks by default, a gentle palette reduction, no extra outlines. Adjust block size from 2 to 16.",
-                    "Мультфильм: ступени цвета и контрастные контуры. Пиксель-арт: блоки по 4 пикселя, мягкое сокращение палитры, без дополнительных контуров. Размер блока — от 2 до 16."));
+                    "Cartoon: colour bands and contrast outlines. Pixel art: 4-pixel blocks by default, a gentle palette reduction, no extra outlines. Adjust block size from 2 to 16. Scene only; the HUD stays unchanged.",
+                    "Мультфильм: ступени цвета и контрастные контуры. Пиксель-арт: блоки по 4 пикселя, мягкое сокращение палитры, без дополнительных контуров. Размер блока — от 2 до 16. Только сцена, интерфейс не меняется."));
             }
             SyncSlider(strength, strengthValue, index != 0, Mathf.Clamp(cfg.SceneStyleStrength, 0, 100), "%");
             SyncSlider(pixelSize, pixelValue, index == 2, Mathf.Clamp(cfg.PixelSize, 2, 16), " px");

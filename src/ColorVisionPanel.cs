@@ -59,8 +59,8 @@ namespace Renderforge
             GraphicsPanel.SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[index]);
             GraphicsPanel.Grey(picker.CurrentItem.gameObject, false);
             GraphicsPanel.Tip(picker.CentralButton.gameObject, DlssConfig.Loc(
-                "Redistributes the colours the eye cannot separate onto the channels it can, at full strength. Applies to the scene only; the interface is drawn after this pass and is not corrected.",
-                "Перераспределяет неразличимые глазом цвета на различимые каналы, в полную силу. Действует только на сцену: интерфейс рисуется после этого прохода и не корректируется."));
+                "Redistributes the colours the eye cannot separate onto the channels it can, at full strength. Tactical missions only; scene only, the interface is drawn after this pass and is not corrected.",
+                "Перераспределяет неразличимые глазом цвета на различимые каналы, в полную силу. Только тактические миссии; только сцена, интерфейс рисуется после этого прохода и не корректируется."));
         }
 
         internal static void Hide(Transform content)

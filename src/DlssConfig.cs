@@ -56,21 +56,21 @@ namespace Renderforge
             nameof(ColorVision)
         };
 
-        [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance")]
+        [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance. Needs an active upscaler.")]
         public RenderforgeMode Mode = RenderforgeMode.Auto;
         [ConfigField("Sharpness", "0 = off … 100. RCAS pass after DLSS; also a slider in Options → Graphics.")]
         public int Sharpness = 40;                      // 0..100 -> RCAS 0..1, applied every frame, live
-        [ConfigField("LUT filter", "Original tactical-mission colour grade applied after temporal reconstruction. Also in Options → Graphics.")]
+        [ConfigField("LUT filter", "Original tactical-mission colour grade applied after temporal reconstruction. Tactical missions only; scene only, the HUD stays unchanged. Also in Options → Graphics.")]
         public LutPreset Lut = LutPreset.Off;
-        [ConfigField("LUT strength", "0 = original image … 100 = full grade. Applied live.")]
+        [ConfigField("LUT strength", "0 = original image … 100 = full grade. Applied live. Tactical missions only.")]
         public int LutStrength = 100;
-        [ConfigField("Scene style", "Off, Cartoon or PixelArt. Code-only scene filtering after reconstruction.")]
+        [ConfigField("Scene style", "Off, Cartoon or PixelArt. Code-only scene filtering after reconstruction. Scene only; the HUD stays unchanged.")]
         public SceneStyle SceneStyle = SceneStyle.Off;
         [ConfigField("Style strength", "0 = original image, 100 = full style. Applied live.")]
         public int SceneStyleStrength = 100;
         [ConfigField("Pixel block size", "PixelArt: default 4 actual output pixels. Adjust from 2 to 16 for finer or stronger pixelation.")]
         public int PixelSize = 4;
-        [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Scene only; the interface is drawn after this pass. Also in Options → Graphics.")]
+        [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Tactical missions only; scene only, the interface is drawn after this pass. Also in Options → Graphics.")]
         public ColorVisionMode ColorVision = ColorVisionMode.None;
         [ConfigField("Crisp fonts", "Sharper supported interface text with its original layout. Also in Options → Screen.")]
         public bool CrispFonts = true;
@@ -89,17 +89,17 @@ namespace Renderforge
         public OverlayCorner OverlayPosition = OverlayCorner.TopCenter;
         [ConfigField("Overlay scale", "0.5 … 3")]
         public float OverlayScale = 1.0f;               // Overlay text size multiplier, 0.5..3
-        [ConfigField("Frame rate limit", "Final presented FPS, including generated frames. Off = uncapped. Also in Options → Screen.")]
+        [ConfigField("Frame rate limit", "Final presented FPS, including generated frames. Off = uncapped; turning it on disables VSync. Also in Options → Screen.")]
         public bool LimitFrameRate = false;             // off = uncapped (the game itself pins 60). VSync still caps at the monitor rate.
         [ConfigField("Max presented FPS", "30 … 300, including generated frames; used when the limit is on")]
         public int FrameRateLimit = 60;                 // final presented ceiling; native cap is floor(this / live FG multiplier)
-        [ConfigField("Renderer", "Auto = DirectX 11. DirectX 12 is experimental and needs a restart.")]
+        [ConfigField("Renderer", "Auto = DirectX 11. DirectX 12 is experimental. Changing it requires a restart.")]
         public RendererMode Renderer = RendererMode.Auto;
-        [ConfigField("Upscaler", "Auto picks by GPU: NVIDIA → DLSS, Intel → XeSS, otherwise FSR (XeSS if the AMD DLLs are missing). FSR/XeSS need DirectX 12. Switches live.")]
+        [ConfigField("Upscaler", "Auto picks by GPU: NVIDIA → DLSS, Intel → XeSS, otherwise FSR (XeSS if the AMD DLLs are missing). DLSS needs an NVIDIA RTX GPU; FSR/XeSS need DirectX 12. Switches live.")]
         public UpscalerKind Upscaler = UpscalerKind.Auto;
-        [ConfigField("Frame generation", "Off / 2x / 3x / 4x. DirectX 12 only. 3x and 4x need DLSS-G on an RTX 50 GPU.")]
+        [ConfigField("Frame generation", "Off / 2x / 3x / 4x. DirectX 12 with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU.")]
         public FrameGenMode FrameGen = FrameGenMode.Off;
-        [ConfigField("Vignette", "Vanilla keeps the mission's own vignette; Off removes the darkened frame edges. Also in Options → Graphics.")]
+        [ConfigField("Vignette", "Tactical missions only. Vanilla keeps the mission's own vignette; Off removes the darkened frame edges. Also in Options → Graphics.")]
         public VignetteMode Vignette = VignetteMode.Vanilla;
         [ConfigField("Shadow resolution", "Vanilla keeps the graphics preset's value; Very High raises the shadow map size. Also in Options → Graphics.")]
         public ShadowResolutionMode ShadowResolution = ShadowResolutionMode.Vanilla;
@@ -111,14 +111,14 @@ namespace Renderforge
         // field ID -> (RU label, RU description); English comes from the attribute above.
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
         {
-            { nameof(Mode), new[] { "Режим DLSS", "Выкл, Авто (по разрешению), DLAA, Quality, Balanced, Performance, Ultra Performance" } },
+            { nameof(Mode), new[] { "Режим DLSS", "Выкл, Авто (по разрешению), DLAA, Quality, Balanced, Performance, Ultra Performance. Нужен работающий апскейлер." } },
             { nameof(Sharpness), new[] { "Резкость", "0 = выкл … 100. Проход RCAS после DLSS; также ползунок в Настройки → Графика." } },
-            { nameof(Lut), new[] { "LUT-фильтр", "Оригинальная цветокоррекция тактических миссий после темпоральной реконструкции; также в Настройки → Графика." } },
-            { nameof(LutStrength), new[] { "Сила LUT", "0 = оригинал … 100 = полный эффект. Применяется сразу." } },
-            { nameof(SceneStyle), new[] { "Стиль сцены", "Выкл, мультфильм или пиксель-арт. Стилизация кодом после реконструкции." } },
+            { nameof(Lut), new[] { "LUT-фильтр", "Оригинальная цветокоррекция тактических миссий после темпоральной реконструкции. Только тактические миссии; только сцена, интерфейс не меняется. Также в Настройки → Графика." } },
+            { nameof(LutStrength), new[] { "Сила LUT", "0 = оригинал … 100 = полный эффект. Применяется сразу. Только тактические миссии." } },
+            { nameof(SceneStyle), new[] { "Стиль сцены", "Выкл, мультфильм или пиксель-арт. Стилизация кодом после реконструкции. Только сцена, интерфейс не меняется." } },
             { nameof(SceneStyleStrength), new[] { "Сила стилизации", "0 = оригинал, 100 = полный эффект. Применяется сразу." } },
             { nameof(PixelSize), new[] { "Размер пикселя", "По умолчанию 4 пикселя экрана. Диапазон 2–16: от мелкой до крупной пикселизации." } },
-            { nameof(ColorVision), new[] { "Цветовое зрение", "Выкл, дейтеранопия, протанопия или тританопия. Перераспределяет неразличимые цвета на различимые каналы. Только сцена: интерфейс рисуется после этого прохода. Также в Настройки → Графика." } },
+            { nameof(ColorVision), new[] { "Цветовое зрение", "Выкл, дейтеранопия, протанопия или тританопия. Перераспределяет неразличимые цвета на различимые каналы. Только тактические миссии; только сцена, интерфейс рисуется после этого прохода. Также в Настройки → Графика." } },
             { nameof(CrispFonts), new[] { "Чёткие шрифты", "Повышает чёткость поддерживаемого текста интерфейса, сохраняя расположение букв. Также в Настройки → Экран." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
@@ -126,12 +126,12 @@ namespace Renderforge
             { nameof(ShowOverlay), new[] { "Показывать оверлей (бенчмарк)", null } },
             { nameof(OverlayPosition), new[] { "Положение оверлея", null } },
             { nameof(OverlayScale), new[] { "Масштаб оверлея", "0.5 … 3" } },
-            { nameof(LimitFrameRate), new[] { "Ограничение частоты кадров", "Итоговые FPS с учётом сгенерированных кадров. Выкл = без ограничения. Также в Настройки → Экран." } },
+            { nameof(LimitFrameRate), new[] { "Ограничение частоты кадров", "Итоговые FPS с учётом сгенерированных кадров. Выкл = без ограничения; при включении VSync выключается. Также в Настройки → Экран." } },
             { nameof(FrameRateLimit), new[] { "Макс. итоговых FPS", "30 … 300 с учётом сгенерированных кадров; действует при включённом ограничении" } },
-            { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный, требуется перезапуск." } },
-            { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, Intel → XeSS, иначе FSR (XeSS, если нет DLL AMD). FSR/XeSS требуют DirectX 12. Смена требует перезапуска." } },
-            { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12. 3x и 4x — DLSS-G на видеокарте RTX 50." } },
-            { nameof(Vignette), new[] { "Виньетка", "«Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра. Также в Настройки → Графика." } },
+            { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный. Смена требует перезапуска." } },
+            { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, Intel → XeSS, иначе FSR (XeSS, если нет DLL AMD). DLSS требует видеокарту NVIDIA RTX; FSR/XeSS требуют DirectX 12. Переключается без перезапуска." } },
+            { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12 при включённом апскейлере; 3x и 4x — DLSS-G на видеокарте RTX 50." } },
+            { nameof(Vignette), new[] { "Виньетка", "Только тактические миссии. «Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра. Также в Настройки → Графика." } },
             { nameof(ShadowResolution), new[] { "Разрешение теней", "«Как в игре» — значение выбранного пресета; «Очень высокое» увеличивает размер карты теней. Также в Настройки → Графика." } },
             { nameof(Anisotropic), new[] { "Анизотропная фильтрация", "«Как в игре» ничего не меняет; «16x» включает 16 выборок для всех текстур. Также в Настройки → Графика." } },
             { nameof(LodBias), new[] { "Детализация LOD", "0 = как в игре. 1.0 … 4.0 — модели дольше остаются детальными вдали; расход GPU и видеопамяти растёт. Также в Настройки → Графика." } },

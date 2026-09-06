@@ -154,7 +154,9 @@ namespace Renderforge
             if (want == UpscalerKind.Auto && resolved != UpscalerKind.Off) label += " (" + resolved + ")";
             GraphicsPanel.SetRaw(upscaler.CurrentItem, upscaler.CurrentItemText, label);
             GraphicsPanel.Grey(upscaler.CurrentItem.gameObject, reason != null);
-            GraphicsPanel.Tip(upscaler.CentralButton.gameObject, reason);
+            GraphicsPanel.Tip(upscaler.CentralButton.gameObject, reason ?? DlssConfig.Loc(
+                "DLSS needs an NVIDIA RTX GPU; FSR and XeSS need DirectX 12. Switches live.",
+                "DLSS требует видеокарту NVIDIA RTX; FSR и XeSS требуют DirectX 12. Переключается без перезапуска."));
         }
 
         private static readonly int[] FrameGenCaps = { 0, Native.FG_CAP_2X, Native.FG_CAP_3X, Native.FG_CAP_4X };
@@ -178,7 +180,9 @@ namespace Renderforge
             string reason = FrameGenReason(pendingFrameGen);
             GraphicsPanel.SetRaw(frameGen.CurrentItem, frameGen.CurrentItemText, FrameGenLabels[pendingFrameGen]);
             GraphicsPanel.Grey(frameGen.CurrentItem.gameObject, reason != null);
-            GraphicsPanel.Tip(frameGen.CentralButton.gameObject, reason);
+            GraphicsPanel.Tip(frameGen.CentralButton.gameObject, reason ?? DlssConfig.Loc(
+                "DirectX 12 with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU.",
+                "Только DirectX 12 при включённом апскейлере; 3x и 4x — DLSS-G на видеокарте RTX 50."));
         }
 
         private static void OnRenderer(int index)

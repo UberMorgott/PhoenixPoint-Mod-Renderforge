@@ -103,11 +103,13 @@ namespace Renderforge
                 GraphicsPanel.SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[index]);
                 GraphicsPanel.Grey(picker.CurrentItem.gameObject, false);
                 GraphicsPanel.Tip(picker.CentralButton.gameObject,
-                    index == 1
+                    (index == 1
                         ? DlssConfig.Loc("Neutral grey balance with lower saturation, soft highlights and preserved skin tones.",
                             "Нейтральный серый баланс, меньше насыщенности, мягкие света и сохранённые оттенки кожи.")
                         : DlssConfig.Loc("Original analytic colour grade; no third-party LUT asset is bundled.",
-                            "Оригинальная аналитическая цветокоррекция; сторонние LUT-файлы не включены."));
+                            "Оригинальная аналитическая цветокоррекция; сторонние LUT-файлы не включены."))
+                    + " " + DlssConfig.Loc("Tactical missions only; scene only, the HUD stays unchanged.",
+                                           "Только тактические миссии; только сцена, интерфейс не меняется."));
             }
             bool on = index != 0;
             if (strength != null)

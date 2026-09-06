@@ -71,6 +71,9 @@ namespace Renderforge
                 // The game's own row labels are upper-case strings, not a Text setting - match them.
                 GraphicsPanel.SetRaw(rowA.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
                     DlssConfig.Loc("Frame rate limit", "Ограничение частоты кадров").ToUpperInvariant());
+                GraphicsPanel.Tip(limit.gameObject, DlssConfig.Loc(
+                    "Caps the final presented FPS, including generated frames. Turning it on disables VSync.",
+                    "Ограничивает итоговые FPS с учётом сгенерированных кадров. При включении VSync выключается."));
                 GraphicsPanel.SetRaw(rowB.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
                     DlssConfig.Loc("Max presented FPS", "Макс. итоговых FPS").ToUpperInvariant());
                 fps.wholeNumbers = true;

@@ -117,21 +117,28 @@ namespace Renderforge
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg == null) return;
-            Show(vignette, VignetteLabels, (int)cfg.Vignette, OnVignette);
-            Show(shadow, ShadowLabels, (int)cfg.ShadowResolution, OnShadow);
-            Show(aniso, AnisoLabels, (int)cfg.Anisotropic, OnAniso);
+            Show(vignette, VignetteLabels, (int)cfg.Vignette, OnVignette, DlssConfig.Loc(
+                "Tactical missions only. Vanilla keeps the mission's own vignette; Off removes the darkened frame edges.",
+                "Только тактические миссии. «Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра."));
+            Show(shadow, ShadowLabels, (int)cfg.ShadowResolution, OnShadow, DlssConfig.Loc(
+                "Vanilla keeps the graphics preset's value; Very High raises the shadow map size.",
+                "«Как в игре» — значение выбранного пресета; «Очень высокое» увеличивает размер карты теней."));
+            Show(aniso, AnisoLabels, (int)cfg.Anisotropic, OnAniso, DlssConfig.Loc(
+                "Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture.",
+                "«Как в игре» ничего не меняет; «16x» включает 16 выборок для всех текстур."));
             if (lod != null) lod.SetValueWithoutNotify(PosFromBias(cfg.LodBias));
             ShowLod(cfg.LodBias);
         }
 
         /// <summary>Label AND CurrentIndex (Pickers.ReInit), so a config change from PPCLI/console cannot leave a stale index.</summary>
-        private static void Show(ArrowPickerController row, string[] labels, int index, Action<int> onChanged)
+        private static void Show(ArrowPickerController row, string[] labels, int index, Action<int> onChanged, string tip)
         {
             if (row == null) return;
             index = Mathf.Clamp(index, 0, labels.Length - 1);
             Pickers.ReInit(row, labels.Length, index, onChanged);
             GraphicsPanel.SetRaw(row.CurrentItem, row.CurrentItemText, labels[index]);
             GraphicsPanel.Grey(row.CurrentItem.gameObject, false);
+            GraphicsPanel.Tip(row.CentralButton.gameObject, tip);
         }
 
         private static void ShowLod(float bias)
