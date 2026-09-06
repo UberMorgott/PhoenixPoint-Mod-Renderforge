@@ -147,8 +147,9 @@ namespace Renderforge
             UpscalerKind resolved = Upscalers.Resolve(want);
             UpscalerKind ask = want == UpscalerKind.Auto ? resolved : want;   // grey the PIN (FSR on D3D11), not what it resolves to
             string reason = ask == UpscalerKind.Off ? null : Availability.Reason(Upscalers.FeatureOf(ask));
-            if (reason != null && want != UpscalerKind.Auto && resolved != want && resolved != UpscalerKind.Off)   // D3D11 FSR/XeSS pin: Resolve runs Auto instead
-                reason += DlssConfig.Loc(" (" + resolved + " runs instead)", " (вместо него работает " + resolved + ")");
+            UpscalerKind running = Upscalers.Running;   // the provider actually up, not Resolve's hardware guess: Off in post-only / after a failed init
+            if (reason != null && want != UpscalerKind.Auto && running != want && running != UpscalerKind.Off)   // D3D11 FSR/XeSS pin: Auto's provider runs instead
+                reason += DlssConfig.Loc(" (" + running + " runs instead)", " (вместо него работает " + running + ")");
             string label = UpscalerLabels[pendingUpscaler];
             if (want == UpscalerKind.Auto && resolved != UpscalerKind.Off) label += " (" + resolved + ")";
             GraphicsPanel.SetRaw(upscaler.CurrentItem, upscaler.CurrentItemText, label);
