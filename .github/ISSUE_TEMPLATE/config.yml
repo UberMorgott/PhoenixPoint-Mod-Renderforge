@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Idea or improvement / Идея или улучшение
+    url: https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/discussions/new?category=ideas
+    about: "Not a bug? Suggest it in Discussions. / Не баг? Предложите в Discussions."
+  - name: Question / Вопрос
+    url: https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/discussions/new?category=q-a
+    about: "Setup, GPU or settings questions. / Вопросы по установке, видеокарте и настройкам."

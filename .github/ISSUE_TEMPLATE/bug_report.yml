@@ -1,0 +1,129 @@
+name: Bug report
+description: Something broke or looks wrong with Renderforge. Только 3 поля обязательны, остальное по возможности.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Only three fields are required: **what happened**, **how to reproduce**, **your GPU**.
+        Everything else is optional, but each extra piece makes the fix faster. The overlay
+        screenshot and `Player.log` are the two that turn a guess into a fix.
+
+        Обязательны только три поля: **что случилось**, **как повторить**, **видеокарта**.
+        Остальное по желанию, но каждый пункт ускоряет починку. Скриншот оверлея и `Player.log` важнее всего.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / Что случилось?
+      description: What you expected, and what you got instead. Two lines are enough. / Что ожидали и что получили. Двух строк достаточно.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce / Как повторить
+      description: Numbered steps, starting from the settings you changed. / Пронумерованные шаги, начиная с того, какие настройки меняли.
+      placeholder: |
+        1. Options > Graphics: Upscaler DLSS, Mode Quality, Frame generation 2x
+        2. Start a tactical mission
+        3. Move the camera over the map edge
+        4. HUD flickers / the game crashes to desktop
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver / Видеокарта и драйвер
+      description: Model and driver version. / Модель и версия драйвера.
+      placeholder: "RTX 4070, driver 566.14"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where did it happen? / Где это случилось?
+      options:
+        - Options menu (settings rows) / Меню настроек
+        - Tactical mission / Тактика
+        - Geoscape / Геоскейп
+        - Game start or loading / Запуск игры или загрузка
+        - Somewhere else / Другое
+    validations:
+      required: false
+
+  - type: textarea
+    id: overlay
+    attributes:
+      label: Overlay screenshot / Скриншот оверлея
+      description: |
+        Press `Ctrl+Alt+O` in game and drag the screenshot here. One frame shows the renderer,
+        upscaler, mode, resolution and FPS — it replaces five questions.
+
+        Нажмите `Ctrl+Alt+O` в игре и перетащите скриншот сюда. Один кадр показывает рендерер,
+        апскейлер, режим, разрешение и FPS — заменяет пять вопросов.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Логи
+      description: |
+        Drag the files into this box.
+        - `%USERPROFILE%\AppData\LocalLow\Snapshot Games Inc\Phoenix Point\Player.log` (engine log, Renderforge writes its lines there)
+        - `<Phoenix Point>\Mods\Renderforge\renderforge_fg.log` (only for frame-generation problems)
+        - any `nvngx*.log` / `dlss*.log` beside the mod (only for DLSS problems)
+
+        Перетащите файлы сюда. `Player.log` — основной; `renderforge_fg.log` — только для проблем
+        с генерацией кадров; `nvngx*.log` — только для DLSS.
+    validations:
+      required: false
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video / Скриншоты или видео
+      description: For a visual bug (blur, ghosting, wrong colours, HUD damage) a screenshot with the effect on and one with it off beats a page of text. / Для визуального бага (мыло, шлейфы, цвета, HUD) два скриншота — с эффектом и без — полезнее страницы текста.
+    validations:
+      required: false
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions / Версии
+      description: Renderforge version (Mods > Renderforge or meta.json), Phoenix Point version, Windows version. / Версия Renderforge, версия Phoenix Point, версия Windows.
+      placeholder: "Renderforge 1.4.1, Phoenix Point 1.21, Windows 11 24H2"
+    validations:
+      required: false
+
+  - type: input
+    id: display
+    attributes:
+      label: Resolution and screen mode / Разрешение и режим экрана
+      placeholder: "2560x1440, borderless, 144 Hz, VSync off"
+    validations:
+      required: false
+
+  - type: textarea
+    id: mods
+    attributes:
+      label: Other mods / Остальные моды
+      description: Everything else that was enabled, with versions (TFTV, ReShade or other overlays too). / Всё остальное, что было включено, с версиями (TFTV, ReShade и другие оверлеи тоже).
+    validations:
+      required: false
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often? / Как часто?
+      options:
+        - Every time / Каждый раз
+        - Sometimes / Иногда
+        - Happened once / Случилось один раз
+    validations:
+      required: false
