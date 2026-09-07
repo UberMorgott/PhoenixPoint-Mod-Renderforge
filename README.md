@@ -143,6 +143,8 @@ dotnet build Renderforge.csproj -c Release /p:PPRoot="<Phoenix Point install>"
 
 The last command builds the release archives in `build\release\`: Core, NVIDIA, AMD, Intel, and Full zips, plus `SHA256SUMS.txt`. `deploy.ps1` is available for a local development install; the release process is described in [`docs/RELEASING.md`](docs/RELEASING.md).
 
+Copy `Directory.Build.props.example` to `Directory.Build.props` (gitignored) and set `PPRoot` there to build without `/p:PPRoot`. `dotnet test tests\Renderforge.Tests` runs the Unity-free unit tests (CSV parser, string table, `strings.csv` contract); they compile the sources directly and need no game install.
+
 ## Credits & licenses
 
 Renderforge is created by **Morgott** and uses the mod ID `com.morgott.Renderforge`.

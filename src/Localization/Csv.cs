@@ -6,14 +6,15 @@ namespace Renderforge.Localization
     /// <summary>RFC 4180 reader for strings.csv. No Unity: compiled into the unit tests as a linked source.</summary>
     internal static class Csv
     {
-        /// <summary>A quoted field may hold commas, quotes ("" = one quote) and newlines. CR ignored, blank lines skipped.</summary>
+        /// <summary>A quoted field may hold commas, quotes ("" = one quote) and newlines. CR ignored, blank lines
+        /// skipped, a leading BOM dropped.</summary>
         internal static List<string[]> Parse(string text)
         {
             var rows = new List<string[]>();
             var row = new List<string>();
             var cell = new StringBuilder();
             bool quoted = false;
-            for (int i = 0; i < text.Length; i++)
+            for (int i = text.Length > 0 && text[0] == '\uFEFF' ? 1 : 0; i < text.Length; i++)
             {
                 char c = text[i];
                 if (quoted)

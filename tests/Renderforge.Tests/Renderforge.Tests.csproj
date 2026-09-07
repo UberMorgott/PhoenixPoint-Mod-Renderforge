@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Unit tests for the Unity-free parts of the mod. The sources are LINKED, not referenced: Renderforge.dll
+       is net472 and drags UnityEngine + Assembly-CSharp in, which cannot load in a test host. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="LocalizationTests.cs" />
+    <Compile Include="..\..\src\Localization\Csv.cs" Link="Localization\Csv.cs" />
+    <Compile Include="..\..\src\Localization\StringTable.cs" Link="Localization\StringTable.cs" />
+    <EmbeddedResource Include="..\..\src\Localization\strings.csv" LogicalName="Renderforge.strings.csv" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
+  </ItemGroup>
+
+</Project>
