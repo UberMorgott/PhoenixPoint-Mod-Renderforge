@@ -633,6 +633,7 @@ namespace Renderforge
         public static string SetMarkerOverlay(bool on)
         {
             Diagnostics.MarkerOverlay = on;
+            GeoMarkerOverlay.ResetFailure();   // an explicit choice outranks this level's failure lock; the choice itself survives level starts
             var d = DlssDriver.Instance;
             if (!on) GeoMarkerOverlay.Restore();
             else if (d != null && d.IsLive) GeoMarkerOverlay.Tick(d.SceneCamera, d.Passthrough);   // arm now (same gates as the driver's Tick), not next frame

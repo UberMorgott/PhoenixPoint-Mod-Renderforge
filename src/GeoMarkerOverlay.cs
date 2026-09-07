@@ -37,7 +37,7 @@ namespace Renderforge
         private static Sync sync;
         private static int layer = -1;
         private static Exception pendingFail;         // thrown inside a render callback; Fail/Restore run from the next Tick (Update), never mid-render
-        private static bool failed;                   // Fail switched Diagnostics.MarkerOverlay off; ResetFailure (level start) switches it back
+        private static bool disabledByFailure;        // a Fail this level; ResetFailure (level start) clears it. Diagnostics.MarkerOverlay stays the user's own choice
         private static int origMask;                  // GeoscapeCamera's mask before the takeover (Walk: "was this ever drawn by it")
         private static readonly Dictionary<Camera, int> camMasks = new Dictionary<Camera, int>();   // every camera that lost bit `layer`
         private static readonly Dictionary<Transform, int> origLayers = new Dictionary<Transform, int>();
@@ -74,7 +74,7 @@ namespace Renderforge
                 string why = Blocker(sceneCam, passthrough);
                 if (M != null)
                 {
-                    if (why == null) return;
+                    if (why == null) { StripCameras(); return; }   // every frame: cameras that appeared or got enabled since (dialogs, cinematics) must not draw the marker layer either
                     Log("released - " + why);
                     Restore();
                     lastGate = why;
@@ -101,6 +101,7 @@ namespace Renderforge
         private static string Blocker(Camera sceneCam, bool passthrough)
         {
             if (!Diagnostics.MarkerOverlay) return "disabled";
+            if (disabledByFailure) return "disabled after a failure (until the next level)";
             if (sceneCam == null || sceneCam.name != "GeoscapeCamera") return "not the geoscape camera";
             if (passthrough) return "passthrough generation";
             if (!Availability.IsD3D11) return "API " + Availability.ApiName + " (marker pass only verified on D3D11)";
@@ -178,31 +179,35 @@ namespace Renderforge
             Forget();
         }
 
-        /// <summary>Every map and handle back to the unarmed state (Restore's tail; Fail even when Restore threw).</summary>
+        /// <summary>Every map and handle back to the unarmed state (Restore's tail; Fail even when Restore threw). A render-callback
+        /// exception still pending (Restore reached from Detach / SetMarkerOverlay before the next Tick) is logged and counts as a Fail.</summary>
         private static void Forget()
         {
+            if (pendingFail != null) { Disable(pendingFail); pendingFail = null; }
             origLayers.Clear(); origWorldCam.Clear(); near.Clear(); camMasks.Clear();
             active = new GeoSiteVisualsController[0]; cursor = 0;
-            geo = null; M = null; curtain = null; sync = null; cbPresent = null; hcRoot = null; layer = -1; pendingFail = null;
+            geo = null; M = null; curtain = null; sync = null; cbPresent = null; hcRoot = null; layer = -1;
         }
 
         /// <summary>Any exception in the overlay: log, put everything back, switch the overlay off until the next level start
         /// (ResetFailure). The upscaler keeps running (DlssDriver.Fail never sees it).</summary>
         private static void Fail(Exception ex)
         {
-            RenderforgeMod.Instance?.Logger.LogError("Geoscape markers: disabled until the next level - " + ex);
-            Diagnostics.MarkerOverlay = false; failed = true;
+            Disable(ex);
             try { Restore(); }
             catch (Exception ex2) { RenderforgeMod.Instance?.Logger.LogError("Geoscape markers: restore threw - " + ex2); }
             Forget();
         }
 
-        /// <summary>RenderforgeMod.OnLevelStart: a Fail disables the overlay for its own level only.</summary>
-        internal static void ResetFailure()
+        private static void Disable(Exception ex)
         {
-            if (!failed) return;
-            failed = false; Diagnostics.MarkerOverlay = true;
+            RenderforgeMod.Instance?.Logger.LogError("Geoscape markers: disabled until the next level - " + ex);
+            disabledByFailure = true;
         }
+
+        /// <summary>RenderforgeMod.OnLevelStart and SetMarkerOverlay: a Fail disables the overlay for its own level only, and never
+        /// overrides an explicit Diagnostics.MarkerOverlay choice.</summary>
+        internal static void ResetFailure() => disabledByFailure = false;
 
         private static void Log(string s) => RenderforgeMod.Instance?.Logger.LogInfo("Geoscape markers: " + s);
 
@@ -213,8 +218,8 @@ namespace Renderforge
             if (dead != null) foreach (var k in dead) d.Remove(k);
         }
 
-        /// <summary>Every active GeoSiteVisualsController. Every RescanInterval of wall time: cameras are re-stripped, and the
-        /// sites are re-walked only when the geoscape hierarchy's transform count moved (or no root is known yet; force = activation).
+        /// <summary>Every active GeoSiteVisualsController. Every RescanInterval of wall time the sites are re-walked, and only
+        /// when the geoscape hierarchy's transform count moved (or no root is known yet; force = activation).
         /// ponytail: hierarchyCount is one number for the whole Geoscape tree, so a change anywhere re-walks every near
         /// site (~5 ms, the ceiling of one rescan); a site that merely toggles active without any spawn is not seen until
         /// something else changes the count. Per-site dirty flags if that ever shows.</summary>
@@ -223,7 +228,6 @@ namespace Renderforge
             float now = Time.unscaledTime;
             if (!force && now < nextScan) return active.Length;
             nextScan = now + RescanInterval;
-            StripCameras();   // every tick: cameras that appeared or got enabled since (dialogs, cinematics) must not draw the marker layer either
             int hc = hcRoot ? hcRoot.hierarchyCount : -1;
             if (!force && hc >= 0 && hc == walkedHc) return active.Length;
             PruneDead(near); PruneDead(origLayers); PruneDead(origWorldCam); PruneDead(camMasks);
