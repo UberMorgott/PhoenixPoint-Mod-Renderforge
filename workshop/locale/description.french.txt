@@ -13,7 +13,6 @@
 [*][b]Qualité :[/b] désactivation du vignettage dans les missions tactiques et sur le Geoscape, ombres très élevées, filtrage anisotrope 16x forcé et modèles lointains plus détaillés via LOD. Chaque position « Comme en jeu » rétablit la valeur du préréglage graphique.
 [*][b]Rendu :[/b] passage entre DirectX 11 et DirectX 12 depuis le jeu ; redémarrage requis.
 [*][b]FPS :[/b] suppression du verrou d'origine à 60 FPS ; limite facultative de 30–300 FPS, images générées comprises.
-[*][b]Icônes nettes :[/b] l'interface est conçue pour la 4K et affichée à une taille réduite aux résolutions inférieures. L'option applique un filtrage trilinéaire avec anisotropie 8x aux atlas d'interface dotés de mipmaps, pour lisser les transitions entre niveaux mip et supprimer les sauts des icônes. Les icônes sans mipmaps restent inchangées. Activée par défaut.
 [*][b]Raccourcis :[/b] Ctrl+Alt+O affiche/masque l'overlay de mesure (rendu, upscaler, résolution, temps par image et FPS) ; Ctrl+Alt+U désactive/réactive l'upscaler.
 [/list]
 
@@ -32,7 +31,7 @@
 [list=1]
 [*]Activez Renderforge dans Mods et redémarrez une fois. Une mise à jour peut nécessiter un autre redémarrage.
 [*]Options > Graphismes : rendu, upscaler, qualité, génération d'images, netteté, filtres et réglages de qualité.
-[*]Options > Écran : limiteur de FPS et icônes nettes. Mods > Renderforge : préférences d'overlay et de raccourcis uniquement.
+[*]Options > Écran : limiteur de FPS. Mods > Renderforge : préférences d'overlay et de raccourcis uniquement.
 [*]Les réglages s'appliquent immédiatement, sauf le rendu : choisissez-le, cliquez sur Appliquer et confirmez le redémarrage. Les choix non pris en charge sont grisés.
 [/list]
 

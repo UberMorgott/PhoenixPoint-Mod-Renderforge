@@ -13,7 +13,6 @@
 [*][b]Jakość:[/b] wyłączenie winiety w misjach taktycznych i na Geoscape, bardzo wysokie cienie, wymuszenie filtrowania anizotropowego 16x i więcej detali odległych modeli przez LOD. Pozycja „Jak w grze” przywraca wartość z presetu graficznego.
 [*][b]Renderer:[/b] przełączanie DirectX 11 / DirectX 12 w grze; wymaga restartu.
 [*][b]FPS:[/b] usunięcie oryginalnej blokady 60 FPS; opcjonalny limit 30–300 FPS obejmuje generowane klatki.
-[*][b]Wyraźne ikony:[/b] interfejs zaprojektowano dla 4K, a w niższych rozdzielczościach jest pomniejszany. Opcja włącza filtrowanie trójliniowe z anizotropią 8x dla atlasów interfejsu z mipmapami, wygładzając przejścia między poziomami mip i usuwając skokowe zmiany ikon. Ikony bez mipmap pozostają bez zmian. Domyślnie włączona.
 [*][b]Skróty:[/b] Ctrl+Alt+O włącza/wyłącza nakładkę pomiarową (renderer, upscaler, rozdzielczość, czas klatki i FPS); Ctrl+Alt+U wyłącza/włącza upscaler.
 [/list]
 
@@ -32,7 +31,7 @@
 [list=1]
 [*]Włącz Renderforge w Mods i uruchom grę ponownie. Aktualizacja może wymagać kolejnego restartu.
 [*]Opcje > Grafika: renderer, upscaler, jakość, generowanie klatek, ostrość, filtry i ustawienia jakości.
-[*]Opcje > Ekran: limit FPS i wyraźne ikony. Mods > Renderforge: tylko ustawienia nakładki i skrótów.
+[*]Opcje > Ekran: limit FPS. Mods > Renderforge: tylko ustawienia nakładki i skrótów.
 [*]Ustawienia działają od razu, poza rendererem: wybierz go, naciśnij Zastosuj i potwierdź restart. Nieobsługiwane opcje są wyszarzone.
 [/list]
 

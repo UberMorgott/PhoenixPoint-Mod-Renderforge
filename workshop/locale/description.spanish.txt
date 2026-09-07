@@ -13,7 +13,6 @@
 [*][b]Calidad:[/b] desactiva el viñeteado en misiones tácticas y en el Geoscape, elige sombras muy altas, fuerza el filtrado anisotrópico 16x y aumenta el detalle de modelos lejanos con LOD. Cada posición «Como en el juego» restaura el valor del preajuste gráfico.
 [*][b]Renderizador:[/b] cambia entre DirectX 11 y DirectX 12 desde el juego; requiere reiniciar.
 [*][b]FPS:[/b] elimina el bloqueo original de 60 FPS; límite opcional de 30–300 FPS que incluye fotogramas generados.
-[*][b]Iconos nítidos:[/b] la interfaz está diseñada para 4K y se muestra a menor tamaño en resoluciones inferiores. La opción aplica filtrado trilineal con anisotropía 8x a los atlas de interfaz con mipmaps, suavizando las transiciones entre niveles mip para que los iconos dejen de cambiar a saltos. Los iconos sin mipmaps no cambian. Activada por defecto.
 [*][b]Atajos:[/b] Ctrl+Alt+O muestra/oculta el overlay de medición (renderizador, reescalador, resolución, tiempo por fotograma y FPS); Ctrl+Alt+U desactiva/activa el reescalador.
 [/list]
 
@@ -32,7 +31,7 @@
 [list=1]
 [*]Activa Renderforge en Mods y reinicia una vez. Tras una actualización puede ser necesario reiniciar de nuevo.
 [*]Opciones > Gráficos: renderizador, reescalador, calidad, generación de fotogramas, nitidez, filtros y ajustes de calidad.
-[*]Opciones > Pantalla: límite de FPS e iconos nítidos. Mods > Renderforge: solo preferencias del overlay y los atajos.
+[*]Opciones > Pantalla: límite de FPS. Mods > Renderforge: solo preferencias del overlay y los atajos.
 [*]Los ajustes se aplican al momento, salvo el renderizador: elígelo, pulsa Aplicar y confirma el reinicio. Las opciones no compatibles aparecen deshabilitadas.
 [/list]
 

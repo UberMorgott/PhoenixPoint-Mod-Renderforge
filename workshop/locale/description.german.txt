@@ -13,7 +13,6 @@
 [*][b]Qualität:[/b] Vignette in taktischen Missionen und auf dem Geoscape abschalten, sehr hohe Schatten wählen, anisotrope Filterung mit 16x erzwingen und entfernte Modelle über LOD detaillierter darstellen. Jede Stellung „Wie im Spiel“ stellt den Wert der Grafikvoreinstellung wieder her.
 [*][b]Renderer:[/b] im Spiel zwischen DirectX 11 und DirectX 12 wechseln; Neustart erforderlich.
 [*][b]FPS:[/b] hebt die ursprüngliche 60-FPS-Begrenzung auf; optionales Limit von 30–300 FPS einschließlich generierter Frames.
-[*][b]Klare Symbole:[/b] die Oberfläche ist für 4K ausgelegt und wird bei niedrigeren Auflösungen verkleinert. Die Option stellt Oberflächenatlanten mit Mipmaps auf trilineare Filterung mit 8x Anisotropie um und glättet die Übergänge zwischen Mip-Stufen, damit Symbole nicht mehr sprunghaft wechseln. Symbole ohne Mipmaps bleiben unverändert. Standardmäßig an.
 [*][b]Tastenkürzel:[/b] Strg+Alt+O schaltet das Benchmark-Overlay um (Renderer, Upscaler, Auflösung, Framezeit und FPS); Strg+Alt+U schaltet den Upscaler aus/ein.
 [/list]
 
@@ -32,7 +31,7 @@
 [list=1]
 [*]Aktiviere Renderforge unter Mods und starte einmal neu. Nach einem Update kann ein weiterer Neustart nötig sein.
 [*]Optionen > Grafik: Renderer, Upscaler, Qualität, Frame-Generierung, Schärfe, Bildfilter und Qualitätsregler.
-[*]Optionen > Bildschirm: FPS-Limit und klare Symbole. Mods > Renderforge: nur Overlay- und Tastenkürzel-Einstellungen.
+[*]Optionen > Bildschirm: FPS-Limit. Mods > Renderforge: nur Overlay- und Tastenkürzel-Einstellungen.
 [*]Einstellungen wirken sofort, außer dem Renderer: auswählen, Übernehmen drücken und den Neustart bestätigen. Nicht unterstützte Optionen sind ausgegraut.
 [/list]
 
