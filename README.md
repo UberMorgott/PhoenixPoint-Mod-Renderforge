@@ -91,9 +91,9 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | Scene style | Off | Cartoon or PixelArt; live 0–100 strength, default 100. This is screen filtering, not a geometry replacement. |
 | Pixel block size | 2 | Actual output pixels; adjustable from 2 to 16. |
 | Colour vision | Off | Deuteranopia, Protanopia or Tritanopia correction in tactical missions and on the Geoscape, at full strength. Scene only: the HUD and menus are drawn after this pass and stay uncorrected. |
-| Black point | 0 | Raises the black level, 0–40; 0 = off. Live, scene only. |
-| White point | 255 | Lowers the white level, 215–255; 255 = off. Live, scene only. |
-| Contrast | 100 | 50–150 about mid-grey; 100 = off, below flattens, above deepens. Live, scene only. |
+| Black point | 0 | Input black level, 0–40: pixels darker than this become black and the rest stretch (deeper shadows); 0 = off. Live, scene only. |
+| White point | 255 | Input white level, 215–255: pixels brighter than this become white (brighter highlights); 255 = off. Live, scene only. |
+| Contrast | 100 | 50–150, pivots at mid-grey; 100 = off, below flattens, above deepens (dark scenes get darker). Live, scene only. |
 | Clarity | 0 | Local contrast on fine detail (luma unsharp mask, ~10 px radius at 1080p), 0–100; 0 = off. Live, scene only. |
 | Vignette | Vanilla | Vanilla keeps the game's own vignette; Off removes the darkened frame edges, in tactical missions and on the Geoscape. |
 | Shadow resolution | Vanilla | Vanilla keeps the graphics preset's value; Very High raises the shadow map size. |
