@@ -197,7 +197,7 @@ namespace Renderforge
             bool lutActive = cfg != null && cfg.Lut != LutPreset.Off && cfg.LutStrength > 0;
             // Sharpness is its own reason to run: with the upscaler Off the NIS pass is the only thing on the frame.
             bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg)
-                || ColorVisionPanel.Active(cfg) || (cfg != null && cfg.Sharpness > 0);
+                || ColorVisionPanel.Active(cfg) || GradePanel.Active(cfg) || (cfg != null && cfg.Sharpness > 0);
             switch (gen)
             {
                 case Gen.Idle:
@@ -521,6 +521,9 @@ namespace Renderforge
                         Mathf.Clamp01(cfg.SceneStyleStrength / 100f), Mathf.Clamp(cfg.PixelSize, 2, 16));
                 if (ColorVisionPanel.Active(cfg))
                     Native.Dlss_SetColorVision(slot, (int)cfg.ColorVision);
+                if (GradePanel.Active(cfg))
+                    Native.Dlss_SetGrade(slot, Mathf.Clamp(cfg.LevelsBlack, 0, 40) / 255f, Mathf.Clamp(cfg.LevelsWhite, 215, 255) / 255f,
+                        Mathf.Clamp(cfg.Contrast, 50, 150) / 100f, Mathf.Clamp(cfg.Clarity, 0, 100) / 100f);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
                 if (FrameGen.Live && !FrameGen.HoldPrepare)

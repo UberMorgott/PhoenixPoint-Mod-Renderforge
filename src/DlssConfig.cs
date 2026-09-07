@@ -53,7 +53,7 @@ namespace Renderforge
             nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
             nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts),
             nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias),
-            nameof(ColorVision)
+            nameof(ColorVision), nameof(LevelsBlack), nameof(LevelsWhite), nameof(Contrast), nameof(Clarity)
         };
 
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance. Needs an active upscaler.")]
@@ -72,6 +72,15 @@ namespace Renderforge
         public int PixelSize = 4;
         [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Scene only; the HUD stays unchanged. Also in Options → Graphics.")]
         public ColorVisionMode ColorVision = ColorVisionMode.None;
+        // ReShade-style Levels / Contrast / Clarity in the same post pass (GradePanel sliders, live every frame).
+        [ConfigField("Black point", "Raises the black level; 0 = off.")]
+        public int LevelsBlack = 0;                     // 0..40
+        [ConfigField("White point", "Lowers the white level; 255 = off.")]
+        public int LevelsWhite = 255;                   // 215..255
+        [ConfigField("Contrast", "100 = off; below flattens, above deepens.")]
+        public int Contrast = 100;                      // 50..150
+        [ConfigField("Clarity", "Local contrast on fine detail; 0 = off. Scene only; the HUD stays unchanged.")]
+        public int Clarity = 0;                         // 0..100
         [ConfigField("Crisp fonts", "Sharper supported interface text with its original layout. Also in Options → Screen.")]
         public bool CrispFonts = true;
         [ConfigField("Show DLSS in Graphics options")]
@@ -119,6 +128,10 @@ namespace Renderforge
             { nameof(SceneStyleStrength), new[] { "Сила стилизации", "0 = оригинал, 100 = полный эффект. Применяется сразу." } },
             { nameof(PixelSize), new[] { "Размер пикселя", "По умолчанию 4 пикселя экрана. Диапазон 2–16: от мелкой до крупной пикселизации." } },
             { nameof(ColorVision), new[] { "Цветовое зрение", "Выкл, дейтеранопия, протанопия или тританопия. Перераспределяет неразличимые цвета на различимые каналы. Только тактические миссии; только сцена, интерфейс рисуется после этого прохода. Также в Настройки → Графика." } },
+            { nameof(LevelsBlack), new[] { "Точка чёрного", "Поднимает уровень чёрного; 0 = выкл." } },
+            { nameof(LevelsWhite), new[] { "Точка белого", "Понижает уровень белого; 255 = выкл." } },
+            { nameof(Contrast), new[] { "Контраст", "100 = выкл; меньше — площе, больше — контрастнее." } },
+            { nameof(Clarity), new[] { "Чёткость", "Локальный контраст мелких деталей; 0 = выкл. Только сцена, интерфейс не меняется." } },
             { nameof(CrispFonts), new[] { "Чёткие шрифты", "Повышает чёткость поддерживаемого текста интерфейса, сохраняя расположение букв. Также в Настройки → Экран." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

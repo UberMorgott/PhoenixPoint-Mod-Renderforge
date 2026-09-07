@@ -408,6 +408,21 @@ namespace Renderforge
             return "colorVision=" + value;
         }
 
+        /// <summary>PPCLI/live A-B surface for the Levels / Contrast / Clarity sliders: black 0..40, white 215..255,
+        /// contrast 50..150, clarity 0..100 (defaults 0 / 255 / 100 / 0 = off). Read every frame like colour vision.</summary>
+        public static string SetGrade(int black, int white, int contrast, int clarity)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.LevelsBlack = Mathf.Clamp(black, 0, 40);
+            m.Cfg.LevelsWhite = Mathf.Clamp(white, 215, 255);
+            m.Cfg.Contrast = Mathf.Clamp(contrast, 50, 150);
+            m.Cfg.Clarity = Mathf.Clamp(clarity, 0, 100);
+            SaveConfig();
+            GradePanel.Sync();
+            return "black=" + m.Cfg.LevelsBlack + " white=" + m.Cfg.LevelsWhite + " contrast=" + m.Cfg.Contrast + " clarity=" + m.Cfg.Clarity;
+        }
+
         /// <summary>PPCLI: {"member":"SetFrameGen","args":["X2"]} - Off / X2 / X3 / X4. Live next frame + saved.</summary>
         public static string SetFrameGen(string mode)
         {

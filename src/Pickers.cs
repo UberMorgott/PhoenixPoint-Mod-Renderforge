@@ -88,6 +88,7 @@ namespace Renderforge
             onChanged = null;
             LutPanel.Clear();
             ColorVisionPanel.Clear();
+            GradePanel.Clear();
             SceneStylePanel.Clear();
             QualityPanel.Clear();
         }

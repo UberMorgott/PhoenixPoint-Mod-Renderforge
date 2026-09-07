@@ -41,6 +41,7 @@ namespace Renderforge
                     if (hidden != null) hidden.gameObject.SetActive(false);
                     LutPanel.Hide(src.transform.parent);
                     ColorVisionPanel.Hide(src.transform.parent);
+                    GradePanel.Hide(src.transform.parent);
                     SceneStylePanel.Hide(src.transform.parent);
                     QualityPanel.Hide(src.transform.parent);
                     return;
@@ -62,6 +63,7 @@ namespace Renderforge
                 BuildSlider(__instance, picker.transform, mod.Cfg);
                 after = LutPanel.Build(__instance, sharp != null ? sharp.transform.parent : picker.transform, mod.Cfg);
                 after = ColorVisionPanel.Build(__instance, after, mod.Cfg);
+                after = GradePanel.Build(__instance, after, mod.Cfg);
                 after = SceneStylePanel.Build(__instance, after, mod.Cfg);
                 QualityPanel.Build(__instance, after, mod.Cfg);
                 SyncQuality();
