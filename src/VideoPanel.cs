@@ -19,13 +19,14 @@ namespace Renderforge
         private const string ToggleName = "DlssFrameLimitToggle";
         private const string SliderName = "DlssFrameLimitSlider";
         private const string FontsName = "RenderforgeCrispFonts";
+        private const string IconsName = "RenderforgeCrispIcons";
         private static bool loggedError;
-        private static Toggle limit, vsync, fonts;
+        private static Toggle limit, vsync, fonts, icons;
         private static Slider fps;
         private static Transform fpsValue;
         private static Action onChanged;
         private static bool pendingLimit;
-        private static bool pendingFonts;
+        private static bool pendingFonts, pendingIcons;
         private static int pendingFps;
 
         [HarmonyPostfix, HarmonyPatch("Init", new Type[0])]
@@ -39,6 +40,7 @@ namespace Renderforge
                 var cfg = mod.Cfg;
                 pendingLimit = cfg.LimitFrameRate;
                 pendingFonts = cfg.CrispFonts;
+                pendingIcons = cfg.CrispIcons;
                 pendingFps = Mathf.Clamp(cfg.FrameRateLimit, 30, 300);
                 onChanged = Traverse.Create(__instance).Field("_onChanged").GetValue<Action>();
 
@@ -56,6 +58,17 @@ namespace Renderforge
                 fonts.SetIsOnWithoutNotify(pendingFonts);
                 fonts.onValueChanged.RemoveAllListeners();
                 fonts.onValueChanged.AddListener(on => { pendingFonts = on; onChanged?.Invoke(); });
+
+                var rowD = content.Find(IconsName) ?? Clone(row, IconsName, row.GetSiblingIndex() + 4);
+                icons = rowD.GetComponentInChildren<Toggle>(true);
+                GraphicsPanel.SetRaw(rowD.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
+                    DlssConfig.Loc("Crisp icons", "Чёткие значки").ToUpperInvariant());
+                GraphicsPanel.Tip(icons.gameObject, DlssConfig.Loc(
+                    "Trilinear filtering with anisotropy for interface icons drawn smaller than their source (the UI is authored for 4K). Icons without mipmaps are unchanged.",
+                    "Трилинейная фильтрация с анизотропией для значков интерфейса, отрисованных меньше исходного размера (интерфейс нарисован под 4K). Значки без мип-уровней не меняются."));
+                icons.SetIsOnWithoutNotify(pendingIcons);
+                icons.onValueChanged.RemoveAllListeners();
+                icons.onValueChanged.AddListener(on => { pendingIcons = on; onChanged?.Invoke(); });
 
                 // Row prefab children (live dump 2026-09-02): "Slider" (inactive on the VSync row), "Keybinds" (inactive,
                 // carries Localize texts of its own - never search by component), label "UITextGeneric_Medium (1)",
@@ -103,7 +116,7 @@ namespace Renderforge
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg != null && limit != null) __result |= pendingLimit != cfg.LimitFrameRate || pendingFps != cfg.FrameRateLimit
-                || (fonts != null && pendingFonts != cfg.CrispFonts);
+                || (fonts != null && pendingFonts != cfg.CrispFonts) || (icons != null && pendingIcons != cfg.CrispIcons);
         }
 
         [HarmonyPostfix, HarmonyPatch("Apply")]
@@ -112,11 +125,13 @@ namespace Renderforge
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg == null || limit == null) return;
             if (pendingLimit == cfg.LimitFrameRate && pendingFps == cfg.FrameRateLimit
-                && (fonts == null || pendingFonts == cfg.CrispFonts)) return;
+                && (fonts == null || pendingFonts == cfg.CrispFonts) && (icons == null || pendingIcons == cfg.CrispIcons)) return;
             cfg.LimitFrameRate = pendingLimit;
             cfg.FrameRateLimit = pendingFps;
             if (fonts != null) cfg.CrispFonts = pendingFonts;
+            if (icons != null) cfg.CrispIcons = pendingIcons;
             CrispFonts.Apply(cfg.CrispFonts);
+            CrispIcons.Apply(cfg.CrispIcons);
             RenderforgeMod.ApplyFrameRate();
             RenderforgeMod.SaveConfig();
         }

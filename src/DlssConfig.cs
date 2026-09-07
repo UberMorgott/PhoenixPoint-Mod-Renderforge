@@ -51,7 +51,7 @@ namespace Renderforge
         {
             nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen),
             nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
-            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts),
+            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts), nameof(CrispIcons),
             nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias),
             nameof(ColorVision), nameof(LevelsBlack), nameof(LevelsWhite), nameof(Contrast), nameof(Clarity)
         };
@@ -83,6 +83,8 @@ namespace Renderforge
         public int Clarity = 0;                         // 0..100
         [ConfigField("Crisp fonts", "Sharper supported interface text with its original layout. Also in Options → Screen.")]
         public bool CrispFonts = true;
+        [ConfigField("Crisp icons", "Trilinear filtering with anisotropy for interface icons drawn smaller than their source (the UI is authored for 4K). Icons without mipmaps are unchanged.")]
+        public bool CrispIcons = true;
         [ConfigField("Show DLSS in Graphics options")]
         public bool ShowInGraphicsOptions = true;
         // Pressed together with Ctrl+Alt (fixed chord, like ContentTool's fit bench Ctrl+Alt+B). No F-keys/Insert/End:
@@ -133,6 +135,7 @@ namespace Renderforge
             { nameof(Contrast), new[] { "Контраст", "100 = выкл; меньше — площе, больше — контрастнее." } },
             { nameof(Clarity), new[] { "Чёткость", "Локальный контраст мелких деталей; 0 = выкл. Только сцена, интерфейс не меняется." } },
             { nameof(CrispFonts), new[] { "Чёткие шрифты", "Повышает чёткость поддерживаемого текста интерфейса, сохраняя расположение букв. Также в Настройки → Экран." } },
+            { nameof(CrispIcons), new[] { "Чёткие значки", "Трилинейная фильтрация с анизотропией для значков интерфейса, отрисованных меньше исходного размера (интерфейс нарисован под 4K). Значки без мип-уровней не меняются." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
             { nameof(OverlayHotkey), new[] { "Клавиша оверлея (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

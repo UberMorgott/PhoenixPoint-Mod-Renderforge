@@ -472,6 +472,29 @@ player actually sees. Runs wherever the pass runs (tactical + geoscape); the HUD
   `uv = affine(U2, t)` — the label samples the 2x atlas exactly where vanilla drew the glyph. Guard: 2x size or min
   off by more than 2 texels from 2x the 1x values → that glyph keeps its vanilla `uv0`; whole-label mismatch → vanilla mesh.
 
+### Crisp icons (1.5.0)
+
+- **Facts (1440p, measured 2026-09-07).** `GeoscapeUICanvas` / `TacticalUICanvas` = `ScaleWithScreenSize`,
+  reference 3840x2160, `scaleFactor` 0.6667 → every UI sprite is DOWNscaled ×1.5…×10. Main atlas
+  `sactx-4096x4096…UIAtlas_UI`: RGBA32, 13 mips, `filterMode = Bilinear` (mip snapping, no inter-mip blend).
+  Standalone sprite textures (`Manticore_smaller` 256² BC7, `PXBasePopup_ScanRange_uinomipmaps` 70² RGBA32) have
+  `mipmapCount = 1` — `Trilinear` is set on them but meaningless without mips. Material `UI/Default`. (The
+  2026-09-02 mip-bias note "sprites have no mips" above was about those standalone sprites; the atlas does have mips.)
+- **Rule** (`src\CrispIcons.cs`): for every active `Image`/`RawImage` whose `canvas.rootCanvas.renderMode ==
+  ScreenSpaceOverlay` (same gate as `CrispFonts.Supported`) and whose `mainTexture.mipmapCount > 1`: record
+  `(filterMode, anisoLevel)` once per texture, then write `Trilinear` + `anisoLevel = 8`. `mipmapCount == 1` →
+  counted as skipped, untouched. The write is sampler state on a shared texture, so a world/camera canvas using the
+  same atlas changes too — no pixels are touched, nothing is copied.
+- **Lifecycle.** `Apply(bool)` from `OnModEnabled` / `OnConfigChanged` / the Screen panel's Apply; `Sweep()` on
+  `OnLevelStart` and from `Canvas.willRenderCanvases` throttled to one sweep per 180 frames (~3 s) — no per-frame
+  `FindObjectsOfType`. `Dispose()` (`OnModDisabled`, toggle Off) writes the originals back on every recorded texture
+  still alive; no-op when nothing was recorded. Log once per enable: `crisp icons: N textures trilinear (M skipped:
+  no mips)`. PPCLI: `call Renderforge.CrispIcons.Status`.
+- **Not covered (follow-up).** Textures with `mipmapCount == 1` drawn at ratio > 1.3 stay bilinear-minified: a
+  mipmapped copy needs a readable texture or an RT blit, and `Image` cannot draw an RT-backed sprite
+  (`Sprite.Create` takes a `Texture2D`), so it needs a `Texture2D` round-trip per sprite — not built. `anisoLevel`
+  is ignored while `QualitySettings.anisotropicFiltering == Disable`; the Quality-knob `Force16` limits override it to 16.
+
 ### Data flow per frame
 
 ```
