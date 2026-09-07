@@ -633,7 +633,9 @@ namespace Renderforge
         public static string SetMarkerOverlay(bool on)
         {
             Diagnostics.MarkerOverlay = on;
-            if (!on) GeoMarkerOverlay.Restore();   // on: the driver's next Live frame re-arms through GeoMarkerOverlay.Tick
+            var d = DlssDriver.Instance;
+            if (!on) GeoMarkerOverlay.Restore();
+            else if (d != null && d.IsLive) GeoMarkerOverlay.Tick(d.SceneCamera, d.Passthrough);   // arm now (same gates as the driver's Tick), not next frame
             return "markerOverlay=" + on + " " + GeoMarkerOverlay.Status();
         }
 

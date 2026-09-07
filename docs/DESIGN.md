@@ -551,12 +551,26 @@ stage, same early-out when all eight uniforms are zero.
   (the game names every layer but **15**; picked by `LayerMask.LayerToName`), `GeoscapeCamera.cullingMask` loses that
   bit (re-asserted every frame), and the driver's own `DlssPresent` camera draws the layer at output resolution: its
   outRT blit moves from `AfterEverything` to `BeforeForwardOpaque`, a depth-only `ClearRenderTarget` follows it, the
-  camera goes `Forward` with `cullingMask = 1 << 15`, and a `Sync` MonoBehaviour copies GeoscapeCamera's pose, rect,
-  fov, near/far and `projectionMatrix` in `OnPreCull` (GeoscapeCamera has already rendered and reset its jitter by
-  then). `CanvasIcons.worldCamera` = that camera; site picking is untouched (physics raycast on `PickingCollider`,
+  camera goes `Forward` with `cullingMask = 1 << 15` and `clearFlags = Depth` (the blit writes colour only, so the
+  camera's own depth clear replaces a second command buffer), and a `Sync` MonoBehaviour copies GeoscapeCamera's pose,
+  rect, fov, near/far and `projectionMatrix` in its `OnPreCull` - pose only. Every LAYER-OWNERSHIP change (mask
+  re-assert, rescan, horizon classification) runs in GeoscapeCamera's own pre-cull (`Camera.onPreCull` filtered to
+  it), BEFORE it culls, so both cameras draw one frame with one near/far split (done from the present camera's
+  OnPreCull, after GeoscapeCamera rendered, a side change dropped or doubled a marker for a frame). Bit 15 is stripped
+  from EVERY enabled camera but the present one (`Camera.allCameras`, at activation and each rescan) and given back on
+  release. `CanvasIcons.worldCamera` = that camera; site picking is untouched (physics raycast on `PickingCollider`,
   layer 20, `ProbeMarkerClick` verifies pixel parity through both cameras). Everything is restored in
-  `DlssDriver.Detach` (release, level end, mode Off, provider switch): layers, worldCamera, mask, command-buffer
-  event, rendering path.
+  `DlssDriver.Detach` (release, level end, mode Off, provider switch) or the moment a gate closes: layers,
+  worldCamera, every camera mask, command-buffer event, and the present camera's full snapshot (rect, fov,
+  orthographic/size, near/far, projection, mask, clear flags, path, depth, local pose) taken before the first Sync.
+  An exception anywhere in the overlay logs once, restores, and sets `Diagnostics.MarkerOverlay = false` for the
+  session - the upscaler never goes down for a marker walk.
+- **Gates** (`GeoMarkerOverlay.Blocker`, checked every Live frame, closing one releases at once): scene camera is
+  `GeoscapeCamera`, generation not passthrough, **D3D11 only**, **frame generation Off** (config and live), and
+  **`Cfg.ColorVision == None`** - the markers bypass the shim's post pass, so daltonisation would stop covering the
+  colour-coded icons, FG's interpolated frames would lack them, and the D3D12 sRGB blend of this pass is untested;
+  every other combination keeps the vanilla path unchanged. Plus the curtain / mask gates below. Each "not armed"
+  reason is logged once.
 - **A third screen camera does not work here** (measured, `marker-cam\results.md`): a separate marker camera after
   DlssPresent (any clearFlags, any depth) leaves the present blit out of the buffer the HUD and end-of-frame
   `ReadPixels` see - stale frames with marker trails; disabling it brings the blit back. Drawing with the present
@@ -568,12 +582,14 @@ stage, same early-out when all eight uniforms are zero.
 - **Far side:** vanilla hid far-side markers with the globe's depth buffer, which the cleared depth cannot; a
   segment/sphere test (centre origin, `GlobeUnits.GlobeRadius`, `PhoenixPoint.Common.Core\GlobeUnits.cs:28`) hands a
   site whose pivot is behind the globe back to its original layers (drawn by GeoscapeCamera again, depth-hidden as
-  before), a quarter of the ~425 active sites per frame. No second hidden layer exists.
+  before), a quarter of the ~425 active sites per frame; a newly seen site is classified by the same test before it
+  is layered, so a far-side site never gets a frame through the globe. No second hidden layer exists.
 - **New markers:** no Harmony seam - sites, highlight, addon, mission and diplomatic visuals spawn from several
   places (`GeoSiteVisualsController.cs:410,561,601,627`, `AddSiteDetailsVisuals` :175, `GeoActorSpawner`), so a rescan
-  every 60 frames takes over newly active sites and re-walks known ones only when the geoscape hierarchy's
-  `Transform.hierarchyCount` moved (one number for the whole `Geoscape` tree: a change anywhere re-walks every near
-  site, ~5 ms, rare).
+  runs every 60 frames but does its work only when the geoscape hierarchy's `Transform.hierarchyCount` moved AND the
+  last walk is >= 1 s old (one number for the whole `Geoscape` tree: a change anywhere re-walks every near site, ~5 ms
+  ceiling). The same pass prunes destroyed keys from every map and strips bit 15 from cameras that appeared since.
+  The `SiteSpecialAddonContainer` / `SiteUniqueAddonContainer` subtrees (:50/:52) are excluded by direct reference.
 - **Known look difference:** the markers no longer pass through PPv2's HDR tonemapping/grade: whites reach 255
   (vanilla caps at 246), the unknown-site disk reads as a translucent grey instead of crushed black
   (`marker-cam\still2-site116-on-vs-vanilla.png`), and a parked aircraft now sits under the soldier row instead of

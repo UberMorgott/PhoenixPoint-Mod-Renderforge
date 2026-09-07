@@ -261,7 +261,7 @@ namespace Renderforge
                         if ((e & 0xFFF00000) == 0xBAD00000) { Fail("NGX evaluate failed: 0x" + e.ToString("X") + " " + Native.Dlss_ResultString(e) + " lastError=" + Native.Dlss_LastError()); break; }
                     }
                     KeepCameraState();
-                    GeoMarkerOverlay.Tick(cam, passthrough);   // arms once the geoscape's level curtain is lifted; no-op elsewhere
+                    GeoMarkerOverlay.Tick(cam, passthrough);   // gated (geoscape, curtain up, D3D11, no FG, no colour vision); never throws
                     FrameGen.Retry();
                     if (mipReapplyAt > 0f && Time.unscaledTime >= mipReapplyAt) { mipReapplyAt = 0f; MipBias.Reapply(); }
                     break;
