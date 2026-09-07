@@ -81,8 +81,9 @@ namespace Renderforge
         public int Contrast = 100;                      // 50..150
         [ConfigField("Clarity", "Local contrast on fine detail; 0 = off. Scene only; the HUD stays unchanged.")]
         public int Clarity = 0;                         // 0..100
-        // Legacy (feature removed in 1.5.0): kept so an old ModConfig.json still round-trips; no UI, ignored at runtime
-        // (OnModEnabled logs once when it is true).
+        // Default Off since 1.5.0: Sobel ON/OFF = 1.00 at 1440p (glyphs already rasterise 1:1 at fontSize x scaleFactor).
+        // LoadFromRawConfig only writes keys present in ModConfig.json, so an existing `true` stays.
+        [ConfigField("Crisp fonts", "Sharper supported interface text with its original layout. Experimental: no measurable effect at 1440p in our tests; kept for 4K+ and custom UI scales.")]
         public bool CrispFonts = false;
         [ConfigField("Show DLSS in Graphics options")]
         public bool ShowInGraphicsOptions = true;
@@ -133,6 +134,7 @@ namespace Renderforge
             { nameof(LevelsWhite), new[] { "Точка белого", "Пиксели ярче этого значения становятся белыми — светлые участки ярче. 255 = выкл." } },
             { nameof(Contrast), new[] { "Контраст", "Опорная точка — средний серый: 100 = выкл, ниже — мягче, выше — контрастнее (тёмные сцены темнеют)." } },
             { nameof(Clarity), new[] { "Чёткость", "Локальный контраст мелких деталей; 0 = выкл. Только сцена, интерфейс не меняется." } },
+            { nameof(CrispFonts), new[] { "Чёткие шрифты", "Повышает чёткость поддерживаемого текста интерфейса, сохраняя расположение букв. Экспериментально: в наших тестах на 1440p измеримого эффекта нет; оставлено для 4K+ и нестандартного масштаба интерфейса." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
             { nameof(OverlayHotkey), new[] { "Клавиша оверлея (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

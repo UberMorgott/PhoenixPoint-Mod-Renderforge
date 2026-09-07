@@ -460,12 +460,24 @@ player actually sees. Runs wherever the pass runs (tactical + geoscape); the HUD
   `grade=32711` pixels differ from the copy); managed build 0/0; `qgate -All -Full` green. In-game per-knob
   screenshots and the 1440p frame-time delta are the acceptance step still owed (plan Track C).
 
-### Crisp fonts (1.4.x) — REMOVED in 1.5.0
+### Crisp fonts (1.4.x, fix 1.5.0)
 
-- Measurements 2026-09-07 (`docs\research\2026-09-05-crisp-ui-measurement.md`): Sobel ON/OFF = 1.00 at 1440p (glyphs
-  already rasterise 1:1 at `fontSize × scaleFactor`), only 13/34 labels passed the glyph-mapping gate, ~600 LOC, and
-  1.4.1 shipped a glyph-drift regression. Code, probes, UI row and strings deleted; `DlssConfig.CrispFonts` stays as
-  a hidden legacy key so old `ModConfig.json` files round-trip (`OnModEnabled` logs once when it is `true`).
+- **Covered:** exact `UnityEngine.UI.Text` with a dynamic font, default UI material, root ScreenSpaceOverlay canvas
+  (HUD, geoscape resource bar, Options). **Not covered:** sprites/icons, bitmap fonts, Text subclasses, custom
+  materials, world/camera canvases, TextMeshPro labels (never touched).
+- **Rule:** Harmony postfix on `Text.OnPopulateMesh` (`src\FontRasterCorrection.cs`) keeps every vanilla vertex
+  attribute and rewrites only `uv0` from a second `TextGenerator` run at `scaleFactor * 2`
+  (`FontGlyphMapping.Check` gates structure). Per glyph (`src\FontUvRemap.cs`): the 2x quad is not exactly 2x the 1x
+  quad (integer texel rounding), so `t = (2 * p1 - R2.min) / R2.size` maps each 1x vertex into the 2x quad and
+  `uv = affine(U2, t)` — the label samples the 2x atlas exactly where vanilla drew the glyph. Guard: 2x size or min
+  off by more than 2 texels from 2x the 1x values → that glyph keeps its vanilla `uv0`; whole-label mismatch → vanilla mesh.
+- **Honesty (2026-09-07, default Off since 1.5.0).** Measured Sobel ON/OFF = 1.00 at 1440p: glyphs are already
+  rasterised 1:1 at `fontSize × scaleFactor` (the canvases scale from a 3840x2160 reference, 0.6667 at 1440p), and
+  the 2x glyphs land in the same 512² dynamic atlas; only 13/34 sampled labels pass `FontGlyphMapping.Check`, the
+  rest fall back to the vanilla mesh. Tooltip says so ("Experimental. No measurable effect at 1440p in our tests;
+  kept for 4K+/custom UI scales"). `DlssConfig.CrispFonts = false` affects fresh configs only —
+  `ModConfig.LoadFromRawConfig` (`ModConfig.cs:45`) writes only the keys present in `ModConfig.json`, so an existing
+  `true` stays.
 
 ### Crisp icons — evaluated and dropped (2026-09-07)
 
