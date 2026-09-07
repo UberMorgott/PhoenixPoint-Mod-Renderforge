@@ -104,15 +104,15 @@ namespace Renderforge
             switch (Running)
             {
                 case UpscalerKind.FSR:
-                {
-                    string v = Native.ProviderVersion();
-                    return v.Length > 0 ? "FSR " + v : "FSR";
-                }
+                    {
+                        string v = Native.ProviderVersion();
+                        return v.Length > 0 ? "FSR " + v : "FSR";
+                    }
                 case UpscalerKind.XeSS:
-                {
-                    string v = Native.ProviderVersion();      // "2.0.2 DP4a" / "2.0.2 XMX" = version + execution path
-                    return v.Length > 0 ? "XeSS " + v : "XeSS";
-                }
+                    {
+                        string v = Native.ProviderVersion();      // "2.0.2 DP4a" / "2.0.2 XMX" = version + execution path
+                        return v.Length > 0 ? "XeSS " + v : "XeSS";
+                    }
                 case UpscalerKind.DLSS: return "DLSS SR (nvngx " + nvngxVersion + ")";
                 default: return "off";
             }

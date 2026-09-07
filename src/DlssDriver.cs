@@ -313,7 +313,12 @@ namespace Renderforge
                 var desc = new RenderTextureDescriptor(renderW, renderH)
                 {
                     graphicsFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_SRGB,
-                    sRGB = true, depthBufferBits = 0, msaaSamples = 1, enableRandomWrite = false, useMipMap = false, autoGenerateMips = false,
+                    sRGB = true,
+                    depthBufferBits = 0,
+                    msaaSamples = 1,
+                    enableRandomWrite = false,
+                    useMipMap = false,
+                    autoGenerateMips = false,
                 };
                 colorRT = new RenderTexture(desc) { name = "DLSS color", filterMode = FilterMode.Point };
                 colorRT.Create();

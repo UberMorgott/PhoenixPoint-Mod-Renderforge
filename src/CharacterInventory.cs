@@ -31,7 +31,8 @@ namespace Renderforge
                     if (root != null)
                         foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
                             renderers.Add(RendererRecord(renderer, root));
-                    addons.Add(new JObject {
+                    addons.Add(new JObject
+                    {
                         ["defName"] = addon.AddonDef?.name,
                         ["defGuid"] = addon.AddonDef?.Guid.ToString(),
                         // The game retains VisualsSourcePrefab after destroying VisualRoot.
@@ -43,7 +44,8 @@ namespace Renderforge
                         ["renderers"] = renderers
                     });
                 }
-                records.Add(new JObject {
+                records.Add(new JObject
+                {
                     ["provider"] = component.GetType().FullName,
                     ["providerPath"] = HierarchyPath(component.transform, null),
                     ["managerDef"] = manager.AddonsManagerDef?.name,
@@ -57,23 +59,39 @@ namespace Renderforge
                 var properties = new JArray();
                 for (int i = 0; i < shader.GetPropertyCount(); i++)
                     properties.Add(new JObject { ["name"] = shader.GetPropertyName(i), ["type"] = shader.GetPropertyType(i).ToString() });
-                shaders.Add(new JObject { ["name"] = shader.name, ["supported"] = shader.isSupported,
-                    ["passes"] = shader.passCount, ["properties"] = properties });
+                shaders.Add(new JObject
+                {
+                    ["name"] = shader.name,
+                    ["supported"] = shader.isSupported,
+                    ["passes"] = shader.passCount,
+                    ["properties"] = properties
+                });
             }
-            var document = new JObject {
-                ["schema"] = 1, ["capturedUtc"] = DateTime.UtcNow.ToString("o"),
-                ["unity"] = Application.unityVersion, ["graphicsApi"] = SystemInfo.graphicsDeviceType.ToString(),
+            var document = new JObject
+            {
+                ["schema"] = 1,
+                ["capturedUtc"] = DateTime.UtcNow.ToString("o"),
+                ["unity"] = Application.unityVersion,
+                ["graphicsApi"] = SystemInfo.graphicsDeviceType.ToString(),
                 ["reversedZ"] = SystemInfo.usesReversedZBuffer,
                 ["classification"] = "unclassified; no masks or material changes",
-                ["characters"] = records, ["loadedShaders"] = shaders,
-                ["cameras"] = new JArray(Camera.allCameras.Select(camera => {
+                ["characters"] = records,
+                ["loadedShaders"] = shaders,
+                ["cameras"] = new JArray(Camera.allCameras.Select(camera =>
+                {
                     var target = camera.targetTexture;
-                    return new JObject {
-                        ["name"] = camera.name, ["instanceId"] = camera.GetInstanceID(),
-                        ["pixelWidth"] = camera.pixelWidth, ["pixelHeight"] = camera.pixelHeight,
-                        ["depthMode"] = camera.depthTextureMode.ToString(), ["renderingPath"] = camera.actualRenderingPath.ToString(),
-                        ["cullingMask"] = camera.cullingMask, ["fieldOfView"] = camera.fieldOfView,
-                        ["near"] = camera.nearClipPlane, ["far"] = camera.farClipPlane,
+                    return new JObject
+                    {
+                        ["name"] = camera.name,
+                        ["instanceId"] = camera.GetInstanceID(),
+                        ["pixelWidth"] = camera.pixelWidth,
+                        ["pixelHeight"] = camera.pixelHeight,
+                        ["depthMode"] = camera.depthTextureMode.ToString(),
+                        ["renderingPath"] = camera.actualRenderingPath.ToString(),
+                        ["cullingMask"] = camera.cullingMask,
+                        ["fieldOfView"] = camera.fieldOfView,
+                        ["near"] = camera.nearClipPlane,
+                        ["far"] = camera.farClipPlane,
                         ["allowMsaa"] = camera.allowMSAA,
                         ["target"] = target != null ? target.name : null,
                         ["targetWidth"] = target != null ? (int?)target.width : null,
@@ -103,22 +121,42 @@ namespace Renderforge
                 foreach (var property in material.GetTexturePropertyNames())
                 {
                     var texture = material.GetTexture(property);
-                    textures.Add(new JObject { ["property"] = property, ["name"] = texture != null ? texture.name : null,
+                    textures.Add(new JObject
+                    {
+                        ["property"] = property,
+                        ["name"] = texture != null ? texture.name : null,
                         ["instanceId"] = texture != null ? (int?)texture.GetInstanceID() : null,
-                        ["width"] = texture != null ? (int?)texture.width : null, ["height"] = texture != null ? (int?)texture.height : null });
+                        ["width"] = texture != null ? (int?)texture.width : null,
+                        ["height"] = texture != null ? (int?)texture.height : null
+                    });
                 }
-                materials.Add(new JObject { ["slot"] = slot, ["name"] = material.name, ["instanceId"] = material.GetInstanceID(),
-                    ["shader"] = material.shader != null ? material.shader.name : null, ["renderQueue"] = material.renderQueue,
+                materials.Add(new JObject
+                {
+                    ["slot"] = slot,
+                    ["name"] = material.name,
+                    ["instanceId"] = material.GetInstanceID(),
+                    ["shader"] = material.shader != null ? material.shader.name : null,
+                    ["renderQueue"] = material.renderQueue,
                     ["keywords"] = new JArray(material.shaderKeywords),
-                    ["passes"] = new JArray(Enumerable.Range(0, material.passCount).Select(material.GetPassName)), ["textures"] = textures });
+                    ["passes"] = new JArray(Enumerable.Range(0, material.passCount).Select(material.GetPassName)),
+                    ["textures"] = textures
+                });
             }
             bool unchanged = originals.SequenceEqual(renderer.sharedMaterials);
             if (!unchanged) throw new InvalidOperationException("sharedMaterials changed during capture: " + renderer.name);
-            return new JObject { ["path"] = HierarchyPath(renderer.transform, root), ["type"] = renderer.GetType().Name,
-                ["instanceId"] = renderer.GetInstanceID(), ["enabled"] = renderer.enabled,
-                ["active"] = renderer.gameObject.activeInHierarchy, ["layer"] = renderer.gameObject.layer,
-                ["mesh"] = mesh != null ? mesh.name : null, ["submeshes"] = mesh != null ? (int?)mesh.subMeshCount : null,
-                ["sharedMaterialsUnchanged"] = unchanged, ["materials"] = materials };
+            return new JObject
+            {
+                ["path"] = HierarchyPath(renderer.transform, root),
+                ["type"] = renderer.GetType().Name,
+                ["instanceId"] = renderer.GetInstanceID(),
+                ["enabled"] = renderer.enabled,
+                ["active"] = renderer.gameObject.activeInHierarchy,
+                ["layer"] = renderer.gameObject.layer,
+                ["mesh"] = mesh != null ? mesh.name : null,
+                ["submeshes"] = mesh != null ? (int?)mesh.subMeshCount : null,
+                ["sharedMaterialsUnchanged"] = unchanged,
+                ["materials"] = materials
+            };
         }
 
         private static string HierarchyPath(Transform node, Transform root)

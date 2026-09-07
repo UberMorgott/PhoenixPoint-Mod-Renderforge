@@ -70,8 +70,14 @@ namespace RenderforgeFontLifecycleDiagnostic
             var m = (Mesh)SharedMesh.GetValue(null);
             if (!m) return;
             int id = t.GetInstanceID(); Rebuilds[id] = Rebuilds.TryGetValue(id, out int n) ? n + 1 : 1;
-            Meshes[id] = new { frame = Time.frameCount, positions = m.vertices.Select(V).ToArray(),
-                uv = m.uv.Select(v => new[] { v.x, v.y }).ToArray(), colors = m.colors32, triangles = m.triangles };
+            Meshes[id] = new
+            {
+                frame = Time.frameCount,
+                positions = m.vertices.Select(V).ToArray(),
+                uv = m.uv.Select(v => new[] { v.x, v.y }).ToArray(),
+                colors = m.colors32,
+                triangles = m.triangles
+            };
         }
         static void OnLog(string msg, string stack, LogType type)
         { if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert) Errors.Add(msg); }
@@ -105,15 +111,34 @@ namespace RenderforgeFontLifecycleDiagnostic
         public static string Sample(string name)
         {
             Need(name.All(c => char.IsLetterOrDigit(c) || c == '-'), "Invalid sample name");
-            return Save(name, new { config = Config(), nativeStatus = Status(), screen = new[] { Screen.width, Screen.height }, timeScale = Time.timeScale,
-                active = Renderforge.CrispFonts.Active, cached = Renderforge.FontRasterCorrection.CachedCount, atlasEvents, errors = Errors.ToArray(),
-                labels = Texts.Values.Where(t => t).Select(t => new { id = t.GetInstanceID(), path = PathOf(t.transform), text = t.text,
-                    font = t.font.name, fontId = t.font.GetInstanceID(), t.fontSize, t.resizeTextForBestFit, ppu = t.pixelsPerUnit,
-                    preferred = new[] { t.preferredWidth, t.preferredHeight }, rect = new[] { t.rectTransform.rect.width, t.rectTransform.rect.height },
+            return Save(name, new
+            {
+                config = Config(),
+                nativeStatus = Status(),
+                screen = new[] { Screen.width, Screen.height },
+                timeScale = Time.timeScale,
+                active = Renderforge.CrispFonts.Active,
+                cached = Renderforge.FontRasterCorrection.CachedCount,
+                atlasEvents,
+                errors = Errors.ToArray(),
+                labels = Texts.Values.Where(t => t).Select(t => new
+                {
+                    id = t.GetInstanceID(),
+                    path = PathOf(t.transform),
+                    text = t.text,
+                    font = t.font.name,
+                    fontId = t.font.GetInstanceID(),
+                    t.fontSize,
+                    t.resizeTextForBestFit,
+                    ppu = t.pixelsPerUnit,
+                    preferred = new[] { t.preferredWidth, t.preferredHeight },
+                    rect = new[] { t.rectTransform.rect.width, t.rectTransform.rect.height },
                     material = RawMaterial.GetValue(t) is Material mat ? mat.GetInstanceID() : 0,
                     outcome = Renderforge.FontRasterCorrection.Result(t.GetInstanceID()),
                     rebuilds = Rebuilds.TryGetValue(t.GetInstanceID(), out int count) ? count : 0,
-                    mesh = Meshes.TryGetValue(t.GetInstanceID(), out object mesh) ? mesh : null }).ToArray() });
+                    mesh = Meshes.TryGetValue(t.GetInstanceID(), out object mesh) ? mesh : null
+                }).ToArray()
+            });
         }
         static Text Choose()
         {

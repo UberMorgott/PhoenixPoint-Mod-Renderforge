@@ -30,3 +30,6 @@ workshop/steamugc/*.so
 workshop/steamugc/*.dylib
 workshop/steamugc/steamworks/
 
+
+# local build root (see Directory.Build.props.example)
+Directory.Build.props

@@ -31,35 +31,35 @@ static class Probe
     static void Main()
     {
         foreach (var api in new[] { GraphicsDeviceType.Direct3D11, GraphicsDeviceType.Direct3D12 })
-        foreach (bool original in new[] { false, true })
-        for (int mask = 0; mask < 16; ++mask)
-        foreach (var mode in new[] { EyeAdaptation.Fixed, EyeAdaptation.Progressive })
-        {
-            SystemInfo.graphicsDeviceType = api;
-            var c = Context(mask); var histogram = c.resources.computeShaders.exposureHistogram; var exposure = c.resources.computeShaders.autoExposure;
-            var effect = new AutoExposure(); effect.eyeAdaptation.value = mode;
-            bool guarded = api == GraphicsDeviceType.Direct3D12;
-            bool expected = original && (!guarded || ((mask & 7) == 7 && (mode == EyeAdaptation.Fixed || (mask & 8) != 0)));
-            Check(Gate(typeof(AutoExposure_D3D12Support_Patch), effect, c, original) == expected, "exposure capability matrix");
-            int calls = Calls(c);
-            for (int frame = 0; frame < 10; ++frame) Check(Gate(typeof(AutoExposure_D3D12Support_Patch), effect, c, original) == expected, "stable exposure result");
-            Check(Calls(c) == calls, "support probes repeated per frame");
-            if (!guarded || !original) Check(calls == 0, "inactive/D3D11 path queried kernels");
-            Check(ReferenceEquals(histogram, c.resources.computeShaders.exposureHistogram) && ReferenceEquals(exposure, c.resources.computeShaders.autoExposure), "resources mutated");
-            Check(effect.eyeAdaptation.value == mode, "profile mode mutated");
-            foreach (Monitor monitor in new Monitor[] { new LightMeterMonitor(), new OtherMonitor() })
-            {
-                bool monitorExpected = original && (!guarded || !(monitor is LightMeterMonitor) || (mask & 3) == 3);
-                Check(Gate(typeof(LightMeter_D3D12Support_Patch), monitor, c, original) == monitorExpected, "monitor request/generation/consumer gate");
-            }
-            Check(RenderLightMeter(c) == (!guarded || (mask & 3) == 3), "direct light-meter consumer gate");
-            // Installed RenderMonitors first ORs supported requests, then dispatches ALL requested monitors.
-            bool anySupported = Gate(typeof(LightMeter_D3D12Support_Patch), new LightMeterMonitor(), c, true)
-                || Gate(typeof(LightMeter_D3D12Support_Patch), new OtherMonitor(), c, true);
-            Check(anySupported, "supported second monitor must remain available");
-            bool lightMeterDispatched = anySupported && RenderLightMeter(c);
-            Check(lightMeterDispatched == (!guarded || (mask & 3) == 3), "mixed monitor request bypassed light-meter guard");
-        }
+            foreach (bool original in new[] { false, true })
+                for (int mask = 0; mask < 16; ++mask)
+                    foreach (var mode in new[] { EyeAdaptation.Fixed, EyeAdaptation.Progressive })
+                    {
+                        SystemInfo.graphicsDeviceType = api;
+                        var c = Context(mask); var histogram = c.resources.computeShaders.exposureHistogram; var exposure = c.resources.computeShaders.autoExposure;
+                        var effect = new AutoExposure(); effect.eyeAdaptation.value = mode;
+                        bool guarded = api == GraphicsDeviceType.Direct3D12;
+                        bool expected = original && (!guarded || ((mask & 7) == 7 && (mode == EyeAdaptation.Fixed || (mask & 8) != 0)));
+                        Check(Gate(typeof(AutoExposure_D3D12Support_Patch), effect, c, original) == expected, "exposure capability matrix");
+                        int calls = Calls(c);
+                        for (int frame = 0; frame < 10; ++frame) Check(Gate(typeof(AutoExposure_D3D12Support_Patch), effect, c, original) == expected, "stable exposure result");
+                        Check(Calls(c) == calls, "support probes repeated per frame");
+                        if (!guarded || !original) Check(calls == 0, "inactive/D3D11 path queried kernels");
+                        Check(ReferenceEquals(histogram, c.resources.computeShaders.exposureHistogram) && ReferenceEquals(exposure, c.resources.computeShaders.autoExposure), "resources mutated");
+                        Check(effect.eyeAdaptation.value == mode, "profile mode mutated");
+                        foreach (Monitor monitor in new Monitor[] { new LightMeterMonitor(), new OtherMonitor() })
+                        {
+                            bool monitorExpected = original && (!guarded || !(monitor is LightMeterMonitor) || (mask & 3) == 3);
+                            Check(Gate(typeof(LightMeter_D3D12Support_Patch), monitor, c, original) == monitorExpected, "monitor request/generation/consumer gate");
+                        }
+                        Check(RenderLightMeter(c) == (!guarded || (mask & 3) == 3), "direct light-meter consumer gate");
+                        // Installed RenderMonitors first ORs supported requests, then dispatches ALL requested monitors.
+                        bool anySupported = Gate(typeof(LightMeter_D3D12Support_Patch), new LightMeterMonitor(), c, true)
+                            || Gate(typeof(LightMeter_D3D12Support_Patch), new OtherMonitor(), c, true);
+                        Check(anySupported, "supported second monitor must remain available");
+                        bool lightMeterDispatched = anySupported && RenderLightMeter(c);
+                        Check(lightMeterDispatched == (!guarded || (mask & 3) == 3), "mixed monitor request bypassed light-meter guard");
+                    }
         SystemInfo.graphicsDeviceType = GraphicsDeviceType.Direct3D12;
         var missing = Context(15); missing.resources.computeShaders.exposureHistogram = null;
         Check(!D3D12Fix.HistogramSupported(missing), "missing shader must be unsupported");

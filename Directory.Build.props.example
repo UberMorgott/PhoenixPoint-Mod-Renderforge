@@ -1,0 +1,7 @@
+<Project>
+  <!-- Local, gitignored. Points the build at a Phoenix Point install so `dotnet build` and quality-gate
+       work without /p:PPRoot. Copy from Directory.Build.props.example and edit the path. -->
+  <PropertyGroup>
+    <PPRoot Condition="'$(PPRoot)' == ''">D:\Steam\steamapps\common\Phoenix Point</PPRoot>
+  </PropertyGroup>
+</Project>

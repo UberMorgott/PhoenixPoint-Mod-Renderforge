@@ -159,7 +159,7 @@ namespace Renderforge
             if (box == null) { if (onNo != null) onNo(); return; }
             string text = DlssConfig.Loc("Restart required to switch renderer. Restart now?",
                                          "Для смены рендерера нужен перезапуск. Перезапустить сейчас?");
-            box.ShowSimplePrompt(text, MessageBoxIcon.Question, MessageBoxButtons.YesNo, delegate(MessageBoxCallbackResult res)
+            box.ShowSimplePrompt(text, MessageBoxIcon.Question, MessageBoxButtons.YesNo, delegate (MessageBoxCallbackResult res)
             {
                 if (res.DialogResult == MessageBoxResult.Yes) Restart(want12);
                 else if (onNo != null) onNo();

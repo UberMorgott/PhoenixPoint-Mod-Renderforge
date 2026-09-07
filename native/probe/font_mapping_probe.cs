@@ -21,10 +21,14 @@ public static class FontMappingProbe
     {
         var result = new UIVertex[4];
         float[] x = { 0, w, w, 0 }, y = { 0, 0, h, h };
-        for (int i = 0; i < 4; i++) result[i] = new UIVertex {
-            position = new Vector3(x[i], y[i], 0), normal = new Vector3(0, 0, -1),
-            tangent = new Vector4(1, 0, 0, -1), color = new Color32(72, 120, 180, 240),
-            uv0 = new Vector2(i % 2, i / 2), uv1 = new Vector2(.3f, .7f)
+        for (int i = 0; i < 4; i++) result[i] = new UIVertex
+        {
+            position = new Vector3(x[i], y[i], 0),
+            normal = new Vector3(0, 0, -1),
+            tangent = new Vector4(1, 0, 0, -1),
+            color = new Color32(72, 120, 180, 240),
+            uv0 = new Vector2(i % 2, i / 2),
+            uv1 = new Vector2(.3f, .7f)
         };
         return result;
     }
