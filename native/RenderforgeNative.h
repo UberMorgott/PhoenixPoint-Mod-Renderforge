@@ -138,6 +138,10 @@ DLSS_API int __cdecl Dlss_ProviderVersion(char* buf, int cap);
 // Main thread. Camera parameters FSR/XeSS need and NGX does not; cached and copied into every later frame slot.
 // fovYRadians = vertical field of view in RADIANS. Defaults: 0.1 / 1000 / 60 degrees.
 DLSS_API void __cdecl Dlss_SetCamera(float nearZ, float farZ, float fovYRadians);
+// DIAG, main thread, D3D11 NGX only (D3D12/FSR/XeSS ignore it). Binds a shim-owned R8_UNORM render-res texture as
+// NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask on every evaluate: 0 = not bound (production), 1 = bound
+// and cleared to 0, 2 = bound and cleared to 1 (= "prefer current frame" everywhere). Tests whether the DLL honours it.
+DLSS_API void __cdecl Dlss_SetBiasMaskMode(int mode);
 
 // Render event id for the frame-generation prepare/tag pass (records into the shim's own command list,
 // submitted through IUnityGraphicsD3D12v5::ExecuteCommandList exactly like DLSS_EV_EVALUATE).

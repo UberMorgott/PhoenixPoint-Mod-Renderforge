@@ -300,6 +300,16 @@ namespace Renderforge
             catch (Exception) { return ""; }
         }
 
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void Dlss_SetBiasMaskMode(int mode);
+
+        /// <summary>Diagnostic: bias-current-colour mask mode (0 off, 1 all-zero, 2 all-one) behind a try - an older shim without the export must not throw.</summary>
+        public static void SetBiasMaskMode(int mode)
+        {
+            try { Dlss_SetBiasMaskMode(mode); }
+            catch (Exception) { }
+        }
+
         /// <summary>Dlss_SetCamera behind a try; called every frame, so it must never throw into the render loop.</summary>
         public static void SetCamera(float nearZ, float farZ, float fovYRadians)
         {

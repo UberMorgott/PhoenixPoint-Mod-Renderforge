@@ -34,6 +34,7 @@ namespace Renderforge
             Available = false;
             PostOnly = false;
             Diagnostics.Reset();
+            Native.SetBiasMaskMode(0);   // the shim keeps its own copy; a re-enable must land on production values too
             RendererSwitch.SelfTest();   // [Conditional("DEBUG")]: compiled out of Release
             DlssConfig.LoadStrings(s => Logger.LogInfo("Renderforge " + s));
             ApplyFrameRate();
@@ -605,6 +606,19 @@ namespace Renderforge
             return GetStatus();
         }
 
+        /// <summary>{"member":"SetBiasMaskMode","args":[2]} - D3D11 NGX only: bind a shim-owned R8 bias-current-colour mask every
+        /// evaluate, 0 = unbound (production), 1 = all-zero, 2 = all-one (no history anywhere). Applied next frame, runtime-only.</summary>
+        public static string SetBiasMaskMode(int mode)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            mode = Mathf.Clamp(mode, 0, 2);
+            Diagnostics.BiasMaskMode = mode;
+            Native.SetBiasMaskMode(mode);
+            m.Logger.LogInfo("DLSS bias mask mode = " + mode);
+            return GetStatus();
+        }
+
         /// <summary>{"member":"DumpOut","args":["C:\\Temp\\out.png"]} - outRT (SDK output, before the present Blit) to PNG.</summary>
         public static string DumpOut(string absPath) => DlssDriver.Instance?.DumpOut(absPath) ?? "no driver";
 
@@ -613,7 +627,8 @@ namespace Renderforge
 
         private static string JitterKnobs() =>
             " jitterSign=" + Diagnostics.JitterReportSignX + "," + Diagnostics.JitterReportSignY + " jitterScale=" + Diagnostics.JitterScale.ToString("R") + " jitterSwapXY=" + Diagnostics.JitterReportSwapXY
-            + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset;
+            + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset
+            + " biasMask=" + Diagnostics.BiasMaskMode;
 
         public static string GetStatus() => "provider=" + Upscalers.Running + " postOnly=" + PostOnly + " postOnlyReason=" + Native.PostOnlyReason() + " postCarrier=" + Upscalers.PostCarrier + " lut=" + (Instance?.Cfg?.Lut ?? LutPreset.Off) + " lutStrength=" + (Instance?.Cfg?.LutStrength ?? 0) + " unity=" + Application.unityVersion + " mvJittered=" + Diagnostics.MvJittered + " d3d12SrgbViews=" + Diagnostics.D3D12SrgbViews + " d3d12ColorDesc=" + Diagnostics.D3D12ColorDesc + " d3d12HalfColor=" + Diagnostics.D3D12HalfColor + JitterKnobs() + " "
                                           + (DlssDriver.Instance?.Status ?? ("no driver; available=" + Available + " init=" + InitCode))

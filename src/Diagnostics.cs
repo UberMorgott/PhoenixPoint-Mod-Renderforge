@@ -18,9 +18,12 @@ namespace Renderforge
         internal static float JitterConstX { get; set; }
         internal static float JitterConstY { get; set; }
         internal static bool ForceReset { get; set; }
+        /// <summary>Dlss_SetBiasMaskMode: 0 = no bias-current-colour mask bound, 1 = all-zero, 2 = all-one (D3D11 NGX only).</summary>
+        internal static int BiasMaskMode { get; set; }
 
         internal static void Reset()
         {
+            BiasMaskMode = 0;
             View = DebugView.None;
             MvJittered = false;
             D3D12SrgbViews = false;

@@ -34,6 +34,11 @@ struct Device11 : IDevice
     DXGI_FORMAT scratchFmt;
     bool csGrade;
 
+    // DIAG bias-current-colour mask (FrameParams::biasMaskMode): R8_UNORM at render res, cleared to 0/1 every evaluate.
+    ID3D11Texture2D* biasMask;
+    ID3D11RenderTargetView* biasMaskRtv;
+    unsigned biasMaskW, biasMaskH;
+
     Device11() { Zero(); }
     void Zero()
     {
@@ -41,6 +46,7 @@ struct Device11 : IDevice
         minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
         cs = NULL; cb = NULL; sampler = NULL; scratch = NULL; scratchSrv = NULL; outUav = NULL; outUavRes = NULL;
         scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN; csGrade = false;
+        biasMask = NULL; biasMaskRtv = NULL; biasMaskW = biasMaskH = 0;
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; sharpener = 0; sharpenDead = 0;
     }
 
@@ -56,6 +62,32 @@ struct Device11 : IDevice
         if (scratchSrv) { scratchSrv->Release(); scratchSrv = NULL; }
         if (scratch) { scratch->Release(); scratch = NULL; }
         scratchW = scratchH = 0;
+    }
+
+    void ReleaseBiasMask()
+    {
+        if (biasMaskRtv) { biasMaskRtv->Release(); biasMaskRtv = NULL; }
+        if (biasMask) { biasMask->Release(); biasMask = NULL; }
+        biasMaskW = biasMaskH = 0;
+    }
+
+    // Returns the mask resource filled with `mode - 1` (0.0 or 1.0), or NULL when it could not be created.
+    ID3D11Resource* BiasMask(ID3D11DeviceContext* ctx, unsigned w, unsigned h, int mode)
+    {
+        if (!biasMask || biasMaskW != w || biasMaskH != h) {
+            ReleaseBiasMask();
+            D3D11_TEXTURE2D_DESC d = {};
+            d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R8_UNORM;
+            d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
+            d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+            if (FAILED(device->CreateTexture2D(&d, NULL, &biasMask))) { biasMask = NULL; return NULL; }
+            if (FAILED(device->CreateRenderTargetView(biasMask, NULL, &biasMaskRtv))) { ReleaseBiasMask(); return NULL; }
+            biasMaskW = w; biasMaskH = h;
+        }
+        const float v = mode == 2 ? 1.0f : 0.0f;
+        const float rgba[4] = { v, v, v, v };
+        ctx->ClearRenderTargetView(biasMaskRtv, rgba);   // does not touch the bound pipeline state
+        return biasMask;
     }
 
     int EnsureSharpenShader(bool colorGrade)
@@ -287,6 +319,8 @@ struct Device11 : IDevice
             ep.InMVScaleY = fp.mvScaleY;
             ep.InPreExposure = fp.preExposure;
             ep.InFrameTimeDeltaInMsec = fp.dtMs;
+            // DIAG: subrect base stays (0,0) from the zero-init; NULL when creation failed = same as mode 0.
+            if (fp.biasMaskMode != 0) ep.pInBiasCurrentColorMask = BiasMask(ctx, fp.renderW, fp.renderH, fp.biasMaskMode);
             lastEval = NGX_D3D11_EVALUATE_DLSS_EXT(ctx, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
             else if (fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision, fp.grade))
@@ -298,6 +332,7 @@ struct Device11 : IDevice
     bool ReleaseFeature() override
     {
         ReleaseSharpenViews();   // outUav refs a Unity RT the driver frees after this event acknowledges retirement
+        ReleaseBiasMask();
         if (!feature) return true;
         if (NVSDK_NGX_FAILED(NVSDK_NGX_D3D11_ReleaseFeature(feature))) return false;
         feature = NULL;

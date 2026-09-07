@@ -92,7 +92,8 @@ static struct {
     int wantProvider;                   // what Dlss_SetProvider asked for
     int providerCode;                   // what the backend's Init() really returned (retained under POST_ONLY)
     float nearZ, farZ, fovY;            // Dlss_SetCamera cache, copied into every slot
-} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0, 0.1f, 1000.0f, 1.0471976f };
+    int biasMaskMode;                   // Dlss_SetBiasMaskMode cache (DIAG), copied into every slot
+} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0, 0.1f, 1000.0f, 1.0471976f, 0 };
 
 static bool ShutdownBackend(void)
 {
@@ -221,6 +222,7 @@ void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void*
     p->lutPreset = (lutPreset >= DLSS_LUT_REALISTIC_DESATURATED && lutPreset <= DLSS_LUT_VINTAGE_SEPIA) ? lutPreset : DLSS_LUT_OFF;
     p->lutStrength = lutStrength > 0 ? (lutStrength < 1 ? lutStrength : 1) : 0;   // NaN also disables the pass
     p->nearZ = S.nearZ; p->farZ = S.farZ; p->fovY = S.fovY;
+    p->biasMaskMode = S.biasMaskMode;
     // p->grade: all-zero from the memset above = Off (GradeParams encodes every knob so that zero is off).
 }
 
@@ -322,6 +324,11 @@ void __cdecl Dlss_SetCamera(float nearZ, float farZ, float fovYRadians)
     if (nearZ > 0.0f) S.nearZ = nearZ;
     if (farZ > 0.0f) S.farZ = farZ;
     if (fovYRadians > 0.0f) S.fovY = fovYRadians;
+}
+
+void __cdecl Dlss_SetBiasMaskMode(int mode)
+{
+    S.biasMaskMode = (mode == 1 || mode == 2) ? mode : 0;
 }
 
 int __cdecl Dlss_Status(int* lastCreateResult, int* lastEvalResult, int* featureAlive)
