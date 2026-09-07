@@ -224,25 +224,26 @@ namespace Renderforge.Tests
             Assert.All(Rows().SelectMany(r => r), cell => Assert.DoesNotContain('\r', cell));
         }
 
-        /// <summary>Every Graphics-panel image row (GradePanel.Knobs + the reset row) has a label row and a tooltip row
-        /// ending in the visible default, so no language falls back to the inline EN/RU pair.</summary>
+        /// <summary>Every Graphics-panel image row (GradePanel.Knobs + Sharpness, LUT strength, the reset row) has its
+        /// label AND its exact English tooltip (the literal from GradePanel.cs / GraphicsPanel.cs / LutPanel.cs) as a key,
+        /// so no language falls back to the inline EN/RU pair.</summary>
         [Theory]
-        [InlineData("Exposure", "Default: 0.")]
-        [InlineData("Black point", "Default: 0.")]
-        [InlineData("White point", "Default: 255.")]
-        [InlineData("Brightness", "Default: 0.")]
-        [InlineData("Contrast", "Default: 100.")]
-        [InlineData("Clarity", "Default: 0.")]
-        [InlineData("Vibrance", "Default: 0.")]
-        [InlineData("Saturation", "Default: 100.")]
-        [InlineData("Sharpness", "Default: 40.")]
-        [InlineData("LUT strength", "Default: 100.")]
-        [InlineData("Reset image settings", "to their defaults.")]
-        public void ImageRowsHaveLabelAndDefaultBearingTooltip(string label, string tooltipTail)
+        [InlineData("Exposure", "Exposure in tenths of a stop: 10 = +1 EV (twice the light), -10 = half. Applied first in the chain. Scene only; the HUD stays unchanged. Default: 0.")]
+        [InlineData("Black point", "Pixels darker than this become black and the rest stretch — deeper shadows. 0 = off. Default: 0.")]
+        [InlineData("White point", "Pixels brighter than this become white — brighter highlights. 255 = off. Default: 255.")]
+        [InlineData("Brightness", "Midtone brightness (gamma): black and white stay put, above 0 lifts the mids, below 0 sinks them. Scene only; the HUD stays unchanged. Default: 0.")]
+        [InlineData("Contrast", "Pivots at mid-grey: 100 = off, below flattens, above deepens (dark scenes get darker). Default: 100.")]
+        [InlineData("Clarity", "Local contrast on fine detail; 0 = off. Scene only; the HUD stays unchanged. Default: 0.")]
+        [InlineData("Vibrance", "Saturation boost for muted colours only; vivid ones barely change. Below 0 mutes them. Scene only; the HUD stays unchanged. Default: 0.")]
+        [InlineData("Saturation", "Colour intensity of everything: 0 = greyscale, 100 = as rendered, 200 = double. Scene only; the HUD stays unchanged. Default: 100.")]
+        [InlineData("Sharpness", "RCAS sharpening after reconstruction; 0 = off. Default: 40.")]
+        [InlineData("LUT strength", "0 = original image … 100 = full grade. Applied live. Default: 100.")]
+        [InlineData("Reset image settings", "Resets Sharpness, LUT strength, Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance and Saturation to their defaults. The LUT filter, colour vision and scene style stay as chosen.")]
+        public void ImageRowsHaveLabelAndExactTooltipKeys(string label, string tooltip)
         {
             var keys = Rows().Skip(1).Select(r => r[0]).ToList();
             Assert.Contains(label, keys);
-            Assert.Contains(keys, k => k.Contains(tooltipTail) && k != label);
+            Assert.Contains(tooltip, keys);
         }
     }
 }

@@ -65,7 +65,8 @@ namespace Renderforge
                 after = ColorVisionPanel.Build(__instance, after, mod.Cfg);
                 after = GradePanel.Build(__instance, after, mod.Cfg);
                 after = SceneStylePanel.Build(__instance, after, mod.Cfg);
-                QualityPanel.Build(__instance, after, mod.Cfg);
+                after = QualityPanel.Build(__instance, after, mod.Cfg);
+                GradePanel.BuildReset(__instance, after);   // the reset row is the LAST Renderforge row
                 SyncQuality();
             }
             catch (Exception ex)

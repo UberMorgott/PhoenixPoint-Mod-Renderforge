@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using I2.Loc;
 using PhoenixPoint.Common.View.ViewModules;
 using PhoenixPoint.Geoscape.View.ViewControllers;
@@ -23,6 +24,7 @@ namespace Renderforge
             public Action<DlssConfig, int> Set;
             public Slider Slider;
             public Transform Value;
+            public Func<int, string> Fmt;   // readout; null = the raw integer
         }
 
         // Row order in the panel = array order = shader order. Ranges mirror Dlss_SetGrade's clamps.
@@ -31,7 +33,8 @@ namespace Renderforge
             new Knob { Name = "RenderforgeExposure", En = "Exposure", Ru = "Экспозиция",
                 TipEn = "Exposure in tenths of a stop: 10 = +1 EV (twice the light), -10 = half. Applied first in the chain. Scene only; the HUD stays unchanged. Default: 0.",
                 TipRu = "Экспозиция в десятых долях ступени: 10 = +1 EV (вдвое больше света), -10 = вдвое меньше. Применяется первой в цепочке. Только сцена, интерфейс не меняется. По умолчанию: 0.",
-                Min = -40, Max = 40, Default = 0, Get = c => c.Exposure, Set = (c, v) => c.Exposure = v },
+                Min = -40, Max = 40, Default = 0, Get = c => c.Exposure, Set = (c, v) => c.Exposure = v,
+                Fmt = v => (v / 10f).ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture) },   // "+2.0" / "0.0" / "-0.5" EV
             new Knob { Name = "RenderforgeLevelsBlack", En = "Black point", Ru = "Точка чёрного",
                 TipEn = "Pixels darker than this become black and the rest stretch — deeper shadows. 0 = off. Default: 0.",
                 TipRu = "Пиксели темнее этого значения становятся чёрными, остальные растягиваются — тени глубже. 0 = выкл. По умолчанию: 0.",
@@ -89,6 +92,7 @@ namespace Renderforge
                     row = go.transform;
                 }
                 row.SetSiblingIndex(after.GetSiblingIndex() + 1);
+                after = row;   // advanced before any skip, so a broken clone cannot make later rows stack in reverse
                 row.gameObject.SetActive(true);
                 knob.Slider = row.GetComponentInChildren<Slider>(true);
                 if (knob.Slider == null) continue;   // a row without a slider is a broken clone; Sync/OnChanged skip it too
@@ -105,21 +109,20 @@ namespace Renderforge
                 var captured = knob;
                 knob.Slider.onValueChanged.AddListener(v => OnChanged(captured, v));
                 GraphicsPanel.Tip(knob.Slider.gameObject, DlssConfig.Loc(knob.TipEn, knob.TipRu));
-                after = row;
             }
-            after = BuildReset(panel, after);
             Sync();
             return after;
         }
 
-        /// <summary>"Reset image settings" row: the panel ships no standalone button, so this is a TextureQualityPicker
-        /// clone (the same prefab every Renderforge picker row uses) with both arrows hidden and CentralButton (a
-        /// PhoenixGeneralButton) wired straight to OnReset. ArrowPickerController.Init is deliberately NOT called:
-        /// it would bind the central button to NextOption (ArrowPickerController.cs:45-48).</summary>
-        private static Transform BuildReset(UIModuleGraphicsOptionsPanel panel, Transform after)
+        /// <summary>"Reset image settings" row, placed by GraphicsPanel AFTER the last Renderforge row: the panel ships
+        /// no standalone button, so this is a TextureQualityPicker clone (the same prefab every Renderforge picker row
+        /// uses) with both arrows hidden and CentralButton (a PhoenixGeneralButton) wired straight to OnReset.
+        /// ArrowPickerController.Init is deliberately NOT called: it would bind the central button to NextOption
+        /// (ArrowPickerController.cs:45-48).</summary>
+        internal static Transform BuildReset(UIModuleGraphicsOptionsPanel panel, Transform after)
         {
             var src = panel.TextureQualityPicker;
-            if (src == null) return after;
+            if (src == null || after == null) return after;
             var content = after.parent;
             var found = content.Find(ResetName);
             if (found != null) reset = found.GetComponent<ArrowPickerController>();
@@ -128,8 +131,8 @@ namespace Renderforge
                 var go = UnityEngine.Object.Instantiate(src.gameObject, content);
                 go.name = ResetName;
                 reset = go.GetComponent<ArrowPickerController>();
-                GraphicsPanel.SetRaw(reset.Title, null, "");   // the button itself carries the label
             }
+            GraphicsPanel.SetRaw(reset.Title, null, "");   // the button carries the label; on reuse too, so a re-enabled Localize cannot restore TextureQuality
             reset.transform.SetSiblingIndex(after.GetSiblingIndex() + 1);
             reset.gameObject.SetActive(true);
             reset.PreviousArrow.gameObject.SetActive(false);
@@ -220,7 +223,8 @@ namespace Renderforge
 
         private static void Show(Knob knob, int v)
         {
-            if (knob.Value != null) GraphicsPanel.SetRaw(knob.Value.GetComponent<Localize>(), knob.Value.GetComponent<Text>(), v.ToString());
+            if (knob.Value != null) GraphicsPanel.SetRaw(knob.Value.GetComponent<Localize>(), knob.Value.GetComponent<Text>(),
+                knob.Fmt != null ? knob.Fmt(v) : v.ToString());
         }
     }
 }

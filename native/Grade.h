@@ -42,6 +42,7 @@ float3 Adjust(int2 p, float3 c) {
         && clarity == 0.0 && vibrance == 0.0 && saturationDelta == 0.0) return c;
     float3 d = StyleDisplay(c);
     // 1 EV = x2 in LINEAR light; on the display-referred value that is x exp2(EV / 2.2) (pow(c * 2^EV, 1/2.2)).
+    // ClarityLuma below reads the UNEXPOSED source texture, so its mask is relative and anchored pre-exposure.
     if (exposure != 0.0) d *= exp2(exposure / 2.2);
     if (levelsBlack != 0.0 || whiteDrop != 0.0) d = max((d - levelsBlack) / max(1.0 - whiteDrop - levelsBlack, 1e-4), 0.0);
     // Midtone gamma, not an offset: black and white stay put, +1 lifts the mids (exponent 0.5), -1 sinks them (2).
@@ -61,6 +62,8 @@ float3 Adjust(int2 p, float3 c) {
     }
     if (vibrance != 0.0) {
         // Saturation gain weighted by (1 - current saturation): muted colours move most, already-vivid ones barely.
+        // Luma here (and in Saturation below) is StyleLuma of the DISPLAY-encoded value - consistent with the rest of
+        // the chain, not luminance-preserving in linear light.
         float mx = max(d.r, max(d.g, d.b)), sat = (mx - min(d.r, min(d.g, d.b))) / max(mx, 1e-4);
         d = max(lerp(StyleLuma(d).xxx, d, 1.0 + vibrance * (1.0 - sat)), 0.0);
     }
