@@ -33,3 +33,6 @@ workshop/steamugc/steamworks/
 
 # local build root (see Directory.Build.props.example)
 Directory.Build.props
+
+# CMake output of the qgate native check
+native/build/
