@@ -1,0 +1,5 @@
+{
+  "checks": [
+    { "name": "native", "run": "pwsh -NoProfile -File build-native.ps1", "level": "full", "timeoutSec": 900 }
+  ]
+}
