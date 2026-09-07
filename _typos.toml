@@ -1,0 +1,24 @@
+# typos (https://github.com/crate-ci/typos) — run by the quality-gate `base` stack.
+[files]
+extend-exclude = [
+  "src/Localization/strings.csv",   # seven non-English columns
+  "workshop/locale/*.txt",          # Steam descriptions in eight languages
+  "graphify-out/", "build/", "refs/", "native/build/",
+  "native/nis/",                    # NVIDIA NIS SDK header, vendor text
+]
+
+[default]
+# LOD = level of detail (graphics term), never "LOAD"
+extend-ignore-identifiers-re = ["(?i)\\blod\\w*"]
+
+[default.extend-words]
+LOD = "LOD"
+lod = "lod"
+# D3D12Debug.cpp hex/flag fragments and other identifier pieces typos mistakes for English
+nd = "nd"
+PN = "PN"
+ba = "ba"
+afe = "afe"
+Fo = "Fo"
+mis = "mis"            # prefix in probes/plans (mis-)
+Managment = "Managment"  # game class UIStateModManagment

@@ -148,7 +148,7 @@ Earlier the same day: Phase 5 FG complete + 2 hardening rounds (see the multiven
   → USER TEST covers both: FG crash fix (a01afe5) AND D3D12 image quality below DLAA (this fix). Then release 1.2.1.
 - **USER RE-TEST on d7ad827 (Steam, afternoon)**: "any DLSS mode below DLAA is worse than FSR's worst, shakes and jerks
   like heat haze". Steam `renderforge_fg.log` shows **DLSS-G X2 was ON** the whole session (`presented=2 generated=4414`,
-  SL `Frame rate over 100.00ms, reseting frame timer` warnings). Shake metric (scout, Instance2, static camera, mean
+  SL `Frame rate over 100.00ms, resetting frame timer` warnings). Shake metric (scout, Instance2, static camera, mean
   abs frame-to-frame diff, `docs\shots\wobble\shake.ps1`): D3D12 DLSS Quality 0.28 / Perf 1.01 / DLAA 0.53 vs D3D11
   0.19 / 0.83 / 0.57 → **no wobble without FG on the FP16 path**; legacy `HalfColor=false` 4.7 (= the 1.2.0 wobble,
   fixed by FP16); FSR-Q 4.6 / XeSS-Q 5.0 on D3D12 (vs D3D11 FSR 0.6) — separate open issue; `MvJittered=true` 5.8;
