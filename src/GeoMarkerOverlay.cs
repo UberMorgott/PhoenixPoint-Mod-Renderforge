@@ -142,11 +142,16 @@ namespace Renderforge
         }
 
         /// <summary>Bit `layer` off every enabled camera but M (it was free: nobody drew it, but a mask of ~0 includes it).</summary>
+        private static Camera[] camBuf = new Camera[8];   // reused: Camera.allCameras allocates a new array per call, this runs every frame
         private static void StripCameras()
         {
             int bit = 1 << layer;
-            foreach (var c in Camera.allCameras)
+            int count = Camera.allCamerasCount;
+            if (camBuf.Length < count) camBuf = new Camera[count * 2];
+            count = Camera.GetAllCameras(camBuf);
+            for (int i = 0; i < count; i++)
             {
+                var c = camBuf[i];
                 if (c == M || (c.cullingMask & bit) == 0) continue;
                 if (!camMasks.ContainsKey(c)) camMasks[c] = c.cullingMask;
                 c.cullingMask &= ~bit;
