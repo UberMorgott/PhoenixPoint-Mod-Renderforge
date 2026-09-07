@@ -245,6 +245,7 @@ namespace Renderforge
                 if (isNear) Layer(v, true);
                 list.Add(v);
             }
+            if (rewalk && !force) Log("rescan: " + list.Count + " sites / " + origLayers.Count + " objects, hierarchy " + hc + ", t=" + now.ToString("F3") + " frame=" + Time.frameCount);
             active = list.ToArray();
             cursor = 0;
             return active.Length;
