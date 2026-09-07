@@ -519,7 +519,7 @@ stage, same early-out when all eight uniforms are zero.
   (digits 1.05–1.06, `time 00:00` 1.07), but elements shift onto the pixel grid (sub-pixel snap; pixel-value maxDelta up to 180 in the diff), so animated
   panels step by whole pixels. The only UI lever that measured above noise; Crisp fonts (1.00) and Crisp icons were dropped.
 
-### Resolution list dedup (1.5.1)
+### Resolution list dedup (1.6.0)
 
 - Vanilla `UIModuleVideoOptionsPanel.InitResolutionPicker()` (decompile `PhoenixPoint.Common.View.ViewModules\UIModuleVideoOptionsPanel.cs:125`,
   `private void InitResolutionPicker()`) stores `_resolutions = Screen.resolutions` (:133) — every size once per refresh
