@@ -2,9 +2,9 @@
 #
 # Produces, in build\release\:
 #   Renderforge-Core-<v>.zip     managed DLL + native shim + meta.json + exposure bundle + README + LICENSE (CC BY-NC 4.0) + NIS licence
-#   Renderforge-NVIDIA-<v>.zip   DLSS SR (+ DLSS-G with -WithFrameGen)
-#   Renderforge-AMD-<v>.zip      amd_fidelityfx_*_dx12.dll
-#   Renderforge-Intel-<v>.zip    libxess.dll (+ libxess_fg.dll, libxell.dll with -WithFrameGen)
+#   Renderforge-NVIDIA-<v>.zip   DLSS SR + DLSS-G (Streamline)
+#   Renderforge-AMD-<v>.zip      amd_fidelityfx_*_dx12.dll (upscaler + frame generation)
+#   Renderforge-Intel-<v>.zip    libxess.dll + libxess_fg.dll + libxell.dll
 #   Renderforge-Full-<v>.zip     the union of all four
 #   SHA256SUMS.txt               one line per zip
 #
@@ -22,8 +22,6 @@ param(
     [string] $PPRoot = 'D:\PP-Instance2',
     # Reuse bin\ and build\out\ as they are instead of running build-native.ps1 + dotnet build.
     [switch] $SkipBuild,
-    # Add the Phase 5 frame-generation DLLs (Streamline, AMD FG, XeSS-FG + XeLL) to the vendor packs.
-    [switch] $WithFrameGen,
     # Check sources, signatures and versions; pack nothing.
     [switch] $ValidateOnly
 )
@@ -60,7 +58,7 @@ function Assert-VendorSignature([string] $path, [string] $signer) {
 }
 
 # --- The pack table. Src = absolute source path, Signer = required Authenticode subject
-# --- (absent = our own file, no signature expected), Fg = only packed with -WithFrameGen,
+# --- (absent = our own file, no signature expected), Fg = frame-generation runtime (always packed: FG ships),
 # --- Licence = the notice file that covers it.
 $version = (Get-Content (Join-Path $root 'meta.json') -Raw | ConvertFrom-Json).Version
 if (-not $version) { throw "No Version in meta.json" }
@@ -109,12 +107,11 @@ if (-not $SkipBuild -and -not $ValidateOnly) {
 }
 
 # --- Validate every source file ------------------------------------------------------------
-Write-Host "Renderforge $version - validating sources (WithFrameGen=$WithFrameGen)"
+Write-Host "Renderforge $version - validating sources"
 $selected = [ordered]@{}
 foreach ($pack in $packs.Keys) {
     $files = @()
     foreach ($f in $packs[$pack]) {
-        if ($f.Fg -and -not $WithFrameGen) { continue }
         if (-not (Test-Path $f.Src)) { throw "$pack pack: missing source $($f.Src)" }
         $name = if ($f.Dest) { $f.Dest } else { Split-Path $f.Src -Leaf }
         $ver  = Get-NormalVersion $f.Src
@@ -176,7 +173,7 @@ foreach ($pack in $selected.Keys) {
         modId         = 'com.morgott.Renderforge'
         pack          = $pack
         version       = $version
-        frameGen      = [bool] $WithFrameGen
+        frameGen      = $true
         generatedUtc  = $stamp
         extractInto   = 'Mods\'
         files         = @($selected[$pack] | ForEach-Object {

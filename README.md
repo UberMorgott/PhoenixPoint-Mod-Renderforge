@@ -143,7 +143,7 @@ You need Windows, the .NET 8 SDK, Visual Studio 2022 Build Tools with the x64 C+
 ```powershell
 dotnet build Renderforge.csproj -c Release /p:PPRoot="<Phoenix Point install>"
 .\build-native.ps1
-.\build\release.ps1 -PPRoot "<Phoenix Point install>" -WithFrameGen
+.\build\release.ps1 -PPRoot "<Phoenix Point install>"
 ```
 
 The last command builds the release archives in `build\release\`: Core, NVIDIA, AMD, Intel, and Full zips, plus `SHA256SUMS.txt`. `deploy.ps1` is available for a local development install; the release process is described in [`docs/RELEASING.md`](docs/RELEASING.md).

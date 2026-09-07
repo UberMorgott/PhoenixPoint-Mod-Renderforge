@@ -20,7 +20,7 @@ exactly what players get in `Renderforge-Full-<v>.zip`:
 
 ```
 Renderforge.dll  RenderforgeNative.dll  meta.json  rf-exposure-d3d12.bundle
-nvngx_dlss.dll  amd_fidelityfx_*_dx12.dll  libxess.dll  (+ FG DLLs if staged with -WithFrameGen)
+nvngx_dlss.dll  amd_fidelityfx_*_dx12.dll  libxess.dll  + FG DLLs (Streamline, nvngx_dlssg, amd_fidelityfx_framegeneration, libxess_fg, libxell)
 README.md  LICENSE  LICENSE-NIS.txt  LICENSE-NVIDIA.txt  LICENSE-AMD.txt  LICENSE-INTEL.txt
 manifest-full.json
 ```

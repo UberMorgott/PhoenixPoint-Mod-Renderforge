@@ -34,8 +34,8 @@ design: fix the source, never bypass the check.
 
 Produces in `build\release\`: `Renderforge-{Core,NVIDIA,AMD,Intel,Full}-<x.y.z>.zip`, each with a
 `Renderforge/` root and a `manifest-<pack>.json`, plus `SHA256SUMS.txt`.
-Frame generation ships, so ALWAYS pass `-WithFrameGen` (Streamline, DLSS-G, AMD FG, XeSS-FG/XeLL). A bare run
-packs a 122 MB Full zip instead of ~171 MB — check the size against the previous release before publishing.
+Frame-generation runtimes (Streamline, DLSS-G, AMD FG, XeSS-FG/XeLL) are always packed; there is no opt-in flag any
+more. Check the Full zip size (~171 MB) against the previous release before publishing.
 
 ## 5. Smoke-test the artefacts
 

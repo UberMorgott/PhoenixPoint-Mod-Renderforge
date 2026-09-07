@@ -801,11 +801,11 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
   order. (1.0.0's zip was flat and extracted INTO `Mods\Renderforge\`; 1.1.0 changed it, because an
   overlay cannot work without the prefix.)
 - Pack contents: **Core** = `Renderforge.dll`, `RenderforgeNative.dll`, `rf-exposure-d3d12.bundle`,
-  `meta.json`, `README.md`, `LICENSE`, `LICENSE-NIS.txt`. **NVIDIA** = `nvngx_dlss.dll` + `LICENSE-NVIDIA.txt` (with
-  `-WithFrameGen`: `nvngx_dlssg.dll` 310.7.129 and `sl.{interposer,common,dlss,dlss_g,reflex,pcl}.dll`
-  2.12.0). **AMD** = `amd_fidelityfx_{loader,upscaler}_dx12.dll` + `LICENSE-AMD.txt` (with
-  `-WithFrameGen`: `amd_fidelityfx_framegeneration_dx12.dll`). **Intel** = `libxess.dll` +
-  `LICENSE-INTEL.txt` (with `-WithFrameGen`: `libxess_fg.dll`, `libxell.dll`). **Full** = the union.
+  `meta.json`, `README.md`, `LICENSE`, `LICENSE-NIS.txt`. **NVIDIA** = `nvngx_dlss.dll`, `nvngx_dlssg.dll`,
+  `sl.{interposer,common,dlss,dlss_g,reflex,pcl}.dll` 2.12.0 + `LICENSE-NVIDIA.txt`. **AMD** =
+  `amd_fidelityfx_{loader,upscaler,framegeneration}_dx12.dll` + `LICENSE-AMD.txt`. **Intel** = `libxess.dll`,
+  `libxess_fg.dll`, `libxell.dll` + `LICENSE-INTEL.txt`. **Full** = the union. Every runtime is always packed —
+  the `-WithFrameGen` opt-in was removed after a bare run shipped-to-be a 122 MB Full zip without FG (1.5.1 prep).
 - Each zip also carries `manifest-<pack>.json`: mod id, version, generation timestamp, and per file
   the name, FileVersion, byte size, SHA-256, required Authenticode signer and licence file. Per-pack
   names, not one shared `manifest.json`, because vendor packs are extracted on top of Core.

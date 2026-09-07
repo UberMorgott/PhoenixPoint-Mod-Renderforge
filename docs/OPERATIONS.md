@@ -43,8 +43,8 @@ GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
 
 ### Task: first publish (item does not exist yet)
 
-1. `.\build\release.ps1 -WithFrameGen` — ALWAYS with the flag: frame generation ships, and without it the Full zip
-   silently drops the FG runtimes (122 MB instead of ~171 MB; bit us on 1.5.1). Compare the size against the last release.
+1. `.\build\release.ps1` — packs every runtime including frame generation (the old `-WithFrameGen` opt-in is gone:
+   a bare run once produced a 122 MB Full zip without FG). Compare the Full zip size (~171 MB) against the last release.
 2. `pwsh -File workshop\pack-dist.ps1` — must print `Dist <version>: N files, X MB`.
    It throws if the stage is missing or its version differs from `meta.json`.
 3. `pwsh -File workshop\image\make-previews.ps1` — `steam_preview.jpg` < 1 MB.
