@@ -34,7 +34,6 @@ namespace Renderforge
             Available = false;
             PostOnly = false;
             Diagnostics.Reset();
-            Native.SetBiasMaskMode(0);   // the shim keeps its own copy; a re-enable must land on production values too
             RendererSwitch.SelfTest();   // [Conditional("DEBUG")]: compiled out of Release
             DlssConfig.LoadStrings(s => Logger.LogInfo("Renderforge " + s));
             ApplyFrameRate();
@@ -53,6 +52,7 @@ namespace Renderforge
                     else
                     {
                         probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                        Native.SetBiasMaskMode(0);   // after Load: the shim keeps its own copy; a re-enable must land on production values
                         InitNative(Cfg.Upscaler);
                     }
                 }
