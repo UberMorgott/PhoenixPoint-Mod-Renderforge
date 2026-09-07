@@ -15,8 +15,9 @@ namespace Renderforge
     {
         private struct Original { public FilterMode Filter; public int Aniso; }
         private const int SweepEveryFrames = 180;   // ponytail: ~3 s at 60 fps; a panel opened in between is caught by the next sweep
+        /// <summary>Strong refs only for the level's lifetime: LevelEnd restores + clears so UnloadUnusedAssets can reclaim them.</summary>
         private static readonly Dictionary<Texture, Original> originals = new Dictionary<Texture, Original>();
-        private static readonly HashSet<Texture> noMips = new HashSet<Texture>();
+        private static readonly HashSet<int> noMips = new HashSet<int>();   // instance ids, per sweep - never a texture ref
         private static bool active, logged;
         private static int lastSweepFrame = -1;
         internal static bool Active => active;
@@ -34,11 +35,16 @@ namespace Renderforge
 
         internal static void Dispose() => Apply(false);
 
+        /// <summary>OnLevelEnd: originals back + forget every texture, so the level's atlases are not pinned across the
+        /// transition; the next OnLevelStart sweep re-applies.</summary>
+        internal static void LevelEnd() { if (active) Restore(); }
+
         /// <summary>OnLevelStart + the throttled Tick. Active Image/RawImage only - inactive panels are swept when shown.</summary>
         internal static void Sweep()
         {
             if (!active) return;
             lastSweepFrame = Time.frameCount;
+            noMips.Clear();
             try
             {
                 foreach (Image image in UnityEngine.Object.FindObjectsOfType<Image>()) Visit(image);
@@ -61,8 +67,8 @@ namespace Renderforge
         {
             if (!Supported(graphic)) return;
             Texture texture = graphic.mainTexture;
-            if (texture == null || originals.ContainsKey(texture) || noMips.Contains(texture)) return;
-            if (texture.mipmapCount <= 1) { noMips.Add(texture); return; }
+            if (texture == null || originals.ContainsKey(texture) || noMips.Contains(texture.GetInstanceID())) return;
+            if (texture.mipmapCount <= 1) { noMips.Add(texture.GetInstanceID()); return; }
             originals[texture] = new Original { Filter = texture.filterMode, Aniso = texture.anisoLevel };
             texture.filterMode = FilterMode.Trilinear;
             texture.anisoLevel = 8;
