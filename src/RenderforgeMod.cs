@@ -78,7 +78,7 @@ namespace Renderforge
                 if (Available) DlssDriver.Create();
                 ((Harmony)HarmonyInstance).PatchAll(typeof(RenderforgeMod).Assembly);
                 patched = true;
-                CrispFonts.Apply(Cfg.CrispFonts);
+                if (Cfg.CrispFonts) Logger.LogInfo("crisp fonts was removed in 1.5.0; the setting is ignored");
                 CrispIcons.Apply(Cfg.CrispIcons);
                 if (RendererSwitch.Wants12(Cfg) && !Availability.IsD3D12) RendererSwitch.ArmStartupRestart();
                 AttachAndApply();
@@ -197,7 +197,6 @@ namespace Renderforge
             FlushConfig();   // a deferred slider write must not die with the ticker
             if (saver != null) UnityEngine.Object.Destroy(saver.gameObject);
             saver = null;
-            CrispFonts.Dispose();
             CrispIcons.Dispose();   // original filterMode/anisoLevel back on every recorded UI texture
             try
             {
@@ -226,7 +225,6 @@ namespace Renderforge
 
         public override void OnConfigChanged()
         {
-            CrispFonts.Apply(Cfg.CrispFonts);
             CrispIcons.Apply(Cfg.CrispIcons);
             Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Diagnostics.View + " upscaler = " + Cfg.Upscaler);
             ApplyFrameRate();
