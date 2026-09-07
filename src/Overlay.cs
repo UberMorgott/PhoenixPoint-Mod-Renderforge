@@ -59,6 +59,7 @@ namespace Renderforge
             var canvas = go.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 30000;
+            PixelPerfectUi.Reapply(); // our own late root canvas: pick up the setting without waiting for a level start
             inst = go.AddComponent<Overlay>();
 
             var boxGo = new GameObject("Box", typeof(RectTransform), typeof(Image));

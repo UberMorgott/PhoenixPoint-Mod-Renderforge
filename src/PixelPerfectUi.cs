@@ -28,7 +28,8 @@ namespace Renderforge
             RenderforgeMod.Instance?.Logger.LogInfo("Pixel-perfect UI on: " + touched + " root overlay canvases");
         }
 
-        /// <summary>OnLevelStart: the level's UI canvases exist only now.</summary>
+        /// <summary>OnLevelStart (the level's UI canvases exist only now) and Overlay.Create.</summary>
+        // ponytail: a root canvas another mod creates mid-level waits for the next level start; rescan on a timer if reported.
         internal static void Reapply() { if (active) Apply(true); }
 
         private static void Restore()
