@@ -1,0 +1,164 @@
+[
+  {
+    "compare": "crisp",
+    "region": "digit-200",
+    "pxGt4": 0,
+    "maxDelta": 2,
+    "sobelRatio": 0.9999,
+    "cropSize": "76x36",
+    "pixels": 2736
+  },
+  {
+    "compare": "crisp",
+    "region": "digit-1000",
+    "pxGt4": 0,
+    "maxDelta": 2,
+    "sobelRatio": 1.0,
+    "cropSize": "86x36",
+    "pixels": 3096
+  },
+  {
+    "compare": "crisp",
+    "region": "time-0000",
+    "pxGt4": 0,
+    "maxDelta": 0,
+    "sobelRatio": 1.0,
+    "cropSize": "86x41",
+    "pixels": 3526
+  },
+  {
+    "compare": "crisp",
+    "region": "ЗАДАЧИ",
+    "pxGt4": 0,
+    "maxDelta": 1,
+    "sobelRatio": 1.0002,
+    "cropSize": "96x41",
+    "pixels": 3936
+  },
+  {
+    "compare": "crisp",
+    "region": "nav-БАЗЫ",
+    "pxGt4": 0,
+    "maxDelta": 3,
+    "sobelRatio": 1.0,
+    "cropSize": "86x36",
+    "pixels": 3096
+  },
+  {
+    "compare": "toggle",
+    "region": "digit-200",
+    "pxGt4": 0,
+    "maxDelta": 2,
+    "sobelRatio": 1.0001,
+    "cropSize": "76x36",
+    "pixels": 2736
+  },
+  {
+    "compare": "toggle",
+    "region": "digit-1000",
+    "pxGt4": 0,
+    "maxDelta": 2,
+    "sobelRatio": 0.9997,
+    "cropSize": "86x36",
+    "pixels": 3096
+  },
+  {
+    "compare": "toggle",
+    "region": "time-0000",
+    "pxGt4": 0,
+    "maxDelta": 0,
+    "sobelRatio": 1.0,
+    "cropSize": "86x41",
+    "pixels": 3526
+  },
+  {
+    "compare": "toggle",
+    "region": "ЗАДАЧИ",
+    "pxGt4": 0,
+    "maxDelta": 1,
+    "sobelRatio": 1.0002,
+    "cropSize": "96x41",
+    "pixels": 3936
+  },
+  {
+    "compare": "toggle",
+    "region": "nav-БАЗЫ",
+    "pxGt4": 0,
+    "maxDelta": 3,
+    "sobelRatio": 0.9999,
+    "cropSize": "86x36",
+    "pixels": 3096
+  },
+  {
+    "compare": "pxperf",
+    "region": "digit-200",
+    "pxGt4": 499,
+    "maxDelta": 180,
+    "sobelRatio": 1.0601,
+    "cropSize": "76x36",
+    "pixels": 2736
+  },
+  {
+    "compare": "pxperf",
+    "region": "digit-1000",
+    "pxGt4": 524,
+    "maxDelta": 145,
+    "sobelRatio": 1.0513,
+    "cropSize": "86x36",
+    "pixels": 3096
+  },
+  {
+    "compare": "pxperf",
+    "region": "time-0000",
+    "pxGt4": 778,
+    "maxDelta": 124,
+    "sobelRatio": 1.0669,
+    "cropSize": "86x41",
+    "pixels": 3526
+  },
+  {
+    "compare": "pxperf",
+    "region": "ЗАДАЧИ",
+    "pxGt4": 744,
+    "maxDelta": 117,
+    "sobelRatio": 1.0309,
+    "cropSize": "96x41",
+    "pixels": 3936
+  },
+  {
+    "compare": "pxperf",
+    "region": "nav-БАЗЫ",
+    "pxGt4": 567,
+    "maxDelta": 83,
+    "sobelRatio": 1.0246,
+    "cropSize": "86x36",
+    "pixels": 3096
+  },
+  {
+    "compare": "pxperf",
+    "region": "PXBase-icon",
+    "pxGt4": 286,
+    "maxDelta": 136,
+    "sobelRatio": 1.0345,
+    "cropSize": "76x76",
+    "pixels": 5776
+  },
+  {
+    "compare": "pxperf",
+    "region": "resource-icons",
+    "pxGt4": 182,
+    "maxDelta": 115,
+    "sobelRatio": 0.9755,
+    "cropSize": "506x26",
+    "pixels": 13156
+  },
+  {
+    "compare": "pxperf",
+    "region": "faction-icons",
+    "pxGt4": 196,
+    "maxDelta": 140,
+    "sobelRatio": 0.9923,
+    "cropSize": "106x106",
+    "pixels": 11236
+  }
+]
