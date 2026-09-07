@@ -53,8 +53,8 @@ namespace Renderforge
                 GraphicsPanel.SetRaw(rowC.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
                     DlssConfig.Loc("Crisp fonts", "Чёткие шрифты").ToUpperInvariant());
                 GraphicsPanel.Tip(fonts.gameObject, DlssConfig.Loc(
-                    "Sharper interface text. Original letter positions are preserved; unsupported captions stay unchanged.",
-                    "Повышает чёткость текста интерфейса. Сохраняет расположение букв; неподдерживаемые надписи остаются исходными."));
+                    "Sharper supported interface text with its original layout. Experimental: no measurable effect at 1440p in our tests; kept for 4K+ and custom UI scales.",
+                    "Повышает чёткость поддерживаемого текста интерфейса, сохраняя расположение букв. Экспериментально: в наших тестах на 1440p измеримого эффекта нет; оставлено для 4K+ и нестандартного масштаба интерфейса."));
                 fonts.SetIsOnWithoutNotify(pendingFonts);
                 fonts.onValueChanged.RemoveAllListeners();
                 fonts.onValueChanged.AddListener(on => { pendingFonts = on; onChanged?.Invoke(); });
