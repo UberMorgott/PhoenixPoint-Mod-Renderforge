@@ -19,7 +19,7 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **Automatic mip bias** keeps textures appropriately detailed when the game renders below the output resolution.
 - **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to 4-pixel blocks and a moderate palette; block size remains adjustable from 2 to 16 actual output pixels. The filters run after reconstruction and preserve the output-resolution interface.
 - **Colour vision correction** offers Deuteranopia, Protanopia and Tritanopia daltonization in tactical missions and on the Geoscape, at full fixed strength, composed on top of any LUT filter or scene style. It redistributes the colours the eye cannot separate onto the channels it can, using the Machado et al. (2009) simulation matrices. The correction applies to the **scene only** — the interface is composited after this pass and is not corrected.
-- **Levels, Contrast and Clarity** add ReShade-style black point, white point, contrast and clarity sliders in the same post pass, live in tactical missions and on the Geoscape, all off by default. Clarity is a luma unsharp mask against a 13-tap Poisson blur (local contrast on fine detail). Scene only; the HUD stays unchanged.
+- **Image sliders** add ReShade-style Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance and Saturation in the same post pass, live in tactical missions and on the Geoscape, all at identity by default. Clarity is a luma unsharp mask against a 13-tap Poisson blur (local contrast on fine detail). Scene only; the HUD stays unchanged. Every tooltip states the default, and one **Reset image settings** button returns Sharpness, LUT strength and all eight sliders to their defaults (the LUT filter, colour vision and scene style selections stay).
 - **Pixel-perfect UI** (off by default) snaps the interface to the pixel grid (`Canvas.pixelPerfect` on the root overlay canvases): measurably sharper text at 1440p, but animated panels may move in whole-pixel steps. Applies live, no restart.
 - **Frame-rate control** removes the vanilla 60 FPS pin and can optionally apply a 30–300 FPS limit.
 - **Resolution list without refresh-rate duplicates:** one entry per size in Options → Screen, highest refresh rate kept.
@@ -77,7 +77,7 @@ Start Phoenix Point with mod support enabled, open **Main menu → Mods**, enabl
 
 ## Settings
 
-The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, colour vision, black/white point, contrast, clarity, and scene styles are under **Options → Graphics**; the FPS limiter and pixel-perfect UI are under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
+The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, colour vision, exposure, black/white point, brightness, contrast, clarity, vibrance, saturation, the reset button and scene styles are under **Options → Graphics**; the FPS limiter and pixel-perfect UI are under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
 
 | Setting | Default | Notes |
 |---|---:|---|
@@ -91,10 +91,15 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | Scene style | Off | Cartoon or PixelArt; live 0–100 strength, default 100. This is screen filtering, not a geometry replacement. |
 | Pixel block size | 2 | Actual output pixels; adjustable from 2 to 16. |
 | Colour vision | Off | Deuteranopia, Protanopia or Tritanopia correction in tactical missions and on the Geoscape, at full strength. Scene only: the HUD and menus are drawn after this pass and stay uncorrected. |
+| Exposure | 0 | -40–40 in tenths of a stop (10 = +1 EV = twice the linear light); first stage of the chain. Live, scene only. |
 | Black point | 0 | Input black level, 0–40: pixels darker than this become black and the rest stretch (deeper shadows); 0 = off. Live, scene only. |
 | White point | 255 | Input white level, 215–255: pixels brighter than this become white (brighter highlights); 255 = off. Live, scene only. |
+| Brightness | 0 | -100–100 midtone gamma (`pow(c, 2^-B)`): black and white stay put, above 0 lifts the mids, below 0 sinks them. Live, scene only. |
 | Contrast | 100 | 50–150, pivots at mid-grey; 100 = off, below flattens, above deepens (dark scenes get darker). Live, scene only. |
 | Clarity | 0 | Local contrast on fine detail (luma unsharp mask, ~10 px radius at 1080p), 0–100; 0 = off. Live, scene only. |
+| Vibrance | 0 | -100–100 saturation gain weighted towards muted colours (vivid ones barely move); below 0 mutes. Live, scene only. |
+| Saturation | 100 | 0–200 blend from luma (0 = greyscale) through as-rendered (100) to double (200). Live, scene only. |
+| Reset image settings | — | Button: Sharpness, LUT strength and the eight sliders above back to their defaults; LUT filter, colour vision and scene style selections untouched. |
 | Vignette | Vanilla | Vanilla keeps the game's own vignette; Off removes the darkened frame edges, in tactical missions and on the Geoscape. |
 | Shadow resolution | Vanilla | Vanilla keeps the graphics preset's value; Very High raises the shadow map size. |
 | Anisotropic filtering | Vanilla | Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture. |

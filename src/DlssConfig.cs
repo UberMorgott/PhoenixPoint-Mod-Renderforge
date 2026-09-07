@@ -53,16 +53,17 @@ namespace Renderforge
             nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
             nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts), nameof(PixelPerfectUi),
             nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias),
-            nameof(ColorVision), nameof(LevelsBlack), nameof(LevelsWhite), nameof(Contrast), nameof(Clarity)
+            nameof(ColorVision), nameof(LevelsBlack), nameof(LevelsWhite), nameof(Contrast), nameof(Clarity),
+            nameof(Exposure), nameof(Brightness), nameof(Saturation), nameof(Vibrance)
         };
 
         [ConfigField("DLSS mode", "Off, Auto (by resolution), DLAA, Quality, Balanced, Performance, Ultra Performance. Needs an active upscaler.")]
         public RenderforgeMode Mode = RenderforgeMode.Auto;
-        [ConfigField("Sharpness", "0 = off … 100. RCAS pass after DLSS; also a slider in Options → Graphics.")]
+        [ConfigField("Sharpness", "RCAS sharpening after reconstruction; 0 = off. Default: 40.")]
         public int Sharpness = 40;                      // 0..100 -> RCAS 0..1, applied every frame, live
         [ConfigField("LUT filter", "Original colour grade applied after temporal reconstruction. Scene only; the HUD stays unchanged. Also in Options → Graphics.")]
         public LutPreset Lut = LutPreset.Off;
-        [ConfigField("LUT strength", "0 = original image … 100 = full grade. Applied live.")]
+        [ConfigField("LUT strength", "0 = original image … 100 = full grade. Applied live. Default: 100.")]
         public int LutStrength = 100;
         [ConfigField("Scene style", "Off, Cartoon or PixelArt. Code-only scene filtering after reconstruction. Scene only; the HUD stays unchanged.")]
         public SceneStyle SceneStyle = SceneStyle.Off;
@@ -72,15 +73,24 @@ namespace Renderforge
         public int PixelSize = 4;
         [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Scene only; the HUD stays unchanged. Also in Options → Graphics.")]
         public ColorVisionMode ColorVision = ColorVisionMode.None;
-        // ReShade-style Levels / Contrast / Clarity in the same post pass (GradePanel sliders, live every frame).
-        [ConfigField("Black point", "Pixels darker than this become black and the rest stretch — deeper shadows. 0 = off.")]
+        // ReShade-style image sliders in the same post pass (GradePanel rows, live every frame). Chain order:
+        // Exposure -> Levels -> Brightness -> Contrast -> Clarity -> Vibrance -> Saturation.
+        [ConfigField("Exposure", "Exposure in tenths of a stop: 10 = +1 EV (twice the light), -10 = half. Applied first in the chain. Scene only; the HUD stays unchanged. Default: 0.")]
+        public int Exposure = 0;                        // -40..40 = -4..4 EV
+        [ConfigField("Black point", "Pixels darker than this become black and the rest stretch — deeper shadows. 0 = off. Default: 0.")]
         public int LevelsBlack = 0;                     // 0..40
-        [ConfigField("White point", "Pixels brighter than this become white — brighter highlights. 255 = off.")]
+        [ConfigField("White point", "Pixels brighter than this become white — brighter highlights. 255 = off. Default: 255.")]
         public int LevelsWhite = 255;                   // 215..255
-        [ConfigField("Contrast", "Pivots at mid-grey: 100 = off, below flattens, above deepens (dark scenes get darker).")]
+        [ConfigField("Brightness", "Midtone brightness (gamma): black and white stay put, above 0 lifts the mids, below 0 sinks them. Scene only; the HUD stays unchanged. Default: 0.")]
+        public int Brightness = 0;                      // -100..100
+        [ConfigField("Contrast", "Pivots at mid-grey: 100 = off, below flattens, above deepens (dark scenes get darker). Default: 100.")]
         public int Contrast = 100;                      // 50..150
-        [ConfigField("Clarity", "Local contrast on fine detail; 0 = off. Scene only; the HUD stays unchanged.")]
+        [ConfigField("Clarity", "Local contrast on fine detail; 0 = off. Scene only; the HUD stays unchanged. Default: 0.")]
         public int Clarity = 0;                         // 0..100
+        [ConfigField("Vibrance", "Saturation boost for muted colours only; vivid ones barely change. Below 0 mutes them. Scene only; the HUD stays unchanged. Default: 0.")]
+        public int Vibrance = 0;                        // -100..100
+        [ConfigField("Saturation", "Colour intensity of everything: 0 = greyscale, 100 = as rendered, 200 = double. Scene only; the HUD stays unchanged. Default: 100.")]
+        public int Saturation = 100;                    // 0..200
         // Legacy (feature removed in 1.5.0): kept so an old ModConfig.json still round-trips; no UI, ignored at runtime
         // (OnModEnabled logs once when it is true).
         public bool CrispFonts = false;
@@ -125,17 +135,21 @@ namespace Renderforge
         private static readonly Dictionary<string, string[]> Ru = new Dictionary<string, string[]>
         {
             { nameof(Mode), new[] { "Режим DLSS", "Выкл, Авто (по разрешению), DLAA, Quality, Balanced, Performance, Ultra Performance. Нужен работающий апскейлер." } },
-            { nameof(Sharpness), new[] { "Резкость", "0 = выкл … 100. Проход RCAS после DLSS; также ползунок в Настройки → Графика." } },
+            { nameof(Sharpness), new[] { "Резкость", "Резкость RCAS после реконструкции; 0 = выкл. По умолчанию: 40." } },
             { nameof(Lut), new[] { "LUT-фильтр", "Оригинальная цветокоррекция тактических миссий после темпоральной реконструкции. Только тактические миссии; только сцена, интерфейс не меняется. Также в Настройки → Графика." } },
-            { nameof(LutStrength), new[] { "Сила LUT", "0 = оригинал … 100 = полный эффект. Применяется сразу. Только тактические миссии." } },
+            { nameof(LutStrength), new[] { "Сила LUT", "0 = оригинал … 100 = полный эффект. Применяется сразу. По умолчанию: 100." } },
             { nameof(SceneStyle), new[] { "Стиль сцены", "Выкл, мультфильм или пиксель-арт. Стилизация кодом после реконструкции. Только сцена, интерфейс не меняется." } },
             { nameof(SceneStyleStrength), new[] { "Сила стилизации", "0 = оригинал, 100 = полный эффект. Применяется сразу." } },
             { nameof(PixelSize), new[] { "Размер пикселя", "По умолчанию 4 пикселя экрана. Диапазон 2–16: от мелкой до крупной пикселизации." } },
             { nameof(ColorVision), new[] { "Цветовое зрение", "Выкл, дейтеранопия, протанопия или тританопия. Перераспределяет неразличимые цвета на различимые каналы. Только тактические миссии; только сцена, интерфейс рисуется после этого прохода. Также в Настройки → Графика." } },
-            { nameof(LevelsBlack), new[] { "Точка чёрного", "Пиксели темнее этого значения становятся чёрными, остальные растягиваются — тени глубже. 0 = выкл." } },
-            { nameof(LevelsWhite), new[] { "Точка белого", "Пиксели ярче этого значения становятся белыми — светлые участки ярче. 255 = выкл." } },
-            { nameof(Contrast), new[] { "Контраст", "Опорная точка — средний серый: 100 = выкл, ниже — мягче, выше — контрастнее (тёмные сцены темнеют)." } },
-            { nameof(Clarity), new[] { "Чёткость", "Локальный контраст мелких деталей; 0 = выкл. Только сцена, интерфейс не меняется." } },
+            { nameof(Exposure), new[] { "Экспозиция", "Экспозиция в десятых долях ступени: 10 = +1 EV (вдвое больше света), -10 = вдвое меньше. Применяется первой в цепочке. Только сцена, интерфейс не меняется. По умолчанию: 0." } },
+            { nameof(LevelsBlack), new[] { "Точка чёрного", "Пиксели темнее этого значения становятся чёрными, остальные растягиваются — тени глубже. 0 = выкл. По умолчанию: 0." } },
+            { nameof(LevelsWhite), new[] { "Точка белого", "Пиксели ярче этого значения становятся белыми — светлые участки ярче. 255 = выкл. По умолчанию: 255." } },
+            { nameof(Brightness), new[] { "Яркость", "Яркость средних тонов (гамма): чёрный и белый остаются на месте, выше 0 средние тона светлее, ниже 0 — темнее. Только сцена, интерфейс не меняется. По умолчанию: 0." } },
+            { nameof(Contrast), new[] { "Контраст", "Опорная точка — средний серый: 100 = выкл, ниже — мягче, выше — контрастнее (тёмные сцены темнеют). По умолчанию: 100." } },
+            { nameof(Clarity), new[] { "Чёткость", "Локальный контраст мелких деталей; 0 = выкл. Только сцена, интерфейс не меняется. По умолчанию: 0." } },
+            { nameof(Vibrance), new[] { "Красочность", "Усиление насыщенности только приглушённых цветов; яркие почти не меняются. Ниже 0 — приглушает. Только сцена, интерфейс не меняется. По умолчанию: 0." } },
+            { nameof(Saturation), new[] { "Насыщенность", "Интенсивность всех цветов: 0 = чёрно-белое, 100 = как отрисовано, 200 = вдвое сильнее. Только сцена, интерфейс не меняется. По умолчанию: 100." } },
             { nameof(PixelPerfectUi), new[] { "Пиксельная точность интерфейса", "Привязывает элементы интерфейса к пиксельной сетке: текст чётче при ненативном масштабе интерфейса; анимированные панели могут двигаться шагами в целый пиксель. Применяется сразу, без перезапуска." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

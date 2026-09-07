@@ -445,6 +445,30 @@ namespace Renderforge
             return "black=" + m.Cfg.LevelsBlack + " white=" + m.Cfg.LevelsWhite + " contrast=" + m.Cfg.Contrast + " clarity=" + m.Cfg.Clarity;
         }
 
+        /// <summary>PPCLI/live A-B surface for the 1.6.0 sliders: exposure -40..40 (tenths of EV), brightness -100..100,
+        /// saturation 0..200, vibrance -100..100 (defaults 0 / 0 / 100 / 0 = off). All four are written (negative values
+        /// are legal here, so there is no "keep" sentinel): {"member":"SetImage","args":[20,0,100,0]}.</summary>
+        public static string SetImage(int exposure, int brightness, int saturation, int vibrance)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.Exposure = Mathf.Clamp(exposure, -40, 40);
+            m.Cfg.Brightness = Mathf.Clamp(brightness, -100, 100);
+            m.Cfg.Saturation = Mathf.Clamp(saturation, 0, 200);
+            m.Cfg.Vibrance = Mathf.Clamp(vibrance, -100, 100);
+            SaveConfig();
+            GradePanel.Sync();
+            return "exposure=" + m.Cfg.Exposure + " brightness=" + m.Cfg.Brightness + " saturation=" + m.Cfg.Saturation + " vibrance=" + m.Cfg.Vibrance;
+        }
+
+        /// <summary>PPCLI: {"member":"ResetImage"} - the Graphics panel's "Reset image settings" button (GradePanel.ResetAll).</summary>
+        public static string ResetImage()
+        {
+            if (Instance == null) return "mod not enabled";
+            GradePanel.ResetAll();
+            return "image settings reset";
+        }
+
         /// <summary>PPCLI: {"member":"SetFrameGen","args":["X2"]} - Off / X2 / X3 / X4. Live next frame + saved.</summary>
         public static string SetFrameGen(string mode)
         {

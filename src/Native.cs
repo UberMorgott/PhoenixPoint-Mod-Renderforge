@@ -116,10 +116,12 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Dlss_SetColorVision(IntPtr slot, int mode);
 
-        // Same slot contract. Levels / Contrast / Clarity, already normalised: black 0..40/255, white 215/255..1,
-        // contrast 0.5..1.5, clarity 0..1; anything else is that knob's Off.
+        // Same slot contract. Exposure / Levels / Brightness / Contrast / Clarity / Vibrance / Saturation, already
+        // normalised: black 0..40/255, white 215/255..1, contrast 0.5..1.5, clarity 0..1, exposure -4..4 EV,
+        // brightness -1..1, saturation 0..2 (1 = off), vibrance -1..1; anything else is that knob's Off.
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
-        public static extern void Dlss_SetGrade(IntPtr slot, float black, float white, float contrast, float clarity);
+        public static extern void Dlss_SetGrade(IntPtr slot, float black, float white, float contrast, float clarity,
+            float exposure, float brightness, float saturation, float vibrance);
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr Dlss_GetRenderEventFunc();

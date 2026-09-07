@@ -223,5 +223,26 @@ namespace Renderforge.Tests
         {
             Assert.All(Rows().SelectMany(r => r), cell => Assert.DoesNotContain('\r', cell));
         }
+
+        /// <summary>Every Graphics-panel image row (GradePanel.Knobs + the reset row) has a label row and a tooltip row
+        /// ending in the visible default, so no language falls back to the inline EN/RU pair.</summary>
+        [Theory]
+        [InlineData("Exposure", "Default: 0.")]
+        [InlineData("Black point", "Default: 0.")]
+        [InlineData("White point", "Default: 255.")]
+        [InlineData("Brightness", "Default: 0.")]
+        [InlineData("Contrast", "Default: 100.")]
+        [InlineData("Clarity", "Default: 0.")]
+        [InlineData("Vibrance", "Default: 0.")]
+        [InlineData("Saturation", "Default: 100.")]
+        [InlineData("Sharpness", "Default: 40.")]
+        [InlineData("LUT strength", "Default: 100.")]
+        [InlineData("Reset image settings", "to their defaults.")]
+        public void ImageRowsHaveLabelAndDefaultBearingTooltip(string label, string tooltipTail)
+        {
+            var keys = Rows().Skip(1).Select(r => r[0]).ToList();
+            Assert.Contains(label, keys);
+            Assert.Contains(keys, k => k.Contains(tooltipTail) && k != label);
+        }
     }
 }

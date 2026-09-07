@@ -153,7 +153,19 @@ namespace Renderforge
             ShowSharp((int)sharp.value);
             sharp.onValueChanged.RemoveAllListeners();
             sharp.onValueChanged.AddListener(OnSharp);
+            Tip(sharp.gameObject, DlssConfig.Loc("RCAS sharpening after reconstruction; 0 = off. Default: 40.",
+                                                 "Резкость RCAS после реконструкции; 0 = выкл. По умолчанию: 40."));
             SetSliderEnabled(RenderforgeMod.Available);
+        }
+
+        /// <summary>Slider position + readout from the config (GradePanel.ResetAll writes Sharpness behind the slider).</summary>
+        internal static void SyncSharpness()
+        {
+            var cfg = RenderforgeMod.Instance?.Cfg;
+            if (sharp == null || cfg == null) return;
+            int v = Mathf.Clamp(cfg.Sharpness, 0, 100);
+            sharp.SetValueWithoutNotify(v);
+            ShowSharp(v);
         }
 
         private static void OnSharp(float v)

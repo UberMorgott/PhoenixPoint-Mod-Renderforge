@@ -523,7 +523,9 @@ namespace Renderforge
                     Native.Dlss_SetColorVision(slot, (int)cfg.ColorVision);
                 if (GradePanel.Active(cfg))
                     Native.Dlss_SetGrade(slot, Mathf.Clamp(cfg.LevelsBlack, 0, 40) / 255f, Mathf.Clamp(cfg.LevelsWhite, 215, 255) / 255f,
-                        Mathf.Clamp(cfg.Contrast, 50, 150) / 100f, Mathf.Clamp(cfg.Clarity, 0, 100) / 100f);
+                        Mathf.Clamp(cfg.Contrast, 50, 150) / 100f, Mathf.Clamp(cfg.Clarity, 0, 100) / 100f,
+                        Mathf.Clamp(cfg.Exposure, -40, 40) / 10f, Mathf.Clamp(cfg.Brightness, -100, 100) / 100f,
+                        Mathf.Clamp(cfg.Saturation, 0, 200) / 100f, Mathf.Clamp(cfg.Vibrance, -100, 100) / 100f);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
                 if (FrameGen.Live && !FrameGen.HoldPrepare)

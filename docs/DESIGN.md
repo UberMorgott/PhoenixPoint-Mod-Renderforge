@@ -460,6 +460,38 @@ player actually sees. Runs wherever the pass runs (tactical + geoscape); the HUD
   `grade=32711` pixels differ from the copy); managed build 0/0; `qgate -All -Full` green. In-game per-knob
   screenshots and the 1440p frame-time delta are the acceptance step still owed (plan Track C).
 
+### Exposure / Brightness / Vibrance / Saturation + Reset (1.6.0)
+
+Four more stages of the same `Adjust(p, c)` (`native\Grade.h`), inserted around the 1.5.0 ones so the chain is
+**Exposure → Levels → Brightness → Contrast → Clarity → Vibrance → Saturation**, still after `Grade` (LUT) and before
+`ColorVision` in `Sharpen.cpp` (the existing stages did not move). Same display-referred maths, same `!= 0` bypass per
+stage, same early-out when all eight uniforms are zero.
+
+- **Knobs** (`DlssConfig`, ints, identity by default): `Exposure` -40–40 (0, tenths of EV), `Brightness` -100–100
+  (0), `Vibrance` -100–100 (0), `Saturation` 0–200 (100). Rows = `GradePanel.Knobs` in chain order; the UI shows the
+  raw integers. `Active` = any of the eight knobs off its default. Console: `RenderforgeMod.SetImage(exposure,
+  brightness, saturation, vibrance)` (all four written — negatives are legal, so no keep sentinel) and
+  `RenderforgeMod.ResetImage()`.
+- **ABI.** `Dlss_SetGrade(slot, black, white, contrast, clarity, exposure, brightness, saturation, vibrance)` —
+  exposure -4..4 EV, brightness -1..1, saturation 0..2, vibrance -1..1, out of range / NaN = Off. Re-encoded zero-is-off:
+  `GradeParams { …, exposure, brightness, saturationDelta = saturation − 1, vibrance }`. Constant buffer: a second
+  `float4` at byte 112 (`fp[28..31]`) — 128 of 256 bytes used, no layout change on either backend.
+- **Formulas** (d = display-referred value, luma = Rec.709 `StyleLuma`):
+  - Exposure: `d *= exp2(EV / 2.2)` — 1 EV is ×2 in LINEAR light; on the gamma-encoded value that is `2^(EV/2.2)`
+    (`pow(c·2^EV, 1/2.2)`), identical on both colour-space paths. A plain `×2^EV` on the display value would have made
+    +1 EV ≈ ×4.6 linear.
+  - Brightness: `d = pow(max(d, 0), exp2(-B))` — midtone gamma, endpoints fixed; +1 → exponent 0.5, −1 → 2.
+  - Vibrance: `sat = (max(d) − min(d)) / max(max(d), 1e-4)`, `d = lerp(luma, d, 1 + V·(1 − sat))`.
+  - Saturation: `d = lerp(luma, d, S)`; S = 1 is the bit-exact bypass (`saturationDelta == 0`).
+- **Reset row** (`GradePanel.BuildReset`): `UIModuleGraphicsOptionsPanel` ships no standalone button, so the row is a
+  `TextureQualityPicker` clone (the prefab every Renderforge picker row uses) with `PreviousArrow`/`NextArrow`
+  hidden, an empty `Title`, `CurrentItem` = "Reset image settings" and `CentralButton.PointerClicked` assigned
+  directly (`ArrowPickerController.Init` is NOT called — it binds the central button to `NextOption`,
+  `ArrowPickerController.cs:45-48`). Click = `GradePanel.ResetAll`: Sharpness 40, LUT strength 100, the eight knobs
+  to their defaults, `SaveConfig` + `ApplyLutSettings`, then `GradePanel.Sync` / `GraphicsPanel.SyncSharpness` /
+  `LutPanel.Sync` repaint the rows; one `LogInfo` line. Immediate like every Renderforge slider (no Apply flow); the LUT
+  filter, colour vision and scene style selections are untouched. Every image tooltip now ends in `Default: N.`
+
 ### Crisp fonts (1.4.x) — REMOVED in 1.5.0
 
 - Measurements 2026-09-07 (`docs\research\2026-09-05-crisp-ui-measurement.md`): Sobel ON/OFF = 1.00 at 1440p (glyphs
@@ -868,7 +900,7 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
 - **LOD slider positions are contiguous, values are not.** Valid biases are `0` (Vanilla) and `1.0 … 4.0`, so the slider
   runs `0..31` and maps position → value (`1.0 + (pos - 1) * 0.1`) instead of scaling. A scaled `0..40` slider would snap
   positions 1–9 back to 10 and trap keyboard/controller decrement at `1.0`.
-- **Row order in Options → Graphics:** LUT → Colour vision → Black point / White point / Contrast / Clarity → Scene style → Quality rows.
+- **Row order in Options → Graphics:** LUT → Colour vision → Exposure / Black point / White point / Brightness / Contrast / Clarity / Vibrance / Saturation → Reset image settings → Scene style → Quality rows.
 - **No "Extreme" shadow tier.** Unity 2019.4 caps custom shadow maps at 4096 dir / 2048 spot / 1024 point,
   so a tier above `VeryHigh` would be meaningless. 11 of 71 lights cast shadows, all `FromQualitySettings`.
 

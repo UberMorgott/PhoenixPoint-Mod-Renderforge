@@ -44,7 +44,7 @@ static const char kRcasHlsl[] =
 static const char kColorGradeHlsl[] =
 "Texture2D<float4> src : register(t0);\n"
 "RWTexture2D<float4> dst : register(u0);\n"
-"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; uint styleMode; uint pixelSize; float styleStrength; uint styleLinear; uint colorVision; float pad0; float4 cvRow0; float4 cvRow1; float4 cvRow2; float levelsBlack; float whiteDrop; float contrastDelta; float clarity; };\n"
+"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; uint styleMode; uint pixelSize; float styleStrength; uint styleLinear; uint colorVision; float pad0; float4 cvRow0; float4 cvRow1; float4 cvRow2; float levelsBlack; float whiteDrop; float contrastDelta; float clarity; float exposure; float brightness; float saturationDelta; float vibrance; };\n"
 "float3 L(int2 p) { p=clamp(p,int2(0,0),int2(int(W)-1,int(H)-1)); return src.Load(int3(p,0)).rgb; }\n"
 RF_SCENE_STYLE_HLSL
 RF_GRADE_HLSL
@@ -162,9 +162,11 @@ void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, u
         for (int row = 0; row < 3; ++row)
             for (int col = 0; col < 3; ++col)
                 fp[12 + row * 4 + col] = d.m[row * 3 + col];
-        // Levels / Contrast / Clarity: one float4 at byte 96 (fp[24..27]), after the three matrix rows. Zero = off
-        // for all four (Grade.h), so the NIS/RCAS layouts below, which never write here, are the bypass too.
+        // Levels / Contrast / Clarity: one float4 at byte 96 (fp[24..27]), after the three matrix rows, then
+        // Exposure / Brightness / Saturation / Vibrance at byte 112 (fp[28..31]). Zero = off for all eight (Grade.h),
+        // so the NIS/RCAS layouts below, which never write here, are the bypass too.
         fp[24] = grade.black; fp[25] = grade.whiteDrop; fp[26] = grade.contrastDelta; fp[27] = grade.clarity;
+        fp[28] = grade.exposure; fp[29] = grade.brightness; fp[30] = grade.saturationDelta; fp[31] = grade.vibrance;
     } else if (kind == DLSS_SHARPEN_NIS) {
         NISConfig cfg = {};
         NVSharpenUpdateConfig(cfg, sharpness, 0, 0, w, h, w, h, 0, 0, hdr ? NISHDRMode::Linear : NISHDRMode::None);

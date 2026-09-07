@@ -240,7 +240,8 @@ void __cdecl Dlss_SetColorVision(void* slot, int mode)
     p->colorVision = (mode >= DLSS_CV_DEUTERANOPIA && mode <= DLSS_CV_TRITANOPIA) ? mode : DLSS_CV_OFF;
 }
 
-void __cdecl Dlss_SetGrade(void* slot, float black, float white, float contrast, float clarity)
+void __cdecl Dlss_SetGrade(void* slot, float black, float white, float contrast, float clarity,
+                           float exposure, float brightness, float saturation, float vibrance)
 {
     FrameParams* p = (FrameParams*)slot;
     if (!p) return;
@@ -249,6 +250,10 @@ void __cdecl Dlss_SetGrade(void* slot, float black, float white, float contrast,
     if (white < 1.0f)    g.whiteDrop = 1.0f - (white > 215.0f / 255.0f ? white : 215.0f / 255.0f);
     if (contrast >= 0.5f && contrast <= 1.5f) g.contrastDelta = contrast - 1.0f;
     if (clarity > 0.0f)  g.clarity = clarity < 1.0f ? clarity : 1.0f;
+    if (exposure >= -4.0f && exposure <= 4.0f)     g.exposure = exposure;
+    if (brightness >= -1.0f && brightness <= 1.0f) g.brightness = brightness;
+    if (saturation >= 0.0f && saturation <= 2.0f)  g.saturationDelta = saturation - 1.0f;
+    if (vibrance >= -1.0f && vibrance <= 1.0f)     g.vibrance = vibrance;
     p->grade = g;
 }
 

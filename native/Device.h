@@ -33,7 +33,7 @@ struct FrameParams
     float nearZ, farZ, fovY;   // camera near/far/vertical FOV (radians) from Dlss_SetCamera; FSR needs them, NGX does not
     SceneStyleParams style;   // cleared by SetFrame; filled by SetSceneStyle before the event is queued
     int colorVision;          // DLSS_CV_*; cleared by SetFrame, filled by SetColorVision before the event is queued
-    GradeParams grade;        // Levels/Contrast/Clarity; zero = Off (SetFrame's memset), filled by SetGrade
+    GradeParams grade;        // Exposure/Levels/Brightness/Contrast/Clarity/Vibrance/Saturation; zero = Off (SetFrame's memset), filled by SetGrade
 };
 
 // Feature-creation parameters, stored by Dlss_SetCreateParams and consumed by DLSS_EV_CREATE.

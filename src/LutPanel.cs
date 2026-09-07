@@ -87,7 +87,8 @@ namespace Renderforge
             strength.SetValueWithoutNotify(Mathf.Clamp(cfg.LutStrength, 0, 100));
             strength.onValueChanged.RemoveAllListeners();
             strength.onValueChanged.AddListener(OnStrength);
-            ShowStrength((int)strength.value);
+            GraphicsPanel.Tip(strength.gameObject, DlssConfig.Loc("0 = original image … 100 = full grade. Applied live. Default: 100.",
+                                                                  "0 = оригинал … 100 = полный эффект. Применяется сразу. По умолчанию: 100."));
             Sync();
             return row;
         }
@@ -114,6 +115,8 @@ namespace Renderforge
             bool on = index != 0;
             if (strength != null)
             {
+                strength.SetValueWithoutNotify(Mathf.Clamp(cfg.LutStrength, 0, 100));   // a reset/console write must not leave it stale
+                ShowStrength(Mathf.Clamp(cfg.LutStrength, 0, 100));
                 strength.interactable = on;
                 foreach (var go in new[] { strength.gameObject, value != null ? value.gameObject : null })
                 {
