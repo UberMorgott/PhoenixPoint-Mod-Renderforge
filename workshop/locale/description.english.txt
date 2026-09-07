@@ -5,14 +5,17 @@
 [h1]Features[/h1]
 [list]
 [*][b]Upscaling and anti-aliasing:[/b] DLSS Super Resolution and native-resolution DLAA, FSR and XeSS; Auto selects an available upscaler for your GPU and renderer.
+[*][b]Geoscape markers:[/b] site markers are drawn after DLSS at output resolution, so rotating the globe no longer leaves ghost trails behind them. DirectX 11, with frame generation and colour vision off; any other combination keeps the vanilla path. The markers skip the game's post-processing, so their whites read slightly brighter.
 [*][b]Sharpening:[/b] NIS also works with the upscaler Off, preserving the game's anti-aliasing; set sharpness to 0 to disable it.
 [*][b]Frame generation:[/b] DLSS-G, FSR and XeSS-FG at 2x on DirectX 12 with an active upscaler; DLSS-G also offers 3x/4x on RTX 50. Off by default.
 [*][b]Image:[/b] LUT colour filters in tactical missions and on the Geoscape, plus Cartoon/PixelArt scene styles, with adjustable strength; the HUD stays unchanged.
-[*][b]Image controls:[/b] Black point, White point, Contrast and Clarity under Options > Graphics: live sliders, all off by default, in the same pass as LUT filters. Scene only, in tactical missions and on the Geoscape; the HUD stays unchanged.
+[*][b]Image controls:[/b] Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance and Saturation under Options > Graphics: live sliders, every tooltip states the default, in the same pass as LUT filters. Scene only, in tactical missions and on the Geoscape; the HUD stays unchanged.
+[*][b]Reset image settings:[/b] one row under Options > Graphics puts every Renderforge image and quality setting back to its default; its tooltip lists them. Renderer, Upscaler, Quality, Frame generation and Colour vision stay as chosen.
 [*][b]Colour vision:[/b] Deuteranopia, Protanopia and Tritanopia correction, combined with LUT filters or scene styles. Scene only, in tactical missions and on the Geoscape; HUD and menus stay unchanged.
 [*][b]Quality controls:[/b] disable vignette in tactical missions and on the Geoscape, select Very High shadows, force 16x anisotropic filtering and increase distant model detail with LOD. Each Vanilla position restores the graphics preset's value.
 [*][b]Renderer:[/b] switch between DirectX 11 and DirectX 12 in-game; requires a restart.
 [*][b]FPS:[/b] removes the vanilla 60 FPS pin; optional 30–300 FPS limit includes generated frames.
+[*][b]Resolution list:[/b] Options > Screen lists every screen size once, keeping its highest refresh rate, instead of repeating the same size for each rate.
 [*][b]Pixel-perfect UI:[/b] optional, off by default: snaps interface elements to the pixel grid for slightly sharper text; animated panels may move in whole-pixel steps. Applies live, no restart.
 [*][b]Hotkeys:[/b] Ctrl+Alt+O toggles the benchmark overlay (renderer, upscaler, resolution, frame time and FPS); Ctrl+Alt+U toggles the upscaler off/on.
 [/list]

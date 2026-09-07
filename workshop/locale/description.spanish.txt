@@ -5,14 +5,17 @@
 [h1]Funciones[/h1]
 [list]
 [*][b]Reescalado y antialiasing:[/b] DLSS Super Resolution y DLAA a resolución nativa, FSR y XeSS; Auto elige un reescalador disponible para tu GPU y renderizador.
+[*][b]Marcadores del Geoscape:[/b] los marcadores de ubicaciones se dibujan después de DLSS a la resolución de salida, por lo que al girar el globo ya no dejan estelas fantasma. En DirectX 11, con la generación de fotogramas y la visión del color desactivadas; cualquier otra combinación conserva el renderizado original. Los marcadores omiten el posprocesado del juego, por lo que sus blancos se ven ligeramente más brillantes.
 [*][b]Nitidez:[/b] NIS también funciona con el reescalador en «Desactivado», conservando el antialiasing del juego; pon la nitidez a 0 para desactivar NIS.
 [*][b]Generación de fotogramas:[/b] DLSS-G, FSR y XeSS-FG a 2x en DirectX 12 con un reescalador activo; DLSS-G también ofrece 3x/4x en RTX 50. Desactivada por defecto.
 [*][b]Imagen:[/b] filtros de color LUT en misiones tácticas y en el Geoscape, además de estilos de escena Cartoon/PixelArt, con intensidad ajustable; el HUD no cambia.
-[*][b]Ajustes de imagen:[/b] Punto negro, Punto blanco, Contraste y Claridad en Opciones > Gráficos: controles deslizantes de efecto inmediato, todos desactivados por defecto, en la misma pasada que los filtros LUT. Solo la escena, en misiones tácticas y en el Geoscape; el HUD no cambia.
+[*][b]Ajustes de imagen:[/b] Exposición, Punto negro, Punto blanco, Brillo, Contraste, Claridad, Intensidad y Saturación en Opciones > Gráficos: controles deslizantes de efecto inmediato, cada descripción emergente indica el valor por defecto, en la misma pasada que los filtros LUT. Solo la escena, en misiones tácticas y en el Geoscape; el HUD no cambia.
+[*][b]Restablecer ajustes de imagen:[/b] una fila en Opciones > Gráficos devuelve todos los ajustes de imagen y calidad de Renderforge a sus valores por defecto; su descripción emergente los enumera. Renderizador, reescalador, calidad, generación de fotogramas y visión del color conservan los valores elegidos.
 [*][b]Visión del color:[/b] corrección de deuteranopía, protanopía y tritanopía, combinable con filtros LUT o estilos. Solo la escena, en misiones tácticas y en el Geoscape; el HUD y los menús no cambian.
 [*][b]Calidad:[/b] desactiva el viñeteado en misiones tácticas y en el Geoscape, elige sombras muy altas, fuerza el filtrado anisotrópico 16x y aumenta el detalle de modelos lejanos con LOD. Cada posición «Como en el juego» restaura el valor del preajuste gráfico.
 [*][b]Renderizador:[/b] cambia entre DirectX 11 y DirectX 12 desde el juego; requiere reiniciar.
 [*][b]FPS:[/b] elimina el bloqueo original de 60 FPS; límite opcional de 30–300 FPS que incluye fotogramas generados.
+[*][b]Lista de resoluciones:[/b] Opciones > Pantalla muestra cada resolución una sola vez, con su mayor frecuencia de actualización, en lugar de repetirla para cada frecuencia.
 [*][b]Interfaz ajustada al píxel:[/b] opcional, desactivada de forma predeterminada: ajusta los elementos de la interfaz a la cuadrícula de píxeles para que el texto se vea ligeramente más nítido; los paneles animados pueden moverse en pasos de píxeles enteros. Se aplica al instante, sin reiniciar.
 [*][b]Atajos:[/b] Ctrl+Alt+O muestra/oculta el overlay de medición (renderizador, reescalador, resolución, tiempo por fotograma y FPS); Ctrl+Alt+U desactiva/activa el reescalador.
 [/list]

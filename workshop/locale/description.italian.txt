@@ -5,14 +5,17 @@
 [h1]Funzioni[/h1]
 [list]
 [*][b]Upscaling e antialiasing:[/b] DLSS Super Resolution e DLAA a risoluzione nativa, FSR e XeSS; Auto sceglie un upscaler disponibile per GPU e renderer.
+[*][b]Indicatori del Geoscape:[/b] gli indicatori dei siti vengono disegnati dopo DLSS alla risoluzione di uscita, quindi ruotare il globo non lascia più scie fantasma. Su DirectX 11, con generazione di fotogrammi e visione dei colori disattivate; ogni altra combinazione mantiene il rendering originale. Gli indicatori saltano la post-elaborazione del gioco, quindi i loro bianchi appaiono leggermente più luminosi.
 [*][b]Nitidezza:[/b] NIS funziona anche con l'upscaler su «Disattivato», mantenendo l'antialiasing del gioco; imposta la nitidezza a 0 per disattivare NIS.
 [*][b]Generazione di fotogrammi:[/b] DLSS-G, FSR e XeSS-FG a 2x su DirectX 12 con un upscaler attivo; DLSS-G offre anche 3x/4x su RTX 50. Disattivata di default.
 [*][b]Immagine:[/b] filtri colore LUT nelle missioni tattiche e sul Geoscape, oltre agli stili di scena Cartoon/PixelArt, con intensità regolabile; l'HUD resta invariato.
-[*][b]Controlli immagine:[/b] Punto di nero, Punto di bianco, Contrasto e Chiarezza in Opzioni > Grafica: cursori con effetto immediato, tutti disattivati di default, nello stesso passaggio dei filtri LUT. Solo la scena, nelle missioni tattiche e sul Geoscape; l'HUD resta invariato.
+[*][b]Controlli immagine:[/b] Esposizione, Punto di nero, Punto di bianco, Luminosità, Contrasto, Chiarezza, Vividezza e Saturazione in Opzioni > Grafica: cursori con effetto immediato, ogni tooltip indica il valore predefinito, nello stesso passaggio dei filtri LUT. Solo la scena, nelle missioni tattiche e sul Geoscape; l'HUD resta invariato.
+[*][b]Ripristina impostazioni immagine:[/b] una voce in Opzioni > Grafica riporta tutte le impostazioni di immagine e qualità di Renderforge ai valori predefiniti; il suo tooltip le elenca. Renderer, upscaler, qualità, generazione di fotogrammi e visione dei colori mantengono le scelte effettuate.
 [*][b]Visione dei colori:[/b] correzione per deuteranopia, protanopia e tritanopia, combinabile con filtri LUT o stili. Solo la scena, nelle missioni tattiche e sul Geoscape; HUD e menu restano invariati.
 [*][b]Qualità:[/b] disattiva la vignettatura nelle missioni tattiche e sul Geoscape, scegli ombre molto alte, forza il filtro anisotropico 16x e aumenta il dettaglio dei modelli lontani tramite LOD. Ogni posizione «Come nel gioco» ripristina il valore del preset grafico.
 [*][b]Renderer:[/b] passa da DirectX 11 a DirectX 12 e viceversa dal gioco; richiede un riavvio.
 [*][b]FPS:[/b] rimuove il blocco originale a 60 FPS; limite opzionale di 30–300 FPS, inclusi i fotogrammi generati.
+[*][b]Elenco delle risoluzioni:[/b] Opzioni > Schermo mostra ogni risoluzione una sola volta, con la frequenza di aggiornamento più alta, invece di ripeterla per ogni frequenza.
 [*][b]Interfaccia precisa al pixel:[/b] opzionale, disattivata per impostazione predefinita: allinea gli elementi dell'interfaccia alla griglia dei pixel per rendere il testo leggermente più nitido; i pannelli animati possono muoversi a passi di pixel interi. Si applica immediatamente, senza riavvio.
 [*][b]Scorciatoie:[/b] Ctrl+Alt+O mostra/nasconde l'overlay di misurazione (renderer, upscaler, risoluzione, tempo per fotogramma e FPS); Ctrl+Alt+U disattiva/attiva l'upscaler.
 [/list]

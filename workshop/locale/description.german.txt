@@ -5,14 +5,17 @@
 [h1]Funktionen[/h1]
 [list]
 [*][b]Upscaling und Kantenglättung:[/b] DLSS Super Resolution und DLAA in nativer Auflösung, FSR und XeSS; Auto wählt einen verfügbaren Upscaler für GPU und Renderer.
+[*][b]Geoscape-Markierungen:[/b] Standortmarkierungen werden nach DLSS in der Ausgabeauflösung gezeichnet, sodass beim Drehen des Globus keine Geisterspuren mehr entstehen. Unter DirectX 11 bei ausgeschalteter Frame-Generierung und Farbsehkorrektur; jede andere Kombination nutzt die ursprüngliche Darstellung. Die Markierungen durchlaufen die Nachbearbeitung des Spiels nicht, daher wirken ihre Weißtöne etwas heller.
 [*][b]Schärfung:[/b] NIS funktioniert auch bei ausgeschaltetem Upscaler („Aus“), ohne die Kantenglättung des Spiels zu ändern; Schärfe 0 schaltet NIS ab.
 [*][b]Frame-Generierung:[/b] DLSS-G, FSR und XeSS-FG mit 2x unter DirectX 12 bei aktivem Upscaler; DLSS-G bietet auf RTX 50 auch 3x/4x. Standardmäßig aus.
 [*][b]Bild:[/b] LUT-Farbfilter in taktischen Missionen und auf dem Geoscape sowie Szenenstile Cartoon/PixelArt mit einstellbarer Stärke; das HUD bleibt unverändert.
-[*][b]Bildregler:[/b] Schwarzpunkt, Weißpunkt, Kontrast und Klarheit unter Optionen > Grafik: sofort wirksame Schieberegler, standardmäßig alle aus, im selben Durchgang wie die LUT-Filter. Nur die Szene, in taktischen Missionen und auf dem Geoscape; das HUD bleibt unverändert.
+[*][b]Bildregler:[/b] Belichtung, Schwarzpunkt, Weißpunkt, Helligkeit, Kontrast, Klarheit, Dynamik und Sättigung unter Optionen > Grafik: sofort wirksame Schieberegler, jeder Tooltip nennt den Standardwert, im selben Durchgang wie die LUT-Filter. Nur die Szene, in taktischen Missionen und auf dem Geoscape; das HUD bleibt unverändert.
+[*][b]Bildeinstellungen zurücksetzen:[/b] ein Eintrag unter Optionen > Grafik setzt alle Bild- und Qualitätseinstellungen von Renderforge auf ihre Standardwerte zurück; der Tooltip listet sie auf. Renderer, Upscaler, Qualität, Frame-Generierung und Farbsehen bleiben wie gewählt.
 [*][b]Farbsehen:[/b] Korrektur für Deuteranopie, Protanopie und Tritanopie, kombinierbar mit LUT-Filtern oder Szenenstilen. Nur die Szene, in taktischen Missionen und auf dem Geoscape; HUD und Menüs bleiben unverändert.
 [*][b]Qualität:[/b] Vignette in taktischen Missionen und auf dem Geoscape abschalten, sehr hohe Schatten wählen, anisotrope Filterung mit 16x erzwingen und entfernte Modelle über LOD detaillierter darstellen. Jede Stellung „Wie im Spiel“ stellt den Wert der Grafikvoreinstellung wieder her.
 [*][b]Renderer:[/b] im Spiel zwischen DirectX 11 und DirectX 12 wechseln; Neustart erforderlich.
 [*][b]FPS:[/b] hebt die ursprüngliche 60-FPS-Begrenzung auf; optionales Limit von 30–300 FPS einschließlich generierter Frames.
+[*][b]Auflösungsliste:[/b] Optionen > Bildschirm zeigt jede Auflösung nur einmal mit ihrer höchsten Bildwiederholrate, statt dieselbe Auflösung für jede Bildwiederholrate zu wiederholen.
 [*][b]Pixelgenaue Oberfläche:[/b] optional, standardmäßig deaktiviert: richtet Oberflächenelemente am Pixelraster aus, wodurch Text etwas schärfer dargestellt wird; animierte Bedienfelder können sich in ganzen Pixelschritten bewegen. Wird sofort angewendet, kein Neustart erforderlich.
 [*][b]Tastenkürzel:[/b] Strg+Alt+O schaltet das Benchmark-Overlay um (Renderer, Upscaler, Auflösung, Framezeit und FPS); Strg+Alt+U schaltet den Upscaler aus/ein.
 [/list]
