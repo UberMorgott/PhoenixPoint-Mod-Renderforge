@@ -44,9 +44,10 @@ static const char kRcasHlsl[] =
 static const char kColorGradeHlsl[] =
 "Texture2D<float4> src : register(t0);\n"
 "RWTexture2D<float4> dst : register(u0);\n"
-"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; uint styleMode; uint pixelSize; float styleStrength; uint styleLinear; uint colorVision; float pad0; float4 cvRow0; float4 cvRow1; float4 cvRow2; };\n"
+"cbuffer C : register(b0) { float sharpness; float strength; uint W; uint H; uint preset; float con; uint styleMode; uint pixelSize; float styleStrength; uint styleLinear; uint colorVision; float pad0; float4 cvRow0; float4 cvRow1; float4 cvRow2; float levelsBlack; float levelsWhite; float contrastK; float clarity; };\n"
 "float3 L(int2 p) { p=clamp(p,int2(0,0),int2(int(W)-1,int(H)-1)); return src.Load(int3(p,0)).rgb; }\n"
 RF_SCENE_STYLE_HLSL
+RF_GRADE_HLSL
 "float3 Grade(float3 c) {\n"
 "  float y=dot(c,float3(0.2126,0.7152,0.0722)); float3 g=c;\n"
 "  if (preset==1) { g=lerp(y.xxx,c,0.72); g=(g-0.5)*0.96+0.5; g*=float3(0.98,1.0,1.02); }\n"
@@ -62,7 +63,7 @@ RF_SCENE_STYLE_HLSL
 "  else if (preset==9) { float z=saturate(y); float film=0.035+0.93*y; g=film.xxx+z*(1.0-z)*float3(0.24,0.025,-0.26); }\n"
 "  return lerp(c,max(g,0.0),strength);\n"
 "}\n"
-// Daltonization, AFTER Grade() and Stylize() so it corrects whatever the player actually sees. The matrix is
+// Daltonization, AFTER Grade(), Stylize() and Adjust() so it corrects whatever the player actually sees. The matrix is
 // precomputed on the CPU (ColorVision.h) and arrives row-major in cvRow0..2; the shader only transforms.
 // The exact piecewise sRGB curve is used, not pow(2.2): the error of the approximation is ~2/255 in the
 // darks, which is the same order as the correction itself on near-neutral colours.
@@ -85,7 +86,7 @@ RF_SCENE_STYLE_HLSL
 "    float3 mn4=min(min(b,d),min(f,h)),mx4=max(max(b,d),max(f,h));\n"
 "    float3 hitMin=mn4/max(4.0*mx4,1e-5),hitMax=(1.0-mx4)/min(4.0*mn4-4.0,-1e-5);\n"
 "    float3 lr=max(-hitMin,hitMax); float l=max(-0.1875,min(max(max(lr.r,lr.g),lr.b),0.0))*con*nz; c=(l*(b+d+f+h)+e)/(4.0*l+1.0); }\n"
-"  dst[id.xy]=float4(ColorVision(Grade(Stylize(p,c))),src.Load(int3(p,0)).a); }\n";
+"  dst[id.xy]=float4(ColorVision(Adjust(p,Grade(Stylize(p,c)))),src.Load(int3(p,0)).a); }\n";
 
 // NIS sharpen-only: the NIS_Main.hlsl example's bindings + NVSharpen entry. Block/group sizes = NISOptimizer(isUpscaling=false,
 // NVIDIA_Generic) in NIS_Config.h (32 x 32, 128 threads). NIS_HDR_MODE 0: the DLSS output is display-referred LDR;
@@ -145,10 +146,10 @@ ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr, bool colorGrade)
 
 void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
                           int lutPreset, float lutStrength, bool hdr, const SceneStyleParams& style,
-                          int colorVision)
+                          int colorVision, const GradeParams& grade)
 {
     memset(dst256, 0, 256);
-    if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision)) {
+    if (PostShaderEnabled(lutPreset, lutStrength, style, colorVision, grade)) {
         float* fp = (float*)dst256; unsigned* up = (unsigned*)dst256;
         fp[0] = sharpness; fp[1] = lutStrength; up[2] = w; up[3] = h; up[4] = (unsigned)lutPreset;
         fp[5] = exp2f(-2.0f * (1.0f - sharpness));
@@ -161,6 +162,8 @@ void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, u
         for (int row = 0; row < 3; ++row)
             for (int col = 0; col < 3; ++col)
                 fp[12 + row * 4 + col] = d.m[row * 3 + col];
+        // Levels / Contrast / Clarity: one float4 at byte 96 (fp[24..27]), after the three matrix rows.
+        fp[24] = grade.black; fp[25] = grade.white; fp[26] = grade.contrast; fp[27] = grade.clarity;
     } else if (kind == DLSS_SHARPEN_NIS) {
         NISConfig cfg = {};
         NVSharpenUpdateConfig(cfg, sharpness, 0, 0, w, h, w, h, 0, 0, hdr ? NISHDRMode::Linear : NISHDRMode::None);

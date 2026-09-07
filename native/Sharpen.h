@@ -6,6 +6,7 @@
 #include <dxgiformat.h>
 #include "SceneStyle.h"
 #include "ColorVision.h"
+#include "Grade.h"
 
 // Compiles the post shader. When colorGrade is false this is the original NIS/RCAS sharpen path; when true it is
 // one analytic RCAS + color-grade pass. Returns the DXBC blob (caller Release()s it) and writes
@@ -17,17 +18,21 @@ ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr = false, bool colorGrade = f
 // sharpness is 0..1; zero still runs when a color grade is active. hdr must match the compiled blob.
 void FillSharpenConstants(void* dst256, int kind, float sharpness, unsigned w, unsigned h,
                           int lutPreset = 0, float lutStrength = 0.0f, bool hdr = false,
-                          const SceneStyleParams& style = SceneStyleParams{}, int colorVision = 0);
+                          const SceneStyleParams& style = SceneStyleParams{}, int colorVision = 0,
+                          const GradeParams& grade = GradeParams{});
 
 inline bool ColorGradeEnabled(int preset, float strength) { return preset >= 1 && preset <= 9 && strength > 0.0f; }
 inline bool ColorVisionEnabled(int mode) { return mode >= RF_CV_DEUTERANOPIA && mode <= RF_CV_TRITANOPIA; }
 
-// The analytic post shader (RCAS + grade + scene style + colour vision) is compiled INSTEAD of NIS/RCAS
-// whenever any of its stages is active. Colour vision lives only in that shader, so every "is the post pass
-// needed" test must go through here - otherwise LUT=Off + style=Off silently bypasses the correction.
-inline bool PostShaderEnabled(int preset, float strength, const SceneStyleParams& style, int colorVision)
+// The analytic post shader (RCAS + grade + scene style + levels/contrast/clarity + colour vision) is compiled
+// INSTEAD of NIS/RCAS whenever any of its stages is active. Colour vision and the grade knobs live only in that
+// shader, so every "is the post pass needed" test must go through here - otherwise LUT=Off + style=Off silently
+// bypasses them. No default on `grade`: a call site that forgets it must fail to compile, not skip the stage.
+inline bool PostShaderEnabled(int preset, float strength, const SceneStyleParams& style, int colorVision,
+                              const GradeParams& grade)
 {
-    return ColorGradeEnabled(preset, strength) || SceneStyleEnabled(style) || ColorVisionEnabled(colorVision);
+    return ColorGradeEnabled(preset, strength) || SceneStyleEnabled(style) || ColorVisionEnabled(colorVision)
+        || GradeEnabled(grade);
 }
 
 // Typeless render-target formats have no valid SRV/UAV format; map them to the concrete one.

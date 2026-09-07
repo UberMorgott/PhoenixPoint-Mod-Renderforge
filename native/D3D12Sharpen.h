@@ -204,7 +204,8 @@ struct SharpenPass12
     // just written) and writes Unity's RT. Upscalers clobber the command-list state, so everything is re-bound.
     // `slot` is the ring index being recorded into.
     void Run(ID3D12GraphicsCommandList* cl, ID3D12Resource* output, float sharpness,
-             int lutPreset, float lutStrength, int slot, const SceneStyleParams& style, int colorVision)
+             int lutPreset, float lutStrength, int slot, const SceneStyleParams& style, int colorVision,
+             const GradeParams& adjust)
     {
         unsigned w = targetW, h = targetH;
         DXGI_FORMAT viewFmt = SharpenViewFormat(targetFmt);
@@ -215,7 +216,7 @@ struct SharpenPass12
         }
 
         FillSharpenConstants(cbCpu + 256 * (size_t)slot, owner->sharpener, sharpness, w, h,
-                             lutPreset, lutStrength, psoHdr, style, colorVision);
+                             lutPreset, lutStrength, psoHdr, style, colorVision, adjust);
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = descHeap->GetCPUDescriptorHandleForHeapStart();
         D3D12_GPU_DESCRIPTOR_HANDLE gpu = descHeap->GetGPUDescriptorHandleForHeapStart();
@@ -257,9 +258,9 @@ struct SharpenPass12
     bool RunPassthrough(ID3D12GraphicsCommandList* cl, ID3D12Resource* color, ID3D12Resource* output,
                         OwnedSet12& owned, D3D12Ring& ring, bool srgbViews,
                         float sharpness, int lutPreset, float lutStrength, int slot,
-                        const SceneStyleParams& style, int colorVision)
+                        const SceneStyleParams& style, int colorVision, const GradeParams& adjust)
     {
-        bool grade = PostShaderEnabled(lutPreset, lutStrength, style, colorVision);
+        bool grade = PostShaderEnabled(lutPreset, lutStrength, style, colorVision, adjust);
         if (!owned.Ensure(device, ring, color, output, srgbViews)
             || !TargetEnsure(owned.out, ring, grade)) return false;
 
@@ -270,7 +271,7 @@ struct SharpenPass12
         Barrier(cl, color, D3D12_RESOURCE_STATE_COPY_SOURCE, OwnedSet12::kUnityColor);
 
         Barrier(cl, owned.out, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        Run(cl, owned.out, sharpness, lutPreset, lutStrength, slot, style, colorVision);
+        Run(cl, owned.out, sharpness, lutPreset, lutStrength, slot, style, colorVision, adjust);
         Barrier(cl, owned.out, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         Barrier(cl, output, OwnedSet12::kUnityOut, D3D12_RESOURCE_STATE_COPY_DEST);
         cl->CopyResource(output, owned.out);

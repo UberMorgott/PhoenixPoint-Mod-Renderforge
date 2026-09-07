@@ -199,15 +199,15 @@ struct Device12 : IDevice
         UnityGraphicsD3D12ResourceState* st = ring.StateSlot();
         int n = OwnedSet12::Declare(st, color, passthrough ? NULL : depth, passthrough ? NULL : mv, output);
         if (passthrough) {
-            bool wantPost = fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
+            bool wantPost = fp.sharpness > 0.0f || PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision, fp.grade);
             if (!wantPost || !sharpen.RunPassthrough(cl, color, output, owned, ring, srgbViews,
-                                                      fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision))
+                                                      fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision, fp.grade))
                 OwnedSet12::Passthrough(cl, color, output);   // fail open: keep the reconstructed frame
             lastEval = NVSDK_NGX_Result_Success;
         } else if (!owned.Ensure(device, ring, color, output, srgbViews)) {
             lastEval = NVSDK_NGX_Result_FAIL_OutOfGPUMemory; lastError = (int)lastEval;
         } else {
-            bool grade = PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision);
+            bool grade = PostShaderEnabled(fp.lutPreset, fp.lutStrength, fp.style, fp.colorVision, fp.grade);
             // With a post effect on, NGX writes sharpen.target and the shared pass produces owned.out.
             bool doPost = (fp.sharpness > 0.0f || grade) && sharpen.TargetEnsure(owned.out, ring, grade);
 
@@ -231,7 +231,7 @@ struct Device12 : IDevice
             // NGX "always transitions buffers back to these known states" (guide p.14 3.4), so Leave starts from them.
             lastEval = NGX_D3D12_EVALUATE_DLSS_EXT(cl, feature, params, &ep);
             if (NVSDK_NGX_FAILED(lastEval)) lastError = (int)lastEval;
-            else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision);
+            else if (doPost) sharpen.Run(cl, owned.out, fp.sharpness, fp.lutPreset, fp.lutStrength, ring.ringIdx, fp.style, fp.colorVision, fp.grade);
             ring.Stamp(2);
             owned.Leave(cl, output);
         }

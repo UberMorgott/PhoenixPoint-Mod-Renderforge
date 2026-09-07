@@ -71,6 +71,7 @@ add_library(RenderforgeNative SHARED
     Xess12.cpp
     Sharpen.h
     ColorVision.h
+    Grade.h
     Sharpen.cpp
     Fg.h
     FgHook.cpp

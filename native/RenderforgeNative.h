@@ -83,6 +83,10 @@ DLSS_API void __cdecl Dlss_SetSceneStyle(void* slot, int mode, float strength, i
 // Dlss_SetSceneStyle. mode = DLSS_CV_*; out-of-range values disable the stage. Unlike the LUT and the style,
 // this stage alone is enough to make the post pass run: LUT Off + style Off + sharpness 0 still corrects.
 DLSS_API void __cdecl Dlss_SetColorVision(void* slot, int mode);
+// Main thread, same slot contract as Dlss_SetColorVision. Levels / Contrast / Clarity stages of the post pass, all
+// already normalised: black 0..40/255, white 215/255..1, contrast 0.5..1.5, clarity 0..1 (out of range / NaN =
+// that knob's Off). Like colour vision, any non-default knob alone makes the post pass run.
+DLSS_API void __cdecl Dlss_SetGrade(void* slot, float black, float white, float contrast, float clarity);
 // Unity UnityRenderingEvent: void (__stdcall*)(int eventId). Event 2 here evaluates the LAST filled slot.
 DLSS_API void* __cdecl Dlss_GetRenderEventFunc(void);
 // Unity UnityRenderingEventAndData: void (__stdcall*)(int eventId, void* data). Event 2 reads the slot in `data`; 1/3 ignore it.
