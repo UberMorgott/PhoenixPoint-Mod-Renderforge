@@ -11,6 +11,7 @@
     <Compile Include="..\..\src\CrispFonts.cs" Link="CrispFonts.cs" />
     <Compile Include="..\..\src\FontRasterCorrection.cs" Link="FontRasterCorrection.cs" />
     <Compile Include="..\..\src\FontGlyphMapping.cs" Link="FontGlyphMapping.cs" />
+    <Compile Include="..\..\src\FontUvRemap.cs" Link="FontUvRemap.cs" />
     <Reference Include="0Harmony"><HintPath>$(PPRoot)\ModSDK\0Harmony.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(Managed)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.UIModule"><HintPath>$(Managed)\UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>

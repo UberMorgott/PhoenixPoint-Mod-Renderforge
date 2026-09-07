@@ -93,7 +93,7 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | Shadow resolution | Vanilla | Vanilla keeps the graphics preset's value; Very High raises the shadow map size. |
 | Anisotropic filtering | Vanilla | Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture. |
 | LOD detail | 0 | 0 is Vanilla (the preset's own value); 1.0 to 4.0 keeps higher-detail models at distance. |
-| Crisp fonts | On | Fixed 2x glyph raster density for supported dynamic overlay text; original geometry and safe fallback. |
+| Crisp fonts | On | 2x glyph raster for `UnityEngine.UI.Text` labels using dynamic fonts on screen-space overlay canvases (HUD, geoscape bar, Options). Vertex positions stay vanilla; each glyph samples the 2x atlas exactly where its 1x quad sits, or keeps the vanilla raster when the 2x metrics disagree. Not covered: sprites/icons, bitmap fonts, TextMeshPro labels. |
 | Frame-rate limit | Off | Caps final presented FPS, including generated frames; enabling it disables VSync. |
 | Max presented FPS | 60 | Used only when the Renderforge limit is enabled; range 30–300. A live 2x/3x/4x FG chain automatically renders at 1/2, 1/3 or 1/4 of this ceiling. |
 | Benchmark overlay | Off | Toggle with `Ctrl+Alt+O`; default position is top centre. |

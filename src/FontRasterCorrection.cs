@@ -141,7 +141,7 @@ namespace Renderforge
                     if (atlasSerial != serial && !entry.Retried) { entry.Pending = true; refreshQueued = true; }
                     return entry.Outcome = "fallback: " + reason;
                 }
-                FontGlyphMapping.Transfer(baseline, high);
+                FontGlyphMapping.Transfer(baseline, normal.verts, high);
                 Fill(mesh, baseline);
                 return entry.Outcome = "corrected";
             }

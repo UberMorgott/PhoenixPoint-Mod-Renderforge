@@ -406,6 +406,18 @@ LUT: `ColorVisionPanel.Active` checks `RenderforgeMod.TacticalActive`).
   the independent Python reference (`native\probe\colour_vision_ref.py`), LUT+style composition on
   both paths.
 
+### Crisp fonts (1.4.x, fix 1.5.0)
+
+- **Covered:** exact `UnityEngine.UI.Text` with a dynamic font, default UI material, root ScreenSpaceOverlay canvas
+  (HUD, geoscape resource bar, Options). **Not covered:** sprites/icons, bitmap fonts, Text subclasses, custom
+  materials, world/camera canvases, TextMeshPro labels (never touched).
+- **Rule:** Harmony postfix on `Text.OnPopulateMesh` (`src\FontRasterCorrection.cs`) keeps every vanilla vertex
+  attribute and rewrites only `uv0` from a second `TextGenerator` run at `scaleFactor * 2`
+  (`FontGlyphMapping.Check` gates structure). Per glyph (`src\FontUvRemap.cs`): the 2x quad is not exactly 2x the 1x
+  quad (integer texel rounding), so `t = (2 * p1 - R2.min) / R2.size` maps each 1x vertex into the 2x quad and
+  `uv = affine(U2, t)` — the label samples the 2x atlas exactly where vanilla drew the glyph. Guard: 2x size or min
+  off by more than 2 texels from 2x the 1x values → that glyph keeps its vanilla `uv0`; whole-label mismatch → vanilla mesh.
+
 ### Data flow per frame
 
 ```
