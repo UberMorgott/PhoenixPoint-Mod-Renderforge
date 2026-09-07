@@ -13,6 +13,7 @@
 [*][b]Jakość:[/b] wyłączenie winiety w misjach taktycznych i na Geoscape, bardzo wysokie cienie, wymuszenie filtrowania anizotropowego 16x i więcej detali odległych modeli przez LOD. Pozycja „Jak w grze” przywraca wartość z presetu graficznego.
 [*][b]Renderer:[/b] przełączanie DirectX 11 / DirectX 12 w grze; wymaga restartu.
 [*][b]FPS:[/b] usunięcie oryginalnej blokady 60 FPS; opcjonalny limit 30–300 FPS obejmuje generowane klatki.
+[*][b]Interfejs wyrównany do pikseli:[/b] opcjonalny, domyślnie wyłączony: wyrównuje elementy interfejsu do siatki pikseli, dzięki czemu tekst jest nieco ostrzejszy; animowane panele mogą poruszać się skokowo o całe piksele. Zmiany są stosowane na żywo, bez ponownego uruchamiania.
 [*][b]Skróty:[/b] Ctrl+Alt+O włącza/wyłącza nakładkę pomiarową (renderer, upscaler, rozdzielczość, czas klatki i FPS); Ctrl+Alt+U wyłącza/włącza upscaler.
 [/list]
 
@@ -31,7 +32,7 @@
 [list=1]
 [*]Włącz Renderforge w Mods i uruchom grę ponownie. Aktualizacja może wymagać kolejnego restartu.
 [*]Opcje > Grafika: renderer, upscaler, jakość, generowanie klatek, ostrość, filtry i ustawienia jakości.
-[*]Opcje > Ekran: limit FPS. Mods > Renderforge: tylko ustawienia nakładki i skrótów.
+[*]Opcje > Ekran: limit FPS i Interfejs wyrównany do pikseli. Mods > Renderforge: tylko ustawienia nakładki i skrótów.
 [*]Ustawienia działają od razu, poza rendererem: wybierz go, naciśnij Zastosuj i potwierdź restart. Nieobsługiwane opcje są wyszarzone.
 [/list]
 

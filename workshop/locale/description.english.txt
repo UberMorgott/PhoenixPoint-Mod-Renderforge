@@ -13,6 +13,7 @@
 [*][b]Quality controls:[/b] disable vignette in tactical missions and on the Geoscape, select Very High shadows, force 16x anisotropic filtering and increase distant model detail with LOD. Each Vanilla position restores the graphics preset's value.
 [*][b]Renderer:[/b] switch between DirectX 11 and DirectX 12 in-game; requires a restart.
 [*][b]FPS:[/b] removes the vanilla 60 FPS pin; optional 30–300 FPS limit includes generated frames.
+[*][b]Pixel-perfect UI:[/b] optional, off by default: snaps interface elements to the pixel grid for slightly sharper text; animated panels may move in whole-pixel steps. Applies live, no restart.
 [*][b]Hotkeys:[/b] Ctrl+Alt+O toggles the benchmark overlay (renderer, upscaler, resolution, frame time and FPS); Ctrl+Alt+U toggles the upscaler off/on.
 [/list]
 
@@ -31,7 +32,7 @@
 [list=1]
 [*]Enable Renderforge under Mods and restart once. An update may require another restart.
 [*]Options > Graphics: renderer, upscaler, quality, frame generation, sharpness, image filters and quality controls.
-[*]Options > Screen: FPS limiter. Mods > Renderforge: overlay and hotkey preferences only.
+[*]Options > Screen: FPS limiter and Pixel-perfect UI. Mods > Renderforge: overlay and hotkey preferences only.
 [*]Settings apply live except the renderer: choose it, press Apply and accept the restart. Unsupported choices are greyed out.
 [/list]
 

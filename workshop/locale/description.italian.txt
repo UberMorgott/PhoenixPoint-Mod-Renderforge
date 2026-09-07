@@ -13,6 +13,7 @@
 [*][b]Qualità:[/b] disattiva la vignettatura nelle missioni tattiche e sul Geoscape, scegli ombre molto alte, forza il filtro anisotropico 16x e aumenta il dettaglio dei modelli lontani tramite LOD. Ogni posizione «Come nel gioco» ripristina il valore del preset grafico.
 [*][b]Renderer:[/b] passa da DirectX 11 a DirectX 12 e viceversa dal gioco; richiede un riavvio.
 [*][b]FPS:[/b] rimuove il blocco originale a 60 FPS; limite opzionale di 30–300 FPS, inclusi i fotogrammi generati.
+[*][b]Interfaccia precisa al pixel:[/b] opzionale, disattivata per impostazione predefinita: allinea gli elementi dell'interfaccia alla griglia dei pixel per rendere il testo leggermente più nitido; i pannelli animati possono muoversi a passi di pixel interi. Si applica immediatamente, senza riavvio.
 [*][b]Scorciatoie:[/b] Ctrl+Alt+O mostra/nasconde l'overlay di misurazione (renderer, upscaler, risoluzione, tempo per fotogramma e FPS); Ctrl+Alt+U disattiva/attiva l'upscaler.
 [/list]
 
@@ -31,7 +32,7 @@
 [list=1]
 [*]Attiva Renderforge in Mods e riavvia una volta. Un aggiornamento può richiedere un altro riavvio.
 [*]Opzioni > Grafica: renderer, upscaler, qualità, generazione di fotogrammi, nitidezza, filtri e controlli di qualità.
-[*]Opzioni > Schermo: limite FPS. Mods > Renderforge: solo preferenze dell'overlay e delle scorciatoie.
+[*]Opzioni > Schermo: limite FPS e Interfaccia precisa al pixel. Mods > Renderforge: solo preferenze dell'overlay e delle scorciatoie.
 [*]Le impostazioni si applicano subito, tranne il renderer: selezionalo, premi Applica e conferma il riavvio. Le opzioni non supportate sono disabilitate.
 [/list]
 
