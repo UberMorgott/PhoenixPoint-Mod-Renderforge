@@ -1,0 +1,47 @@
+[
+  {
+    "compare": "toggle",
+    "region": "digit-200",
+    "pxGt4": 496,
+    "maxDelta": 175,
+    "sobelRatio": 1.1231,
+    "cropSize": "76x36",
+    "pixels": 2736
+  },
+  {
+    "compare": "toggle",
+    "region": "digit-1000",
+    "pxGt4": 484,
+    "maxDelta": 137,
+    "sobelRatio": 1.0656,
+    "cropSize": "86x36",
+    "pixels": 3096
+  },
+  {
+    "compare": "toggle",
+    "region": "time-0000",
+    "pxGt4": 928,
+    "maxDelta": 124,
+    "sobelRatio": 1.0508,
+    "cropSize": "86x41",
+    "pixels": 3526
+  },
+  {
+    "compare": "toggle",
+    "region": "ZADACHI",
+    "pxGt4": 547,
+    "maxDelta": 114,
+    "sobelRatio": 1.0367,
+    "cropSize": "96x41",
+    "pixels": 3936
+  },
+  {
+    "compare": "toggle",
+    "region": "nav-BAZY",
+    "pxGt4": 544,
+    "maxDelta": 83,
+    "sobelRatio": 1.0485,
+    "cropSize": "86x36",
+    "pixels": 3096
+  }
+]
