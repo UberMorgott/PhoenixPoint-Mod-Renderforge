@@ -63,6 +63,7 @@ namespace Renderforge
                 row.SetSiblingIndex(after.GetSiblingIndex() + 1);
                 row.gameObject.SetActive(true);
                 knob.Slider = row.GetComponentInChildren<Slider>(true);
+                if (knob.Slider == null) continue;   // a row without a slider is a broken clone; Sync/OnChanged skip it too
                 knob.Value = row.Find("UITextGeneric_Medium");
                 var label = row.Find("UITextGeneric_Medium (1)");
                 if (label != null) GraphicsPanel.SetRaw(label.GetComponent<Localize>(), label.GetComponent<Text>(),

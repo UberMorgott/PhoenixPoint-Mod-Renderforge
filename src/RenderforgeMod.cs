@@ -193,6 +193,9 @@ namespace Renderforge
 
         public override void OnModDisabled()
         {
+            FlushConfig();   // a deferred slider write must not die with the ticker
+            if (saver != null) UnityEngine.Object.Destroy(saver.gameObject);
+            saver = null;
             CrispFonts.Dispose();
             try
             {
@@ -280,12 +283,29 @@ namespace Renderforge
             return Math.Max(1, presentedLimit / Math.Max(1, multiplier));
         }
 
-        /// <summary>ModManager.SaveModConfig (ModManager.cs:120): the same path the mod-manager screen uses (UIStateModManagment.cs:137).</summary>
+        /// <summary>ModManager.SaveModConfig (ModManager.cs:120): the same path the mod-manager screen uses (UIStateModManagment.cs:137).
+        /// Coalesced: every slider row calls this from onValueChanged, i.e. once per frame while dragging, so the write
+        /// is deferred to the end of the frame (ConfigSaver.LateUpdate) - one disk write per frame at most, shared by
+        /// all seven sliders. FlushConfig writes now: OnModDisabled and the ticker's OnApplicationQuit.</summary>
         public static void SaveConfig()
         {
+            configDirty = true;
+            if (saver != null) return;
+            var go = new GameObject("RenderforgeConfigSaver") { hideFlags = HideFlags.HideAndDontSave };
+            UnityEngine.Object.DontDestroyOnLoad(go);
+            saver = go.AddComponent<ConfigSaver>();
+        }
+
+        internal static void FlushConfig()
+        {
+            if (!configDirty) return;
+            configDirty = false;
             try { ModManager.GetInstance().SaveModConfig(); }
             catch (Exception ex) { Instance?.Logger.LogError("Renderforge config save failed: " + ex.Message); }
         }
+
+        private static bool configDirty;
+        private static ConfigSaver saver;
 
         // ---- hotkey handlers (also the PPCLI keypress substitute: {"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"Toggle"})
         private static RenderforgeMode lastOn = RenderforgeMode.Auto;   // ponytail: not persisted; after a restart in Off, F11 restores Auto
@@ -409,15 +429,16 @@ namespace Renderforge
         }
 
         /// <summary>PPCLI/live A-B surface for the Levels / Contrast / Clarity sliders: black 0..40, white 215..255,
-        /// contrast 50..150, clarity 0..100 (defaults 0 / 255 / 100 / 0 = off). Read every frame like colour vision.</summary>
+        /// contrast 50..150, clarity 0..100 (defaults 0 / 255 / 100 / 0 = off). -1 for any argument keeps its current
+        /// value, so one knob can be A/B'd alone: {"member":"SetGrade","args":[-1,-1,-1,100]}. Read every frame like colour vision.</summary>
         public static string SetGrade(int black, int white, int contrast, int clarity)
         {
             var m = Instance;
             if (m == null) return "mod not enabled";
-            m.Cfg.LevelsBlack = Mathf.Clamp(black, 0, 40);
-            m.Cfg.LevelsWhite = Mathf.Clamp(white, 215, 255);
-            m.Cfg.Contrast = Mathf.Clamp(contrast, 50, 150);
-            m.Cfg.Clarity = Mathf.Clamp(clarity, 0, 100);
+            if (black >= 0) m.Cfg.LevelsBlack = Mathf.Clamp(black, 0, 40);
+            if (white >= 0) m.Cfg.LevelsWhite = Mathf.Clamp(white, 215, 255);
+            if (contrast >= 0) m.Cfg.Contrast = Mathf.Clamp(contrast, 50, 150);
+            if (clarity >= 0) m.Cfg.Clarity = Mathf.Clamp(clarity, 0, 100);
             SaveConfig();
             GradePanel.Sync();
             return "black=" + m.Cfg.LevelsBlack + " white=" + m.Cfg.LevelsWhite + " contrast=" + m.Cfg.Contrast + " clarity=" + m.Cfg.Clarity;
@@ -590,5 +611,13 @@ namespace Renderforge
                 default: return "unknown";
             }
         }
+    }
+
+    /// <summary>End-of-frame ticker for RenderforgeMod.SaveConfig: one SaveModConfig per dirty frame, and a flush on quit
+    /// so a config changed mid-drag is never lost. Created on the first SaveConfig, destroyed by OnModDisabled.</summary>
+    internal sealed class ConfigSaver : MonoBehaviour
+    {
+        private void LateUpdate() => RenderforgeMod.FlushConfig();
+        private void OnApplicationQuit() => RenderforgeMod.FlushConfig();
     }
 }
