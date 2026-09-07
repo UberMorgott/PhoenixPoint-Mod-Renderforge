@@ -18,14 +18,12 @@ namespace Renderforge
     {
         private const string ToggleName = "DlssFrameLimitToggle";
         private const string SliderName = "DlssFrameLimitSlider";
-        private const string IconsName = "RenderforgeCrispIcons";
         private static bool loggedError;
-        private static Toggle limit, vsync, icons;
+        private static Toggle limit, vsync;
         private static Slider fps;
         private static Transform fpsValue;
         private static Action onChanged;
         private static bool pendingLimit;
-        private static bool pendingIcons;
         private static int pendingFps;
 
         [HarmonyPostfix, HarmonyPatch("Init", new Type[0])]
@@ -38,7 +36,6 @@ namespace Renderforge
                 if (mod == null || vsync == null) return;
                 var cfg = mod.Cfg;
                 pendingLimit = cfg.LimitFrameRate;
-                pendingIcons = cfg.CrispIcons;
                 pendingFps = Mathf.Clamp(cfg.FrameRateLimit, 30, 300);
                 onChanged = Traverse.Create(__instance).Field("_onChanged").GetValue<Action>();
 
@@ -46,16 +43,6 @@ namespace Renderforge
                 var content = row.parent;                  // VerticalLayoutGroup: clones just insert
                 var rowA = content.Find(ToggleName) ?? Clone(row, ToggleName, row.GetSiblingIndex() + 1);
                 var rowB = content.Find(SliderName) ?? Clone(row, SliderName, row.GetSiblingIndex() + 2);
-                var rowC = content.Find(IconsName) ?? Clone(row, IconsName, row.GetSiblingIndex() + 3);
-                icons = rowC.GetComponentInChildren<Toggle>(true);
-                GraphicsPanel.SetRaw(rowC.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
-                    DlssConfig.Loc("Crisp icons", "Чёткие значки").ToUpperInvariant());
-                GraphicsPanel.Tip(icons.gameObject, DlssConfig.Loc(
-                    "Trilinear filtering with anisotropy for interface icons drawn smaller than their source (the UI is authored for 4K). Icons without mipmaps are unchanged.",
-                    "Трилинейная фильтрация с анизотропией для значков интерфейса, отрисованных меньше исходного размера (интерфейс нарисован под 4K). Значки без мип-уровней не меняются."));
-                icons.SetIsOnWithoutNotify(pendingIcons);
-                icons.onValueChanged.RemoveAllListeners();
-                icons.onValueChanged.AddListener(on => { pendingIcons = on; onChanged?.Invoke(); });
 
                 // Row prefab children (live dump 2026-09-02): "Slider" (inactive on the VSync row), "Keybinds" (inactive,
                 // carries Localize texts of its own - never search by component), label "UITextGeneric_Medium (1)",
@@ -102,8 +89,7 @@ namespace Renderforge
         static void HasChanges(ref bool __result)
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
-            if (cfg != null && limit != null) __result |= pendingLimit != cfg.LimitFrameRate || pendingFps != cfg.FrameRateLimit
-                || (icons != null && pendingIcons != cfg.CrispIcons);
+            if (cfg != null && limit != null) __result |= pendingLimit != cfg.LimitFrameRate || pendingFps != cfg.FrameRateLimit;
         }
 
         [HarmonyPostfix, HarmonyPatch("Apply")]
@@ -111,12 +97,9 @@ namespace Renderforge
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg == null || limit == null) return;
-            if (pendingLimit == cfg.LimitFrameRate && pendingFps == cfg.FrameRateLimit
-                && (icons == null || pendingIcons == cfg.CrispIcons)) return;
+            if (pendingLimit == cfg.LimitFrameRate && pendingFps == cfg.FrameRateLimit) return;
             cfg.LimitFrameRate = pendingLimit;
             cfg.FrameRateLimit = pendingFps;
-            if (icons != null) cfg.CrispIcons = pendingIcons;
-            CrispIcons.Apply(cfg.CrispIcons);
             RenderforgeMod.ApplyFrameRate();
             RenderforgeMod.SaveConfig();
         }

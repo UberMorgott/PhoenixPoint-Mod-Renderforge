@@ -79,7 +79,6 @@ namespace Renderforge
                 ((Harmony)HarmonyInstance).PatchAll(typeof(RenderforgeMod).Assembly);
                 patched = true;
                 if (Cfg.CrispFonts) Logger.LogInfo("crisp fonts was removed in 1.5.0; the setting is ignored");
-                CrispIcons.Apply(Cfg.CrispIcons);
                 if (RendererSwitch.Wants12(Cfg) && !Availability.IsD3D12) RendererSwitch.ArmStartupRestart();
                 AttachAndApply();
                 QualityKnobs.ApplyAll();   // re-enable without a settings change: Disable() cleared the snapshot, ApplyScalars re-takes it
@@ -197,7 +196,6 @@ namespace Renderforge
             FlushConfig();   // a deferred slider write must not die with the ticker
             if (saver != null) UnityEngine.Object.Destroy(saver.gameObject);
             saver = null;
-            CrispIcons.Dispose();   // original filterMode/anisoLevel back on every recorded UI texture
             try
             {
                 FrameGen.Stop();
@@ -218,14 +216,13 @@ namespace Renderforge
             Instance = null;
         }
 
-        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); CrispIcons.Sweep(); }   // Reapply covers a level that starts with the generation still live
+        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); }   // Reapply covers a level that starts with the generation still live
 
         /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
-        public override void OnLevelEnd(Level level) { DlssDriver.Instance?.Apply(RenderforgeMode.Off, Diagnostics.View); CrispIcons.LevelEnd(); }
+        public override void OnLevelEnd(Level level) { DlssDriver.Instance?.Apply(RenderforgeMode.Off, Diagnostics.View); }
 
         public override void OnConfigChanged()
         {
-            CrispIcons.Apply(Cfg.CrispIcons);
             Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Diagnostics.View + " upscaler = " + Cfg.Upscaler);
             ApplyFrameRate();
             QualityKnobs.ApplyAll();
