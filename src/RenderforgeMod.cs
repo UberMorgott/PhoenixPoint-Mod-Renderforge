@@ -23,20 +23,6 @@ namespace Renderforge
         public static string ModDir { get; private set; }
         public DlssConfig Cfg => (DlssConfig)Config;
 
-        /// <summary>Reliable mission gate: the active Level must be Playing and own the game's tactical controller.</summary>
-        internal static bool TacticalActive
-        {
-            get
-            {
-                try
-                {
-                    Level level = GameUtl.CurrentLevel();
-                    return level != null && level.IsPlaying && level.GetComponent<TacticalLevelController>() != null;
-                }
-                catch { return false; }
-            }
-        }
-
         // Kept alive for the life of the mod: NGX holds the D3D11/D3D12 device it was taken from.
         private static Texture2D probeTex;
         private bool patched;

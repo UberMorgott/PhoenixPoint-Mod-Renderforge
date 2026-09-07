@@ -22,10 +22,9 @@ namespace Renderforge
 
         /// <summary>The ONE activation gate. Both DlssDriver.Step (start the pipeline) and the per-frame
         /// submission (Dlss_SetColorVision) call this, so they cannot drift apart and leave an uncorrected
-        /// passthrough pass running on the geoscape. Tactical-only, mirroring lutPreset in DlssDriver — the post
-        /// pass exists on the tactical camera only. The UI row does not use this: the picker stays visible and
-        /// settable everywhere.</summary>
-        internal static bool Active(DlssConfig cfg) => RenderforgeMod.TacticalActive && cfg != null
+        /// passthrough pass running. Tactical AND geoscape (1.5.0): one scene camera carries the post pass in both,
+        /// mirroring lutPreset in DlssDriver.</summary>
+        internal static bool Active(DlssConfig cfg) => cfg != null
             && cfg.ColorVision >= ColorVisionMode.Deuteranopia && cfg.ColorVision <= ColorVisionMode.Tritanopia;
 
         internal static Transform Build(UIModuleGraphicsOptionsPanel panel, Transform after, DlssConfig cfg)
@@ -59,8 +58,8 @@ namespace Renderforge
             GraphicsPanel.SetRaw(picker.CurrentItem, picker.CurrentItemText, Labels[index]);
             GraphicsPanel.Grey(picker.CurrentItem.gameObject, false);
             GraphicsPanel.Tip(picker.CentralButton.gameObject, DlssConfig.Loc(
-                "Redistributes the colours the eye cannot separate onto the channels it can, at full strength. Tactical missions only; scene only, the interface is drawn after this pass and is not corrected.",
-                "Перераспределяет неразличимые глазом цвета на различимые каналы, в полную силу. Только тактические миссии; только сцена, интерфейс рисуется после этого прохода и не корректируется."));
+                "Redistributes the colours the eye cannot separate onto the channels it can, at full strength. Scene only; the HUD stays unchanged.",
+                "Перераспределяет неразличимые глазом цвета на различимые каналы, в полную силу. Только сцена, интерфейс не меняется."));
         }
 
         internal static void Hide(Transform content)

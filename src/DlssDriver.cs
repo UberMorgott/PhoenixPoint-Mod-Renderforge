@@ -194,7 +194,7 @@ namespace Renderforge
         private void Step()
         {
             var cfg = RenderforgeMod.Instance?.Cfg;
-            bool lutActive = RenderforgeMod.TacticalActive && cfg != null && cfg.Lut != LutPreset.Off && cfg.LutStrength > 0;
+            bool lutActive = cfg != null && cfg.Lut != LutPreset.Off && cfg.LutStrength > 0;
             // Sharpness is its own reason to run: with the upscaler Off the NIS pass is the only thing on the frame.
             bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg)
                 || ColorVisionPanel.Active(cfg) || (cfg != null && cfg.Sharpness > 0);
@@ -504,7 +504,7 @@ namespace Renderforge
                 // is a passthrough too, and there the NIS pass is exactly what the player asked for.
                 float sharp = liveView == DebugView.Passthrough ? 0f : Mathf.Clamp01((RenderforgeMod.Instance?.Cfg?.Sharpness ?? 0) / 100f);
                 var cfg = RenderforgeMod.Instance?.Cfg;
-                int lutPreset = RenderforgeMod.TacticalActive && cfg != null ? Mathf.Clamp((int)cfg.Lut, 0, (int)LutPreset.VintageSepia) : 0;
+                int lutPreset = cfg != null ? Mathf.Clamp((int)cfg.Lut, 0, (int)LutPreset.VintageSepia) : 0;
                 float lutStrength = lutPreset == 0 ? 0f : Mathf.Clamp01((cfg?.LutStrength ?? 0) / 100f);
                 // FSR needs the camera frustum (cameraNear/Far/FovAngleVertical); NGX ignores it. Cached in the
                 // shim and copied into the frame slot, so the ABI of Dlss_SetFrame stays untouched.

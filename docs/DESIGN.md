@@ -361,8 +361,10 @@ Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xe
 ### Colour vision (daltonization, 1.4.0)
 
 Fixed-strength daltonization stage in the analytic post shader, after `Grade()` and `Stylize()`:
-`ColorVision(Grade(Stylize(p,c)))` at `native\Sharpen.cpp:74`. Tactical missions only (same gate as the
-LUT: `ColorVisionPanel.Active` checks `RenderforgeMod.TacticalActive`).
+`ColorVision(Grade(Stylize(p,c)))` at `native\Sharpen.cpp:74`. Tactical missions AND the geoscape (1.5.0;
+was tactical-only through 1.4.1 via `RenderforgeMod.TacticalActive`, deleted — the post pass runs on the one
+scene camera in both states, see line 17). `ColorVisionPanel.Active` = mode in Deuteranopia..Tritanopia, nothing
+else; the LUT is gated the same way in `DlssDriver.Step` (`lutActive`).
 
 - **Formula.** `D = I + R·(I − S)`, applied column-vector in linear RGB (`v' = D·v`), stored row-major.
   `S` = Machado, Oliveira & Fernandes 2009 simulation matrices at severity 1.0, from the authors' own

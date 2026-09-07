@@ -108,8 +108,8 @@ namespace Renderforge
                             "Нейтральный серый баланс, меньше насыщенности, мягкие света и сохранённые оттенки кожи.")
                         : DlssConfig.Loc("Original analytic colour grade; no third-party LUT asset is bundled.",
                             "Оригинальная аналитическая цветокоррекция; сторонние LUT-файлы не включены."))
-                    + " " + DlssConfig.Loc("Tactical missions only; scene only, the HUD stays unchanged.",
-                                           "Только тактические миссии; только сцена, интерфейс не меняется."));
+                    + " " + DlssConfig.Loc("Scene only; the HUD stays unchanged.",
+                                           "Только сцена, интерфейс не меняется."));
             }
             bool on = index != 0;
             if (strength != null)

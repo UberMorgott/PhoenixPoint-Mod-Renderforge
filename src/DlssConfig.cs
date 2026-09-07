@@ -60,9 +60,9 @@ namespace Renderforge
         public RenderforgeMode Mode = RenderforgeMode.Auto;
         [ConfigField("Sharpness", "0 = off … 100. RCAS pass after DLSS; also a slider in Options → Graphics.")]
         public int Sharpness = 40;                      // 0..100 -> RCAS 0..1, applied every frame, live
-        [ConfigField("LUT filter", "Original tactical-mission colour grade applied after temporal reconstruction. Tactical missions only; scene only, the HUD stays unchanged. Also in Options → Graphics.")]
+        [ConfigField("LUT filter", "Original colour grade applied after temporal reconstruction. Scene only; the HUD stays unchanged. Also in Options → Graphics.")]
         public LutPreset Lut = LutPreset.Off;
-        [ConfigField("LUT strength", "0 = original image … 100 = full grade. Applied live. Tactical missions only.")]
+        [ConfigField("LUT strength", "0 = original image … 100 = full grade. Applied live.")]
         public int LutStrength = 100;
         [ConfigField("Scene style", "Off, Cartoon or PixelArt. Code-only scene filtering after reconstruction. Scene only; the HUD stays unchanged.")]
         public SceneStyle SceneStyle = SceneStyle.Off;
@@ -70,7 +70,7 @@ namespace Renderforge
         public int SceneStyleStrength = 100;
         [ConfigField("Pixel block size", "PixelArt: default 4 actual output pixels. Adjust from 2 to 16 for finer or stronger pixelation.")]
         public int PixelSize = 4;
-        [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Tactical missions only; scene only, the interface is drawn after this pass. Also in Options → Graphics.")]
+        [ConfigField("Colour vision", "Off, Deuteranopia, Protanopia or Tritanopia. Redistributes colours the eye cannot separate onto channels it can. Scene only; the HUD stays unchanged. Also in Options → Graphics.")]
         public ColorVisionMode ColorVision = ColorVisionMode.None;
         [ConfigField("Crisp fonts", "Sharper supported interface text with its original layout. Also in Options → Screen.")]
         public bool CrispFonts = true;
@@ -99,7 +99,7 @@ namespace Renderforge
         public UpscalerKind Upscaler = UpscalerKind.Auto;
         [ConfigField("Frame generation", "Off / 2x / 3x / 4x. DirectX 12 with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU.")]
         public FrameGenMode FrameGen = FrameGenMode.Off;
-        [ConfigField("Vignette", "Tactical missions only. Vanilla keeps the mission's own vignette; Off removes the darkened frame edges. Also in Options → Graphics.")]
+        [ConfigField("Vignette", "Vanilla keeps the game's own vignette; Off removes the darkened frame edges. Also in Options → Graphics.")]
         public VignetteMode Vignette = VignetteMode.Vanilla;
         [ConfigField("Shadow resolution", "Vanilla keeps the graphics preset's value; Very High raises the shadow map size. Also in Options → Graphics.")]
         public ShadowResolutionMode ShadowResolution = ShadowResolutionMode.Vanilla;

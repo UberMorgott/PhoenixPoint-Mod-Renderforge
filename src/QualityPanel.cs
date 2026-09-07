@@ -164,8 +164,8 @@ namespace Renderforge
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg == null) return;
             Show(vignette, VignetteLabels, (int)cfg.Vignette, OnVignette, DlssConfig.Loc(
-                "Tactical missions only. Vanilla keeps the mission's own vignette; Off removes the darkened frame edges.",
-                "Только тактические миссии. «Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра.") + Currently(VignetteLive));
+                "Vanilla keeps the game's own vignette; Off removes the darkened frame edges.",
+                "«Как в игре» сохраняет виньетку игры; «Выкл» убирает затемнение по краям кадра.") + Currently(VignetteLive));
             Show(shadow, ShadowLabels, (int)cfg.ShadowResolution, OnShadow, DlssConfig.Loc(
                 "Vanilla keeps the graphics preset's value; Very High raises the shadow map size.",
                 "«Как в игре» — значение выбранного пресета; «Очень высокое» увеличивает размер карты теней.") + Currently(ShadowLive));

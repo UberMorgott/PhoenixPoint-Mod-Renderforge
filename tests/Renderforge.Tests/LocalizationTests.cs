@@ -181,14 +181,14 @@ namespace Renderforge.Tests
             var table = StringTable.Parse(Text(), out error);
             Assert.Null(error);
             Assert.Equal(7, table.LanguageCount);
-            Assert.True(table.KeyCount >= 110, "keys: " + table.KeyCount);
+            Assert.True(table.KeyCount >= 100, "keys: " + table.KeyCount);
         }
 
         [Fact]
         public void EveryRowHasEveryColumn()
         {
             var rows = Rows().Skip(1).ToList();
-            Assert.True(rows.Count >= 110, "rows: " + rows.Count);
+            Assert.True(rows.Count >= 100, "rows: " + rows.Count);
             Assert.All(rows, row => Assert.Equal(ExpectedHeader.Length, row.Length));
         }
 

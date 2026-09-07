@@ -15,14 +15,14 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **Live upscaler switching** lets you move between DLSS, FSR, and XeSS while playing, without restarting the game.
 - **Frame Generation** supports DLSS-G, FSR Frame Generation, and XeSS-FG under Direct3D 12: 2x everywhere it runs, and up to 4x with DLSS-G on RTX 50.
 - **NVIDIA Image Scaling sharpening** adds a separate 0–100 sharpness control (default 40), with 0 disabling the pass. Since 1.4.1 the sharpness slider is always enabled: setting Mode Off with Sharpness above 0 runs NIS on the vanilla frame while preserving the game's own anti-aliasing.
-- **Tactical LUT filters** add nine original live colour grades after temporal reconstruction: Realistic Desaturated, Neutral, Cinematic Bleach, Vivid, B&W Cinema, Noir, Amber Film, Arctic, and Vintage Sepia, with a 0–100 strength control and no bundled third-party assets. Geoscape and non-tactical screens remain ungraded.
+- **LUT filters** add nine original live colour grades after temporal reconstruction, in tactical missions and on the Geoscape: Realistic Desaturated, Neutral, Cinematic Bleach, Vivid, B&W Cinema, Noir, Amber Film, Arctic, and Vintage Sepia, with a 0–100 strength control and no bundled third-party assets. The interface stays ungraded.
 - **Automatic mip bias** keeps textures appropriately detailed when the game renders below the output resolution.
 - **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to 4-pixel blocks and a moderate palette; block size remains adjustable from 2 to 16 actual output pixels. The filters run after reconstruction and preserve the output-resolution interface.
-- **Colour vision correction** offers Deuteranopia, Protanopia and Tritanopia daltonization for tactical missions, at full fixed strength, composed on top of any LUT filter or scene style. It redistributes the colours the eye cannot separate onto the channels it can, using the Machado et al. (2009) simulation matrices. The correction applies to the **scene only** — the interface is composited after this pass and is not corrected.
+- **Colour vision correction** offers Deuteranopia, Protanopia and Tritanopia daltonization in tactical missions and on the Geoscape, at full fixed strength, composed on top of any LUT filter or scene style. It redistributes the colours the eye cannot separate onto the channels it can, using the Machado et al. (2009) simulation matrices. The correction applies to the **scene only** — the interface is composited after this pass and is not corrected.
 - **Crisp fonts** improve supported dynamic interface text while retaining the original letter positions and layout. Unsupported or mismatched text uses the original rendering.
 - **Frame-rate control** removes the vanilla 60 FPS pin and can optionally apply a 30–300 FPS limit.
 - **Benchmark overlay** toggles with `Ctrl+Alt+O` and shows the renderer, upscaler, mode, resolution, frame time, real FPS, and presented FPS when frame generation is active.
-- **Eight languages.** Every Renderforge row, value and tooltip follows the game's language setting: English, Russian, Chinese (Simplified), French, German, Italian, Polish and Spanish. Tooltips state where each row works (renderer, upscaler needed, tactical-only, restart). Strings live in `src\Localization\strings.csv`; corrections are welcome as pull requests.
+- **Eight languages.** Every Renderforge row, value and tooltip follows the game's language setting: English, Russian, Chinese (Simplified), French, German, Italian, Polish and Spanish. Tooltips state where each row works (renderer, upscaler needed, scene only, restart). Strings live in `src\Localization\strings.csv`; corrections are welcome as pull requests.
 - **Direct3D 12 launch fix** makes the game's otherwise broken `-force-d3d12` path usable; ambient occlusion keeps running there in SAO mode and colour grading uses a 2D LUT.
 - **Native in-game settings** add renderer, upscaler, frame generation, quality, and sharpness controls, with unsupported choices greyed out and tooltips explaining why.
 
@@ -84,12 +84,12 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | Quality | Auto | DLAA through 1200p, Quality through 1600p, and Performance above 1600p. |
 | Frame generation | Off | 2x on a supported D3D12 setup with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU and are greyed out otherwise. |
 | Sharpness | 40 | Live 0–100 control; 0 disables sharpening. |
-| LUT filter | Off | Nine colour grades, including B&W Cinema, Noir, Amber Film, Arctic and Vintage Sepia, for tactical missions only. Runs after reconstruction so it never enters temporal history; Geoscape is unchanged. |
+| LUT filter | Off | Nine colour grades, including B&W Cinema, Noir, Amber Film, Arctic and Vintage Sepia, in tactical missions and on the Geoscape. Runs after reconstruction so it never enters temporal history; the HUD stays unchanged. |
 | LUT strength | 100 | Live 0–100 blend from the original image to the selected grade. |
 | Scene style | Off | Cartoon or PixelArt; live 0–100 strength, default 100. This is screen filtering, not a geometry replacement. |
 | Pixel block size | 2 | Actual output pixels; adjustable from 2 to 16. |
-| Colour vision | Off | Deuteranopia, Protanopia or Tritanopia correction for tactical missions, at full strength. Scene only: the HUD and menus are drawn after this pass and stay uncorrected. |
-| Vignette | Vanilla | Vanilla keeps the mission's own vignette; Off removes the darkened frame edges. |
+| Colour vision | Off | Deuteranopia, Protanopia or Tritanopia correction in tactical missions and on the Geoscape, at full strength. Scene only: the HUD and menus are drawn after this pass and stay uncorrected. |
+| Vignette | Vanilla | Vanilla keeps the game's own vignette; Off removes the darkened frame edges, in tactical missions and on the Geoscape. |
 | Shadow resolution | Vanilla | Vanilla keeps the graphics preset's value; Very High raises the shadow map size. |
 | Anisotropic filtering | Vanilla | Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture. |
 | LOD detail | 0 | 0 is Vanilla (the preset's own value); 1.0 to 4.0 keeps higher-detail models at distance. |
@@ -104,7 +104,7 @@ Four settings the game itself never exposes, in **Options → Graphics**. Every 
 
 | Row | Values | What it does |
 |---|---|---|
-| Vignette | Vanilla / Off | Removes the darkened frame edges of tactical missions. |
+| Vignette | Vanilla / Off | Removes the darkened frame edges, in tactical missions and on the Geoscape. |
 | Shadow resolution | Vanilla / Very High | Raises the shadow map size above the preset's own tier. |
 | Anisotropic filtering | Vanilla / 16x | Forces 16 samples on every texture — sharper ground and walls at grazing angles. |
 | LOD detail | 0 (Vanilla) / 1.0 … 4.0 | Keeps higher-detail models at distance. |
