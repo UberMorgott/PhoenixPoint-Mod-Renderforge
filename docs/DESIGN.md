@@ -408,6 +408,43 @@ else; the LUT is gated the same way in `DlssDriver.Step` (`lutActive`).
   the independent Python reference (`native\probe\colour_vision_ref.py`), LUT+style composition on
   both paths.
 
+### Levels / Contrast / Clarity (1.5.0, ReShade parity)
+
+Three more stages of the same analytic post shader (`native\Grade.h` `RF_GRADE_HLSL`, function `Adjust(p, c)`),
+one dispatch as before. Final chain in `native\Sharpen.cpp`: RCAS → `Stylize` → `Grade` (LUT) → **`Adjust`
+(Levels → Contrast → Clarity)** → `ColorVision` — the daltonization compensation stays last so it corrects what the
+player actually sees. Runs wherever the pass runs (tactical + geoscape); the HUD is composited after it.
+
+- **Knobs** (`DlssConfig`, ints, all default = off): `LevelsBlack` 0–40 (0), `LevelsWhite` 215–255 (255),
+  `Contrast` 50–150 (100), `Clarity` 0–100 (0). Sliders = `src\GradePanel.cs` (four ShadowDistance-row clones,
+  the LUT-strength recipe), immediate apply + `SaveConfig`; the driver reads them every frame, no generation
+  restart. Console setter `RenderforgeMod.SetGrade(black, white, contrast, clarity)`.
+- **ABI.** `Dlss_SetGrade(slot, black, white, contrast, clarity)` — same slot contract as `Dlss_SetColorVision`
+  (after `Dlss_SetFrame`, before the event). Values arrive normalised: black = slider/255 (0..40/255), white =
+  slider/255 (215/255..1), contrast = slider/100 (0.5..1.5), clarity = slider/100 (0..1); out of range or NaN =
+  that knob's Off. `Dlss_SetFrame` resets `FrameParams.grade` to the defaults after its memset (zeroed
+  white/contrast are NOT their Off values). `GradePanel.Active` = any knob off default; it is a third term in
+  `DlssDriver.Step`'s `needsPipeline` and `GradeEnabled` a fourth term in `PostShaderEnabled` (no default
+  argument there, so a call site that forgets it fails to compile instead of skipping the stage).
+- **Constant buffer.** One `float4` appended at byte 96 (`fp[24..27]`) after `cvRow2`: `levelsBlack`,
+  `levelsWhite`, `contrastK`, `clarity` — 112 of the 256 bytes used, both backends already allocate 256
+  (D3D11 `ByteWidth = 256`, D3D12 root CBV 256 B per ring slot; no root-signature change).
+- **Formulas** (display-referred on both colour-space paths — the FP16-linear path goes through the same
+  `pow(2.2)` pair as `Stylize`; only negatives are clipped, UNORM clamps on store, FP16 keeps overbrights):
+  - Levels: `d = max((d - b) / max(w - b, 1e-4), 0)` per channel, b = black/255, w = white/255.
+  - Contrast: `d = max((d - 0.5) * k + 0.5, 0)` per channel, k = contrast/100 — the same per-channel form the LUT
+    presets use (`(g-0.5)*con+0.5`), not a luma-preserving variant.
+  - Clarity: luma unsharp mask. `y` = luma of the input at p, `blur` = mean luma of p plus 12 Poisson-disc taps
+    (13 taps, equal weights) read from the SAME input SRV (`src`, t0 — the scratch/target copy, never the UAV),
+    radius `r = 10 px × H/1080`, offsets `int2(round(tap × r))` through `L()`'s bounds clamp (`.Load`; the pass
+    declares no sampler). Gain `d *= 1 + 0.6 × clarity × clamp((y − blur) / max(y, 1e-3), −1, 1)` — both
+    lumas come from the input so a preceding grade/levels shift cannot bias the mask; slider 100 = ±60 %.
+  - Each stage branches on its uniform (`levelsBlack <= 0 && levelsWhite >= 1`, `contrastK == 1`, `clarity <= 0`)
+    and the whole function early-outs when all are off: bit-exact bypass, no divergence.
+- **Verified:** `build-native.ps1` green (the production HLSL compiles in the `--fake=2` post-only probe:
+  `grade=32711` pixels differ from the copy); managed build 0/0; `qgate -All -Full` green. In-game per-knob
+  screenshots and the 1440p frame-time delta are the acceptance step still owed (plan Track C).
+
 ### Crisp fonts (1.4.x, fix 1.5.0)
 
 - **Covered:** exact `UnityEngine.UI.Text` with a dynamic font, default UI material, root ScreenSpaceOverlay canvas
@@ -788,7 +825,7 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
 - **LOD slider positions are contiguous, values are not.** Valid biases are `0` (Vanilla) and `1.0 … 4.0`, so the slider
   runs `0..31` and maps position → value (`1.0 + (pos - 1) * 0.1`) instead of scaling. A scaled `0..40` slider would snap
   positions 1–9 back to 10 and trap keyboard/controller decrement at `1.0`.
-- **Row order in Options → Graphics:** LUT → Colour vision → Scene style → Quality rows.
+- **Row order in Options → Graphics:** LUT → Colour vision → Black point / White point / Contrast / Clarity → Scene style → Quality rows.
 - **No "Extreme" shadow tier.** Unity 2019.4 caps custom shadow maps at 4096 dir / 2048 spot / 1024 point,
   so a tier above `VeryHigh` would be meaningless. 11 of 71 lights cast shadows, all `FromQualitySettings`.
 

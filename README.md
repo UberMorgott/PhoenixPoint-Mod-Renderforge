@@ -19,6 +19,7 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **Automatic mip bias** keeps textures appropriately detailed when the game renders below the output resolution.
 - **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to 4-pixel blocks and a moderate palette; block size remains adjustable from 2 to 16 actual output pixels. The filters run after reconstruction and preserve the output-resolution interface.
 - **Colour vision correction** offers Deuteranopia, Protanopia and Tritanopia daltonization in tactical missions and on the Geoscape, at full fixed strength, composed on top of any LUT filter or scene style. It redistributes the colours the eye cannot separate onto the channels it can, using the Machado et al. (2009) simulation matrices. The correction applies to the **scene only** — the interface is composited after this pass and is not corrected.
+- **Levels, Contrast and Clarity** add ReShade-style black point, white point, contrast and clarity sliders in the same post pass, live in tactical missions and on the Geoscape, all off by default. Clarity is a luma unsharp mask against a 13-tap Poisson blur (local contrast on fine detail). Scene only; the HUD stays unchanged.
 - **Crisp fonts** improve supported dynamic interface text while retaining the original letter positions and layout. Unsupported or mismatched text uses the original rendering.
 - **Frame-rate control** removes the vanilla 60 FPS pin and can optionally apply a 30–300 FPS limit.
 - **Benchmark overlay** toggles with `Ctrl+Alt+O` and shows the renderer, upscaler, mode, resolution, frame time, real FPS, and presented FPS when frame generation is active.
@@ -75,7 +76,7 @@ Start Phoenix Point with mod support enabled, open **Main menu → Mods**, enabl
 
 ## Settings
 
-The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, scene styles, and colour vision are under **Options → Graphics**; the FPS limiter and crisp fonts are under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
+The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, colour vision, black/white point, contrast, clarity, and scene styles are under **Options → Graphics**; the FPS limiter and crisp fonts are under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
 
 | Setting | Default | Notes |
 |---|---:|---|
@@ -89,6 +90,10 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | Scene style | Off | Cartoon or PixelArt; live 0–100 strength, default 100. This is screen filtering, not a geometry replacement. |
 | Pixel block size | 2 | Actual output pixels; adjustable from 2 to 16. |
 | Colour vision | Off | Deuteranopia, Protanopia or Tritanopia correction in tactical missions and on the Geoscape, at full strength. Scene only: the HUD and menus are drawn after this pass and stay uncorrected. |
+| Black point | 0 | Raises the black level, 0–40; 0 = off. Live, scene only. |
+| White point | 255 | Lowers the white level, 215–255; 255 = off. Live, scene only. |
+| Contrast | 100 | 50–150 about mid-grey; 100 = off, below flattens, above deepens. Live, scene only. |
+| Clarity | 0 | Local contrast on fine detail (luma unsharp mask, ~10 px radius at 1080p), 0–100; 0 = off. Live, scene only. |
 | Vignette | Vanilla | Vanilla keeps the game's own vignette; Off removes the darkened frame edges, in tactical missions and on the Geoscape. |
 | Shadow resolution | Vanilla | Vanilla keeps the graphics preset's value; Very High raises the shadow map size. |
 | Anisotropic filtering | Vanilla | Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture. |
