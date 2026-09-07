@@ -238,7 +238,7 @@ namespace Renderforge.Tests
         [InlineData("Saturation", "Colour intensity of everything: 0 = greyscale, 100 = as rendered, 200 = double. Scene only; the HUD stays unchanged. Default: 100.")]
         [InlineData("Sharpness", "RCAS sharpening after reconstruction; 0 = off. Default: 40.")]
         [InlineData("LUT strength", "0 = original image … 100 = full grade. Applied live. Default: 100.")]
-        [InlineData("Reset image settings", "Resets Sharpness, LUT strength, Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance and Saturation to their defaults. The LUT filter, colour vision and scene style stay as chosen.")]
+        [InlineData("Reset image settings", "Resets every Renderforge image setting to its default: Sharpness, LUT filter and LUT strength, Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance, Saturation, Scene style with its strength and pixel block size, Vignette, Shadow resolution, Anisotropic filtering and LOD detail. Renderer, Upscaler, Quality, Frame generation and Colour vision stay as chosen.")]
         public void ImageRowsHaveLabelAndExactTooltipKeys(string label, string tooltip)
         {
             var keys = Rows().Skip(1).Select(r => r[0]).ToList();
