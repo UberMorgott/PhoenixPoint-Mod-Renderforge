@@ -7,11 +7,13 @@
 [*][b]Reescalado y antialiasing:[/b] DLSS Super Resolution y DLAA a resolución nativa, FSR y XeSS; Auto elige un reescalador disponible para tu GPU y renderizador.
 [*][b]Nitidez:[/b] NIS también funciona con el reescalador en «Desactivado», conservando el antialiasing del juego; pon la nitidez a 0 para desactivar NIS.
 [*][b]Generación de fotogramas:[/b] DLSS-G, FSR y XeSS-FG a 2x en DirectX 12 con un reescalador activo; DLSS-G también ofrece 3x/4x en RTX 50. Desactivada por defecto.
-[*][b]Imagen:[/b] filtros de color LUT para misiones tácticas y estilos de escena Cartoon/PixelArt, con intensidad ajustable; el HUD no cambia.
-[*][b]Visión del color:[/b] corrección de deuteranopía, protanopía y tritanopía, combinable con filtros LUT o estilos. Solo la escena táctica; el HUD y los menús no cambian.
-[*][b]Calidad:[/b] desactiva la viñeta táctica, elige sombras muy altas, fuerza el filtrado anisotrópico 16x y aumenta el detalle de modelos lejanos con LOD. Cada posición «Como en el juego» restaura el valor del preajuste gráfico.
+[*][b]Imagen:[/b] filtros de color LUT en misiones tácticas y en el Geoscape, además de estilos de escena Cartoon/PixelArt, con intensidad ajustable; el HUD no cambia.
+[*][b]Ajustes de imagen:[/b] Punto negro, Punto blanco, Contraste y Claridad en Opciones > Gráficos: controles deslizantes de efecto inmediato, todos desactivados por defecto, en la misma pasada que los filtros LUT. Solo la escena, en misiones tácticas y en el Geoscape; el HUD no cambia.
+[*][b]Visión del color:[/b] corrección de deuteranopía, protanopía y tritanopía, combinable con filtros LUT o estilos. Solo la escena, en misiones tácticas y en el Geoscape; el HUD y los menús no cambian.
+[*][b]Calidad:[/b] desactiva el viñeteado en misiones tácticas y en el Geoscape, elige sombras muy altas, fuerza el filtrado anisotrópico 16x y aumenta el detalle de modelos lejanos con LOD. Cada posición «Como en el juego» restaura el valor del preajuste gráfico.
 [*][b]Renderizador:[/b] cambia entre DirectX 11 y DirectX 12 desde el juego; requiere reiniciar.
-[*][b]FPS y fuentes:[/b] elimina el bloqueo original de 60 FPS; límite opcional de 30–300 FPS que incluye fotogramas generados. Fuentes más nítidas para el texto dinámico de interfaz compatible.
+[*][b]FPS:[/b] elimina el bloqueo original de 60 FPS; límite opcional de 30–300 FPS que incluye fotogramas generados.
+[*][b]Fuentes nítidas:[/b] 1.5.0 corrige el desplazamiento de un píxel de los caracteres en el texto de interfaz compatible con fuentes dinámicas (HUD, barra del Geoscape, menús). Nunca modifica iconos ni sprites.
 [*][b]Atajos:[/b] Ctrl+Alt+O muestra/oculta el overlay de medición (renderizador, reescalador, resolución, tiempo por fotograma y FPS); Ctrl+Alt+U desactiva/activa el reescalador.
 [/list]
 

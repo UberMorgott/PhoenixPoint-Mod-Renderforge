@@ -7,11 +7,13 @@
 [*][b]Upscaling and anti-aliasing:[/b] DLSS Super Resolution and native-resolution DLAA, FSR and XeSS; Auto selects an available upscaler for your GPU and renderer.
 [*][b]Sharpening:[/b] NIS also works with the upscaler Off, preserving the game's anti-aliasing; set sharpness to 0 to disable it.
 [*][b]Frame generation:[/b] DLSS-G, FSR and XeSS-FG at 2x on DirectX 12 with an active upscaler; DLSS-G also offers 3x/4x on RTX 50. Off by default.
-[*][b]Image:[/b] LUT colour filters for tactical missions and Cartoon/PixelArt scene styles, with adjustable strength; the HUD stays unchanged.
-[*][b]Colour vision:[/b] Deuteranopia, Protanopia and Tritanopia correction, combined with LUT filters or scene styles. Tactical scene only; HUD and menus stay unchanged.
-[*][b]Quality controls:[/b] disable tactical vignette, select Very High shadows, force 16x anisotropic filtering and increase distant model detail with LOD. Each Vanilla position restores the graphics preset's value.
+[*][b]Image:[/b] LUT colour filters in tactical missions and on the Geoscape, plus Cartoon/PixelArt scene styles, with adjustable strength; the HUD stays unchanged.
+[*][b]Image controls:[/b] Black point, White point, Contrast and Clarity under Options > Graphics: live sliders, all off by default, in the same pass as LUT filters. Scene only, in tactical missions and on the Geoscape; the HUD stays unchanged.
+[*][b]Colour vision:[/b] Deuteranopia, Protanopia and Tritanopia correction, combined with LUT filters or scene styles. Scene only, in tactical missions and on the Geoscape; HUD and menus stay unchanged.
+[*][b]Quality controls:[/b] disable vignette in tactical missions and on the Geoscape, select Very High shadows, force 16x anisotropic filtering and increase distant model detail with LOD. Each Vanilla position restores the graphics preset's value.
 [*][b]Renderer:[/b] switch between DirectX 11 and DirectX 12 in-game; requires a restart.
-[*][b]FPS and fonts:[/b] removes the vanilla 60 FPS pin; optional 30–300 FPS limit includes generated frames. Crisp fonts for supported dynamic interface text.
+[*][b]FPS:[/b] removes the vanilla 60 FPS pin; optional 30–300 FPS limit includes generated frames.
+[*][b]Crisp fonts:[/b] 1.5.0 fixes one-pixel glyph shifts in supported dynamic-font UI text (HUD, Geoscape bar, menus). Icons and sprites are never touched.
 [*][b]Hotkeys:[/b] Ctrl+Alt+O toggles the benchmark overlay (renderer, upscaler, resolution, frame time and FPS); Ctrl+Alt+U toggles the upscaler off/on.
 [/list]
 

@@ -7,11 +7,13 @@
 [*][b]Skalowanie i antyaliasing:[/b] DLSS Super Resolution i DLAA w natywnej rozdzielczości, FSR i XeSS; Auto wybiera dostępny upscaler dla GPU i renderera.
 [*][b]Wyostrzanie:[/b] NIS działa też przy upscalerze ustawionym na „Wył.”, zachowując antyaliasing gry; ustaw ostrość na 0, aby wyłączyć NIS.
 [*][b]Generowanie klatek:[/b] DLSS-G, FSR i XeSS-FG w 2x na DirectX 12 z aktywnym upscalerem; DLSS-G oferuje też 3x/4x na RTX 50. Domyślnie wyłączone.
-[*][b]Obraz:[/b] filtry kolorów LUT dla misji taktycznych i style sceny Cartoon/PixelArt z regulacją siły efektu; HUD pozostaje bez zmian.
-[*][b]Widzenie barw:[/b] korekcja deuteranopii, protanopii i tritanopii, łączona z filtrami LUT lub stylami. Tylko scena taktyczna; HUD i menu pozostają bez zmian.
-[*][b]Jakość:[/b] wyłączenie winiety w taktyce, bardzo wysokie cienie, wymuszenie filtrowania anizotropowego 16x i więcej detali odległych modeli przez LOD. Pozycja „Jak w grze” przywraca wartość z presetu graficznego.
+[*][b]Obraz:[/b] filtry kolorów LUT w misjach taktycznych i na Geoscape oraz style sceny Cartoon/PixelArt z regulacją siły efektu; HUD pozostaje bez zmian.
+[*][b]Ustawienia obrazu:[/b] Punkt czerni, Punkt bieli, Kontrast i Przejrzystość w Opcje > Grafika: suwaki działają od razu, wszystkie efekty są domyślnie wyłączone i działają w tym samym przebiegu co filtry LUT. Tylko scena, w misjach taktycznych i na Geoscape; HUD pozostaje bez zmian.
+[*][b]Widzenie barw:[/b] korekcja deuteranopii, protanopii i tritanopii, łączona z filtrami LUT lub stylami. Tylko scena, w misjach taktycznych i na Geoscape; HUD i menu pozostają bez zmian.
+[*][b]Jakość:[/b] wyłączenie winiety w misjach taktycznych i na Geoscape, bardzo wysokie cienie, wymuszenie filtrowania anizotropowego 16x i więcej detali odległych modeli przez LOD. Pozycja „Jak w grze” przywraca wartość z presetu graficznego.
 [*][b]Renderer:[/b] przełączanie DirectX 11 / DirectX 12 w grze; wymaga restartu.
-[*][b]FPS i czcionki:[/b] usunięcie oryginalnej blokady 60 FPS; opcjonalny limit 30–300 FPS obejmuje generowane klatki. Ostrzejsze czcionki dla obsługiwanego dynamicznego tekstu interfejsu.
+[*][b]FPS:[/b] usunięcie oryginalnej blokady 60 FPS; opcjonalny limit 30–300 FPS obejmuje generowane klatki.
+[*][b]Wyraźne czcionki:[/b] 1.5.0 naprawia przesunięcia znaków o jeden piksel w obsługiwanym tekście interfejsu z dynamicznymi czcionkami (HUD, pasek Geoscape, menu). Nigdy nie zmienia ikon ani sprite'ów.
 [*][b]Skróty:[/b] Ctrl+Alt+O włącza/wyłącza nakładkę pomiarową (renderer, upscaler, rozdzielczość, czas klatki i FPS); Ctrl+Alt+U wyłącza/włącza upscaler.
 [/list]
 

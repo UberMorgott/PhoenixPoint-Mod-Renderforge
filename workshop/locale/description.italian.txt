@@ -7,11 +7,13 @@
 [*][b]Upscaling e antialiasing:[/b] DLSS Super Resolution e DLAA a risoluzione nativa, FSR e XeSS; Auto sceglie un upscaler disponibile per GPU e renderer.
 [*][b]Nitidezza:[/b] NIS funziona anche con l'upscaler su «Disattivato», mantenendo l'antialiasing del gioco; imposta la nitidezza a 0 per disattivare NIS.
 [*][b]Generazione di fotogrammi:[/b] DLSS-G, FSR e XeSS-FG a 2x su DirectX 12 con un upscaler attivo; DLSS-G offre anche 3x/4x su RTX 50. Disattivata di default.
-[*][b]Immagine:[/b] filtri colore LUT per le missioni tattiche e stili di scena Cartoon/PixelArt, con intensità regolabile; l'HUD resta invariato.
-[*][b]Visione dei colori:[/b] correzione per deuteranopia, protanopia e tritanopia, combinabile con filtri LUT o stili. Solo la scena tattica; HUD e menu restano invariati.
-[*][b]Qualità:[/b] disattiva la vignettatura tattica, scegli ombre molto alte, forza il filtro anisotropico 16x e aumenta il dettaglio dei modelli lontani tramite LOD. Ogni posizione «Come nel gioco» ripristina il valore del preset grafico.
+[*][b]Immagine:[/b] filtri colore LUT nelle missioni tattiche e sul Geoscape, oltre agli stili di scena Cartoon/PixelArt, con intensità regolabile; l'HUD resta invariato.
+[*][b]Controlli immagine:[/b] Punto di nero, Punto di bianco, Contrasto e Chiarezza in Opzioni > Grafica: cursori con effetto immediato, tutti disattivati di default, nello stesso passaggio dei filtri LUT. Solo la scena, nelle missioni tattiche e sul Geoscape; l'HUD resta invariato.
+[*][b]Visione dei colori:[/b] correzione per deuteranopia, protanopia e tritanopia, combinabile con filtri LUT o stili. Solo la scena, nelle missioni tattiche e sul Geoscape; HUD e menu restano invariati.
+[*][b]Qualità:[/b] disattiva la vignettatura nelle missioni tattiche e sul Geoscape, scegli ombre molto alte, forza il filtro anisotropico 16x e aumenta il dettaglio dei modelli lontani tramite LOD. Ogni posizione «Come nel gioco» ripristina il valore del preset grafico.
 [*][b]Renderer:[/b] passa da DirectX 11 a DirectX 12 e viceversa dal gioco; richiede un riavvio.
-[*][b]FPS e caratteri:[/b] rimuove il blocco originale a 60 FPS; limite opzionale di 30–300 FPS, inclusi i fotogrammi generati. Caratteri più nitidi per il testo dinamico dell'interfaccia supportato.
+[*][b]FPS:[/b] rimuove il blocco originale a 60 FPS; limite opzionale di 30–300 FPS, inclusi i fotogrammi generati.
+[*][b]Caratteri nitidi:[/b] 1.5.0 corregge lo spostamento dei caratteri di un pixel nel testo dell'interfaccia supportato con font dinamici (HUD, barra del Geoscape, menu). Icone e sprite non vengono mai modificati.
 [*][b]Scorciatoie:[/b] Ctrl+Alt+O mostra/nasconde l'overlay di misurazione (renderer, upscaler, risoluzione, tempo per fotogramma e FPS); Ctrl+Alt+U disattiva/attiva l'upscaler.
 [/list]
 

@@ -7,11 +7,13 @@
 [*][b]Mise à l'échelle et anticrénelage :[/b] DLSS Super Resolution et DLAA en résolution native, FSR et XeSS ; Auto choisit un upscaler disponible pour le GPU et le moteur de rendu.
 [*][b]Netteté :[/b] NIS fonctionne aussi avec l'upscaler sur « Désactivé », en conservant l'anticrénelage du jeu ; réglez la netteté sur 0 pour désactiver NIS.
 [*][b]Génération d'images :[/b] DLSS-G, FSR et XeSS-FG en 2x sous DirectX 12 avec un upscaler actif ; DLSS-G propose aussi 3x/4x sur RTX 50. Désactivée par défaut.
-[*][b]Image :[/b] filtres de couleur LUT pour les missions tactiques et styles de scène Cartoon/PixelArt, avec intensité réglable ; le HUD reste inchangé.
-[*][b]Vision des couleurs :[/b] correction de la deutéranopie, protanopie et tritanopie, combinable avec les filtres LUT ou les styles. Scène tactique uniquement ; HUD et menus inchangés.
-[*][b]Qualité :[/b] désactivation du vignettage tactique, ombres très élevées, filtrage anisotrope 16x forcé et modèles lointains plus détaillés via LOD. Chaque position « Comme en jeu » rétablit la valeur du préréglage graphique.
+[*][b]Image :[/b] filtres de couleur LUT dans les missions tactiques et sur le Geoscape, ainsi que styles de scène Cartoon/PixelArt, avec intensité réglable ; le HUD reste inchangé.
+[*][b]Réglages de l'image :[/b] Point noir, Point blanc, Contraste et Clarté dans Options > Graphismes : curseurs à effet immédiat, tous désactivés par défaut, dans la même passe que les filtres LUT. Scène uniquement, dans les missions tactiques et sur le Geoscape ; le HUD reste inchangé.
+[*][b]Vision des couleurs :[/b] correction de la deutéranopie, protanopie et tritanopie, combinable avec les filtres LUT ou les styles. Scène uniquement, dans les missions tactiques et sur le Geoscape ; HUD et menus inchangés.
+[*][b]Qualité :[/b] désactivation du vignettage dans les missions tactiques et sur le Geoscape, ombres très élevées, filtrage anisotrope 16x forcé et modèles lointains plus détaillés via LOD. Chaque position « Comme en jeu » rétablit la valeur du préréglage graphique.
 [*][b]Rendu :[/b] passage entre DirectX 11 et DirectX 12 depuis le jeu ; redémarrage requis.
-[*][b]FPS et polices :[/b] suppression du verrou d'origine à 60 FPS ; limite facultative de 30–300 FPS, images générées comprises. Polices plus nettes pour le texte dynamique d'interface pris en charge.
+[*][b]FPS :[/b] suppression du verrou d'origine à 60 FPS ; limite facultative de 30–300 FPS, images générées comprises.
+[*][b]Polices nettes :[/b] 1.5.0 corrige le décalage des caractères d'un pixel dans le texte d'interface compatible utilisant des polices dynamiques (HUD, barre du Geoscape, menus). Les icônes et sprites ne sont jamais modifiés.
 [*][b]Raccourcis :[/b] Ctrl+Alt+O affiche/masque l'overlay de mesure (rendu, upscaler, résolution, temps par image et FPS) ; Ctrl+Alt+U désactive/réactive l'upscaler.
 [/list]
 
