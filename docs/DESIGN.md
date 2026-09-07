@@ -418,29 +418,44 @@ player actually sees. Runs wherever the pass runs (tactical + geoscape); the HUD
 - **Knobs** (`DlssConfig`, ints, all default = off): `LevelsBlack` 0–40 (0), `LevelsWhite` 215–255 (255),
   `Contrast` 50–150 (100), `Clarity` 0–100 (0). Sliders = `src\GradePanel.cs` (four ShadowDistance-row clones,
   the LUT-strength recipe), immediate apply + `SaveConfig`; the driver reads them every frame, no generation
-  restart. Console setter `RenderforgeMod.SetGrade(black, white, contrast, clarity)`.
+  restart. Console setter `RenderforgeMod.SetGrade(black, white, contrast, clarity)`; `-1` for any argument keeps
+  that knob's current value (`SetGrade(-1,-1,-1,100)` = A/B one knob).
 - **ABI.** `Dlss_SetGrade(slot, black, white, contrast, clarity)` — same slot contract as `Dlss_SetColorVision`
   (after `Dlss_SetFrame`, before the event). Values arrive normalised: black = slider/255 (0..40/255), white =
   slider/255 (215/255..1), contrast = slider/100 (0.5..1.5), clarity = slider/100 (0..1); out of range or NaN =
-  that knob's Off. `Dlss_SetFrame` resets `FrameParams.grade` to the defaults after its memset (zeroed
-  white/contrast are NOT their Off values). `GradePanel.Active` = any knob off default; it is a third term in
-  `DlssDriver.Step`'s `needsPipeline` and `GradeEnabled` a fourth term in `PostShaderEnabled` (no default
-  argument there, so a call site that forgets it fails to compile instead of skipping the stage).
-- **Constant buffer.** One `float4` appended at byte 96 (`fp[24..27]`) after `cvRow2`: `levelsBlack`,
-  `levelsWhite`, `contrastK`, `clarity` — 112 of the 256 bytes used, both backends already allocate 256
-  (D3D11 `ByteWidth = 256`, D3D12 root CBV 256 B per ring slot; no root-signature change).
+  that knob's Off. **Zero is Off by construction:** `Dlss_SetGrade` re-encodes into `GradeParams { black,
+  whiteDrop = 1 − white, contrastDelta = contrast − 1, clarity }`, every field 0 = off, so an all-zero struct
+  (`Dlss_SetFrame`'s memset), a default `GradeParams{}` and a zero-filled constant block (the NIS/RCAS layouts,
+  a probe that never packs the grade) are all the bit-exact bypass — no reset step to forget. `GradePanel.Active`
+  = any knob off default; it is a third term in `DlssDriver.Step`'s `needsPipeline` and `GradeEnabled` (any field
+  `!= 0`) a fourth term in `PostShaderEnabled` (no default argument there, so a call site that forgets it fails
+  to compile instead of skipping the stage).
+- **Constant buffer.** One `float4` appended at byte 96 (`fp[24..27]`) after `cvRow2`: `levelsBlack` @96,
+  `whiteDrop` @100, `contrastDelta` @104, `clarity` @108 — 112 of the 256 bytes used, both backends already
+  allocate 256 (D3D11 `ByteWidth = 256`, D3D12 root CBV 256 B per ring slot; no root-signature change).
 - **Formulas** (display-referred on both colour-space paths — the FP16-linear path goes through the same
   `pow(2.2)` pair as `Stylize`; only negatives are clipped, UNORM clamps on store, FP16 keeps overbrights):
-  - Levels: `d = max((d - b) / max(w - b, 1e-4), 0)` per channel, b = black/255, w = white/255.
-  - Contrast: `d = max((d - 0.5) * k + 0.5, 0)` per channel, k = contrast/100 — the same per-channel form the LUT
-    presets use (`(g-0.5)*con+0.5`), not a luma-preserving variant.
-  - Clarity: luma unsharp mask. `y` = luma of the input at p, `blur` = mean luma of p plus 12 Poisson-disc taps
+  - Levels: `d = max((d - b) / max(1 - wd - b, 1e-4), 0)` per channel, b = black/255, wd = whiteDrop
+    (= 1 − white/255).
+  - Contrast: `d = max((d - 0.5) * (1 + cd) + 0.5, 0)` per channel, cd = contrastDelta (= contrast/100 − 1) —
+    the same per-channel form the LUT presets use (`(g-0.5)*con+0.5`), not a luma-preserving variant.
+  - Clarity: luma unsharp mask. `y` = luma of the input at s, `blur` = mean luma of s plus 12 Poisson-disc taps
     (13 taps, equal weights) read from the SAME input SRV (`src`, t0 — the scratch/target copy, never the UAV),
     radius `r = 10 px × H/1080`, offsets `int2(round(tap × r))` through `L()`'s bounds clamp (`.Load`; the pass
     declares no sampler). Gain `d *= 1 + 0.6 × clarity × clamp((y − blur) / max(y, 1e-3), −1, 1)` — both
     lumas come from the input so a preceding grade/levels shift cannot bias the mask; slider 100 = ±60 %.
-  - Each stage branches on its uniform (`levelsBlack <= 0 && levelsWhite >= 1`, `contrastK == 1`, `clarity <= 0`)
-    and the whole function early-outs when all are off: bit-exact bypass, no divergence.
+    `s = p`, except under an active PixelArt style where `s = StyleBlockCentre(p)` (the same snap `Stylize`
+    draws the block's one sample from, `SceneStyle.h`): the mask is then one value per block, so Clarity cannot
+    re-introduce per-pixel detail inside the blocks (`scene_style_probe` asserts 0 non-uniform pixels at
+    Clarity 100 + 4-px blocks, gamma and linear). Luma (`ClarityLuma`) = `StyleLuma(max(L, 0))` then ONE scalar
+    `pow(·, 1/2.2)` on the linear path — luma-of-linear-then-gamma is not gamma-then-luma, but the mask only
+    needs a monotonic brightness estimate, and it is 13 scalar pows per pixel instead of 39 (three per tap).
+  - Each stage branches on its uniform (`levelsBlack != 0 || whiteDrop != 0`, `contrastDelta != 0`,
+    `clarity != 0`) and the whole function early-outs when all four are zero: bit-exact bypass, no divergence.
+- **Config writes are coalesced.** `RenderforgeMod.SaveConfig()` only marks the config dirty; `ConfigSaver`
+  (a `HideAndDontSave` MonoBehaviour created on the first call) writes once in `LateUpdate` and on
+  `OnApplicationQuit`, `OnModDisabled` calls `FlushConfig()` first. A slider drag = one `SaveModConfig` per frame
+  at most, for every Renderforge slider (sharpness, LUT strength, style strength, pixel size, the four grade knobs).
 - **Verified:** `build-native.ps1` green (the production HLSL compiles in the `--fake=2` post-only probe:
   `grade=32711` pixels differ from the copy); managed build 0/0; `qgate -All -Full` green. In-game per-knob
   screenshots and the 1440p frame-time delta are the acceptance step still owed (plan Track C).

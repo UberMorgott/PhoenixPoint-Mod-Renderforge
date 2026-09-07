@@ -107,8 +107,14 @@ struct CvProbe {
         Check(device->CreateShaderResourceView(src.Get(), nullptr, &srv));
         Check(device->CreateUnorderedAccessView(dst.Get(), nullptr, &uav));
         alignas(16) unsigned char constants[256];
-        FillSharpenConstants(constants, DLSS_SHARPEN_RCAS, 0, width, height, lutPreset, lutStrength, hdr,
-                             style, mode);
+        // Force the analytic layout even when every stage is off (mode 0, LUT off, style off), like
+        // scene_style_probe: pack with a LUT on, then switch the LUT off in place. The mode-0 bypass check is then a
+        // test of the shader's own Off branches (styleLinear, W/H and the zero grade all real), not of the
+        // NIS/RCAS-layout fallback FillSharpenConstants would otherwise pack.
+        const bool forced = !PostShaderEnabled(lutPreset, lutStrength, style, mode, GradeParams{});
+        FillSharpenConstants(constants, DLSS_SHARPEN_RCAS, 0, width, height, forced ? DLSS_LUT_VIVID : lutPreset,
+                             forced ? 1.0f : lutStrength, hdr, style, mode);
+        if (forced) { reinterpret_cast<float*>(constants)[1] = 0; reinterpret_cast<unsigned*>(constants)[4] = 0; }
         D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = sizeof(constants); bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         D3D11_SUBRESOURCE_DATA initial = { constants, 0, 0 };
         ComPtr<ID3D11Buffer> cb;

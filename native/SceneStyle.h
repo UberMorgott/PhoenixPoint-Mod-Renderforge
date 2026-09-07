@@ -20,14 +20,15 @@ float3 StyleDisplay(float3 c) { return styleLinear != 0 ? pow(max(c, 0.0), 1.0 /
 float3 StyleLinear(float3 c) { return styleLinear != 0 ? pow(max(c, 0.0), 2.2) : c; }
 float StyleLuma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 float3 StyleSample(int2 p) { return StyleDisplay(L(p)); }
+// PixelArt block-centre snap: the one sample every pixel of a block is drawn from. Also used by the clarity mask
+// (Grade.h), so both stay block-uniform.
+int2 StyleBlockCentre(int2 p) { int block = int(max(pixelSize, 2u)); return (p / block) * block + block / 2; }
 float3 Stylize(int2 p, float3 original) {
     if (styleMode == 0 || styleStrength <= 0.0) return original;
     float3 c;
     if (styleMode == 2) {
-        int block = int(max(pixelSize, 2u));
-        int2 q = (p / block) * block + block / 2;
         // Retain small material/lighting differences; the grid supplies the style, not a coarse eight-level palette.
-        c = floor(StyleSample(q) * 31.0 + 0.5) / 31.0;
+        c = floor(StyleSample(StyleBlockCentre(p)) * 31.0 + 0.5) / 31.0;
     } else {
         // A small cross smooths fine texture before banding. Ink uses the original local contrast.
         int radius = max(1, int(H / 720));

@@ -35,7 +35,7 @@ struct StyleProbe
     }
 
     std::vector<Pixel> Run(const std::vector<Pixel>& pixels, unsigned width, unsigned height,
-        SceneStyleParams style, bool linear = false, float sharpness = 0)
+        SceneStyleParams style, bool linear = false, float sharpness = 0, const GradeParams& grade = GradeParams{})
     {
         Require(pixels.size() == size_t(width) * height, "Input dimensions mismatch");
         D3D11_TEXTURE2D_DESC td = {};
@@ -54,7 +54,7 @@ struct StyleProbe
         Check(device->CreateUnorderedAccessView(dst.Get(), nullptr, &uav));
         alignas(16) unsigned char constants[256];
         // Force the combined layout, then disable LUT. This also exercises Off/zero inside the HLSL itself.
-        FillSharpenConstants(constants, DLSS_SHARPEN_RCAS, sharpness, width, height, 1, 1, linear, style);
+        FillSharpenConstants(constants, DLSS_SHARPEN_RCAS, sharpness, width, height, 1, 1, linear, style, 0, grade);
         reinterpret_cast<float*>(constants)[1] = 0;
         reinterpret_cast<unsigned*>(constants)[4] = 0;
         D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = sizeof(constants); bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
@@ -102,6 +102,9 @@ int main(int argc, char** argv)
         Require(argc == 1, "Usage: scene_style_probe [input.rgba32f width height mode pixelSize output.rgba32f]");
         Require(!SceneStyleEnabled({0, 1, 6}) && !SceneStyleEnabled({3, 1, 6})
             && !SceneStyleEnabled({1, 0, 6}) && !SceneStyleEnabled({1, NAN, 6}), "Style enable boundary failed");
+        // Zero is Off by construction: a memset struct and the default struct are the same Off (Dlss_SetFrame relies on it).
+        GradeParams zeroed; memset(&zeroed, 0, sizeof zeroed);
+        Require(!GradeEnabled(zeroed) && !GradeEnabled(GradeParams{}), "All-zero GradeParams is not Off");
         unsigned char before[256], after[256];
         for (int kind : {DLSS_SHARPEN_NIS, DLSS_SHARPEN_RCAS}) {
             FillSharpenConstants(before, kind, 0.4f, 37, 23);
@@ -147,7 +150,30 @@ int main(int argc, char** argv)
                 }
             }
         }
-        printf("PASS: production HLSL on D3D11 WARP; 2 styles x gamma/linear; exact Off/zero, alpha, finite output, blend, tiny/odd sizes; 15 pixel grids, 32-level palettes, default color error <=1/62; original Off packing.\n");
+        // Clarity 100 under PixelArt must keep blocks uniform: the mask is evaluated at the block centre, not per
+        // output pixel. A 216-row fixture makes the tap radius 2 px (37x23 rounds every tap to zero), so the mask
+        // really fires - asserted by the "changed" count against the same run without clarity.
+        {
+            const unsigned cw = 48, ch = 216, block = 4;
+            std::vector<Pixel> tall;
+            for (unsigned y = 0; y < ch; ++y) for (unsigned x = 0; x < cw; ++x)
+                tall.push_back({x / float(cw-1), y / float(ch-1), ((x*13+y*7)%37)/36.f, (x+y)/float(cw+ch)});
+            GradeParams clarity; clarity.clarity = 1.0f;
+            for (bool linear : {false, true}) {
+                auto plain = probe.Run(tall, cw, ch, {2, 1, block}, linear, 1);
+                auto sharp = probe.Run(tall, cw, ch, {2, 1, block}, linear, 1, clarity);
+                unsigned nonUniform = 0, changed = 0;
+                for (unsigned y = 0; y < ch; ++y) for (unsigned x = 0; x < cw; ++x) for (int c = 0; c < 3; ++c) {
+                    const auto value = sharp[y*cw+x][c];
+                    Require(std::isfinite(value) && value >= 0, "Invalid clarity output");
+                    if (value != sharp[(y/block*block)*cw + x/block*block][c]) ++nonUniform;
+                    if (std::abs(value - plain[y*cw+x][c]) > 1e-4f) ++changed;
+                }
+                Require(nonUniform == 0, "Clarity broke PixelArt block uniformity");
+                Require(changed > tall.size() / 4, "Clarity changed nothing under PixelArt");
+            }
+        }
+        printf("PASS: production HLSL on D3D11 WARP; 2 styles x gamma/linear; exact Off/zero, alpha, finite output, blend, tiny/odd sizes; 15 pixel grids, 32-level palettes, default color error <=1/62; original Off packing; zero GradeParams = Off; Clarity 100 + PixelArt 4-px blocks stay block-uniform (gamma + linear).\n");
         return 0;
     }
     catch (const std::exception& e) { fprintf(stderr, "FAIL: %s\n", e.what()); return 1; }

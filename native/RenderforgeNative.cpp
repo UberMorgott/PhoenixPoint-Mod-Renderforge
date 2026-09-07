@@ -221,7 +221,7 @@ void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void*
     p->lutPreset = (lutPreset >= DLSS_LUT_REALISTIC_DESATURATED && lutPreset <= DLSS_LUT_VINTAGE_SEPIA) ? lutPreset : DLSS_LUT_OFF;
     p->lutStrength = lutStrength > 0 ? (lutStrength < 1 ? lutStrength : 1) : 0;   // NaN also disables the pass
     p->nearZ = S.nearZ; p->farZ = S.farZ; p->fovY = S.fovY;
-    p->grade = GradeParams{};   // the memset above zeroed white/contrast, which are NOT their Off values
+    // p->grade: all-zero from the memset above = Off (GradeParams encodes every knob so that zero is off).
 }
 
 void __cdecl Dlss_SetSceneStyle(void* slot, int mode, float strength, int pixelSize)
@@ -244,10 +244,10 @@ void __cdecl Dlss_SetGrade(void* slot, float black, float white, float contrast,
 {
     FrameParams* p = (FrameParams*)slot;
     if (!p) return;
-    GradeParams g;   // defaults = Off; every comparison below is false for NaN, so NaN keeps the default
+    GradeParams g;   // defaults = Off (all zero); every comparison below is false for NaN, so NaN keeps the default
     if (black > 0.0f)    g.black = black < 40.0f / 255.0f ? black : 40.0f / 255.0f;
-    if (white < 1.0f)    g.white = white > 215.0f / 255.0f ? white : 215.0f / 255.0f;
-    if (contrast >= 0.5f && contrast <= 1.5f) g.contrast = contrast;
+    if (white < 1.0f)    g.whiteDrop = 1.0f - (white > 215.0f / 255.0f ? white : 215.0f / 255.0f);
+    if (contrast >= 0.5f && contrast <= 1.5f) g.contrastDelta = contrast - 1.0f;
     if (clarity > 0.0f)  g.clarity = clarity < 1.0f ? clarity : 1.0f;
     p->grade = g;
 }
