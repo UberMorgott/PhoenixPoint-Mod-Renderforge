@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection.Emit;
 using HarmonyLib;
 using I2.Loc;
 using PhoenixPoint.Common.View.ViewModules;
@@ -96,6 +99,32 @@ namespace Renderforge
                 if (!loggedError) RenderforgeMod.Instance?.Logger.LogError("Renderforge video-panel rows failed: " + ex);
                 loggedError = true;
             }
+        }
+
+        /// <summary>One resolution entry per width x height. InitResolutionPicker (:125) does `_resolutions = Screen.resolutions`
+        /// (:133) and then builds labels, current index and the picker range from that field, so swapping the getter call
+        /// for the dedup keeps index -> _resolutions[index] (OnResolutionChanged :156) consistent for free. The refresh
+        /// rate is never applied anyway: OptionsManager.cs:523 calls Screen.SetResolution(w, h, mode) without one.</summary>
+        [HarmonyTranspiler, HarmonyPatch("InitResolutionPicker")]
+        static IEnumerable<CodeInstruction> InitResolutionPicker(IEnumerable<CodeInstruction> il)
+        {
+            var get = AccessTools.PropertyGetter(typeof(Screen), nameof(Screen.resolutions));
+            var ours = AccessTools.Method(typeof(VideoPanel), nameof(UniqueResolutions));
+            foreach (var c in il)
+            {
+                if (c.Calls(get)) { c.opcode = OpCodes.Call; c.operand = ours; }
+                yield return c;
+            }
+        }
+
+        static Resolution[] UniqueResolutions()
+        {
+            var all = Screen.resolutions;
+            var unique = all.GroupBy(r => (r.width, r.height))
+                .Select(g => g.OrderByDescending(r => r.refreshRate).First())
+                .OrderBy(r => r.width).ThenBy(r => r.height).ToArray();
+            RenderforgeMod.Instance?.Logger.LogInfo("Resolution list: " + all.Length + " entries -> " + unique.Length + " unique sizes");
+            return unique;
         }
 
         [HarmonyPostfix, HarmonyPatch("HasChanges")]
