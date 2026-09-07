@@ -2,7 +2,7 @@
 
 Rig: RTX 5070 Ti, 2560x1440 FullScreenWindow, vsync off, D3D11.
 Install: D:\PP-Instance2, profile 76561197996210592.
-Build: Renderforge.dll 197632 B (HEAD 7f975f9, 1.5.0 unpublished).
+Build: Renderforge.dll 197632 B built at commit 5f010a5 (feat: Pixel-perfect UI toggle), installed over the 1.5.0 files.
 Scene: fresh campaign geoscape -> tactical (ALN_PLT_Nest_48x48_A seed 12345).
 Capture: `connect screenshot` (end-of-frame Camera.main readback), timeScale 0.0001 during geoscape captures.
 

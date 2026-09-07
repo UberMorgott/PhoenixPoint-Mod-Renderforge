@@ -8,7 +8,7 @@ A small patch on top of 1.5.0: one optional UI sharpness toggle.
 
 ## Known limits
 
-- Snapping means moving: elements shift onto the pixel grid (up to 180 px of measured position delta), so **animated panels may step by whole pixels** while they slide. That is why the toggle is off by default -- turn it on if you prefer the sharper text.
+- Snapping means moving: elements shift onto the pixel grid (by a fraction of a pixel, up to 0.5 px at the 1440p UI scale), so **animated panels may step by whole pixels** while they slide. That is why the toggle is off by default -- turn it on if you prefer the sharper text.
 - Crisp fonts stay removed. A restore was tried this release and reverted after re-measuring: the exact glyph remap samples the same pixels as vanilla at 1440p (Sobel 1.00). Numbers: `docs\research\font-remeasure-2026-09-07\results.md`.
 
 ## Install

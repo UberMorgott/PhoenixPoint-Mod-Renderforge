@@ -483,7 +483,7 @@ player actually sees. Runs wherever the pass runs (tactical + geoscape); the HUD
   restored on Off / `OnModDisabled`. Re-applied from `RenderforgeMod.OnLevelStart` so tactical/geoscape canvases get it.
   No Harmony patch.
 - **Why optional:** `docs\research\font-remeasure-2026-09-07\results.md` — at 2560x1440 UI.Text Sobel +2–7%
-  (digits 1.05–1.06, `time 00:00` 1.07), but elements shift onto the pixel grid (maxDelta up to 180), so animated
+  (digits 1.05–1.06, `time 00:00` 1.07), but elements shift onto the pixel grid (sub-pixel snap; pixel-value maxDelta up to 180 in the diff), so animated
   panels step by whole pixels. The only UI lever that measured above noise; Crisp fonts (1.00) and Crisp icons were dropped.
 
 ### Data flow per frame
