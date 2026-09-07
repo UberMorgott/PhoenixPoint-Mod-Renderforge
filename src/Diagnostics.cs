@@ -20,10 +20,13 @@ namespace Renderforge
         internal static bool ForceReset { get; set; }
         /// <summary>Dlss_SetBiasMaskMode: 0 = no bias-current-colour mask bound, 1 = all-zero, 2 = all-one (D3D11 NGX only).</summary>
         internal static int BiasMaskMode { get; set; }
+        /// <summary>GeoMarkerOverlay on/off (A-B lever for the geoscape marker ghosting; production = on).</summary>
+        internal static bool MarkerOverlay { get; set; }
 
         internal static void Reset()
         {
             BiasMaskMode = 0;
+            MarkerOverlay = true;
             View = DebugView.None;
             MvJittered = false;
             D3D12SrgbViews = false;

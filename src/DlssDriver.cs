@@ -68,6 +68,10 @@ namespace Renderforge
         public int RenderH => renderH;
         public int OutW => outW;
         public int OutH => outH;
+        /// <summary>GeoMarkerOverlay borrows the present camera while Live: it moves cbPresent to BeforeForwardOpaque and lets
+        /// the camera draw the geoscape marker layer over the blit. A separate marker camera does not work here (see there).</summary>
+        internal Camera PresentCamera => present;
+        internal CommandBuffer PresentBuffer => cbPresent;
 
         public static DlssDriver Create()
         {
@@ -257,6 +261,7 @@ namespace Renderforge
                         if ((e & 0xFFF00000) == 0xBAD00000) { Fail("NGX evaluate failed: 0x" + e.ToString("X") + " " + Native.Dlss_ResultString(e) + " lastError=" + Native.Dlss_LastError()); break; }
                     }
                     KeepCameraState();
+                    GeoMarkerOverlay.Tick(cam, passthrough);   // arms once the geoscape's level curtain is lifted; no-op elsewhere
                     FrameGen.Retry();
                     if (mipReapplyAt > 0f && Time.unscaledTime >= mipReapplyAt) { mipReapplyAt = 0f; MipBias.Reapply(); }
                     break;
@@ -413,6 +418,7 @@ namespace Renderforge
 
         private void Detach()
         {
+            GeoMarkerOverlay.Restore();
             if (cam != null)
             {
                 if (cbCopy != null) cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy);

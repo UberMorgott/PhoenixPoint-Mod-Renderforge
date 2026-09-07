@@ -10,6 +10,7 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 
 - **DLSS Super Resolution** provides Auto, Quality, Balanced, Performance, and Ultra Performance modes on supported NVIDIA RTX GPUs.
 - **DLAA** uses DLSS at native resolution for anti-aliasing instead of upscaling.
+- **Geoscape markers are drawn after reconstruction at output resolution, no ghosting.** The site icons, labels and counters on the globe skip the temporal upscaler entirely, so spinning the globe leaves no trails behind them.
 - **FSR upscaling** provides cross-vendor upscaling and a native-resolution AA mode under Direct3D 12; the shipped AMD runtime runs FSR 4.1.1 on RDNA 3/4 and falls back to FSR 3.1.5 elsewhere.
 - **XeSS upscaling** runs on modern GPUs under Direct3D 12 and includes its additional Ultra Quality modes.
 - **Live upscaler switching** lets you move between DLSS, FSR, and XeSS while playing, without restarting the game.

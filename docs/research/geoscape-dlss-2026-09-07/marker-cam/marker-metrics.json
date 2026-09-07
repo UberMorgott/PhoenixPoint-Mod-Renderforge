@@ -1,0 +1,230 @@
+{
+ "on-still": {
+  "frame": 1824,
+  "t": 41.097,
+  "site": "UI_GS_Site_(197)",
+  "anchor": [
+   1279.9,
+   720.1
+  ],
+  "box": [
+   1180,
+   670,
+   1380,
+   770
+  ],
+  "overlay": "True",
+  "lapvar": 0.04744,
+  "sobel_x": 0.0286,
+  "sobel_y": 0.0209
+ },
+ "on-a": {
+  "frame": 1854,
+  "t": 41.619,
+  "site": "UI_GS_Site_(197)",
+  "anchor": [
+   1256.6,
+   720.4
+  ],
+  "box": [
+   1157,
+   670,
+   1357,
+   770
+  ],
+  "overlay": "True",
+  "lapvar": 0.04161,
+  "sobel_x": 0.0236,
+  "sobel_y": 0.0185
+ },
+ "on-b": {
+  "frame": 1861,
+  "t": 41.777,
+  "site": "UI_GS_Site_(116)",
+  "anchor": [
+   1310.9,
+   694.4
+  ],
+  "box": [
+   1211,
+   696,
+   1411,
+   796
+  ],
+  "overlay": "True",
+  "lapvar": 0.03125,
+  "sobel_x": 0.0206,
+  "sobel_y": 0.0169
+ },
+ "on-c": {
+  "frame": 1869,
+  "t": 41.929,
+  "site": "UI_GS_Site_(116)",
+  "anchor": [
+   1266.7,
+   694.0
+  ],
+  "box": [
+   1167,
+   696,
+   1367,
+   796
+  ],
+  "overlay": "True",
+  "lapvar": 0.03026,
+  "sobel_x": 0.0191,
+  "sobel_y": 0.0163
+ },
+ "off-still": {
+  "frame": 2318,
+  "t": 49.514,
+  "site": "UI_GS_Site_(197)",
+  "anchor": [
+   1279.9,
+   720.1
+  ],
+  "box": [
+   1180,
+   670,
+   1380,
+   770
+  ],
+  "overlay": "False",
+  "lapvar": 0.03472,
+  "sobel_x": 0.023,
+  "sobel_y": 0.0175
+ },
+ "off-a": {
+  "frame": 2346,
+  "t": 50.009,
+  "site": "UI_GS_Site_(197)",
+  "anchor": [
+   1265.9,
+   720.2
+  ],
+  "box": [
+   1166,
+   670,
+   1366,
+   770
+  ],
+  "overlay": "False",
+  "lapvar": 0.05254,
+  "sobel_x": 0.0245,
+  "sobel_y": 0.0198
+ },
+ "off-b": {
+  "frame": 2353,
+  "t": 50.161,
+  "site": "UI_GS_Site_(116)",
+  "anchor": [
+   1321.0,
+   694.9
+  ],
+  "box": [
+   1221,
+   695,
+   1421,
+   795
+  ],
+  "overlay": "False",
+  "lapvar": 0.04601,
+  "sobel_x": 0.0248,
+  "sobel_y": 0.0201
+ },
+ "off-c": {
+  "frame": 2359,
+  "t": 50.322,
+  "site": "UI_GS_Site_(116)",
+  "anchor": [
+   1272.4,
+   693.9
+  ],
+  "box": [
+   1172,
+   696,
+   1372,
+   796
+  ],
+  "overlay": "False",
+  "lapvar": 0.04813,
+  "sobel_x": 0.0243,
+  "sobel_y": 0.0206
+ },
+ "vanilla-still": {
+  "frame": 2956,
+  "t": 58.604,
+  "site": "UI_GS_Site_(197)",
+  "anchor": [
+   1279.9,
+   720.1
+  ],
+  "box": [
+   1180,
+   670,
+   1380,
+   770
+  ],
+  "overlay": "False",
+  "lapvar": 0.06433,
+  "sobel_x": 0.0299,
+  "sobel_y": 0.0226
+ },
+ "vanilla-a": {
+  "frame": 2985,
+  "t": 59.101,
+  "site": "UI_GS_Site_(197)",
+  "anchor": [
+   1260.8,
+   720.3
+  ],
+  "box": [
+   1161,
+   670,
+   1361,
+   770
+  ],
+  "overlay": "False",
+  "lapvar": 0.08073,
+  "sobel_x": 0.0338,
+  "sobel_y": 0.0261
+ },
+ "vanilla-b": {
+  "frame": 2991,
+  "t": 59.261,
+  "site": "UI_GS_Site_(116)",
+  "anchor": [
+   1314.4,
+   694.6
+  ],
+  "box": [
+   1214,
+   695,
+   1414,
+   795
+  ],
+  "overlay": "False",
+  "lapvar": 0.08429,
+  "sobel_x": 0.0347,
+  "sobel_y": 0.0276
+ },
+ "vanilla-c": {
+  "frame": 2996,
+  "t": 59.407,
+  "site": "UI_GS_Site_(116)",
+  "anchor": [
+   1270.3,
+   693.9
+  ],
+  "box": [
+   1170,
+   696,
+   1370,
+   796
+  ],
+  "overlay": "False",
+  "lapvar": 0.07945,
+  "sobel_x": 0.0334,
+  "sobel_y": 0.0274
+ }
+}

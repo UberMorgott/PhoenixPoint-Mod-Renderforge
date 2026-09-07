@@ -622,6 +622,27 @@ namespace Renderforge
         /// <summary>{"member":"DumpOut","args":["C:\\Temp\\out.png"]} - outRT (SDK output, before the present Blit) to PNG.</summary>
         public static string DumpOut(string absPath) => DlssDriver.Instance?.DumpOut(absPath) ?? "no driver";
 
+        /// <summary>{"member":"GetMarkerOverlayStatus"} - GeoMarkerOverlay: layers, canvas count, RenderforgeMarkerCam settings.</summary>
+        public static string GetMarkerOverlayStatus() => GeoMarkerOverlay.Status();
+
+        /// <summary>{"member":"ProbeMarkerClick"} - a near site's pivot projected through RenderforgeMarkerCam, picked back through GeoscapeCamera.</summary>
+        public static string ProbeMarkerClick() => GeoMarkerOverlay.ProbeClick();
+
+        /// <summary>{"member":"SetMarkerOverlay","args":[false]} - A/B lever: false hands the geoscape markers back to the upscaler
+        /// (GeoMarkerOverlay.Restore), true re-takes them on the live generation. Runtime-only.</summary>
+        public static string SetMarkerOverlay(bool on)
+        {
+            Diagnostics.MarkerOverlay = on;
+            if (!on) GeoMarkerOverlay.Restore();   // on: the driver's next Live frame re-arms through GeoMarkerOverlay.Tick
+            return "markerOverlay=" + on + " " + GeoMarkerOverlay.Status();
+        }
+
+        /// <summary>{"member":"DumpScreen","args":["C:\\Temp\\s.png"]} - the backbuffer at the end of this frame + a .txt sidecar (frame, base marker screen pos).</summary>
+        public static string DumpScreen(string absPath) => GeoMarkerOverlay.DumpScreen(absPath);
+
+        /// <summary>{"member":"DumpHierarchy","args":["UI_GS_Site (191)","C:\\Temp\\h.txt"]} - scene hierarchy under a named object with renderers/canvases.</summary>
+        public static string DumpHierarchy(string rootName, string absPath) => GeoMarkerOverlay.DumpHierarchy(rootName, absPath);
+
         /// <summary>{"member":"DumpColorIn","args":["C:\\Temp\\in.png"]} - colorRT (SDK colour input) to PNG.</summary>
         public static string DumpColorIn(string absPath) => DlssDriver.Instance?.DumpColorIn(absPath) ?? "no driver";
 

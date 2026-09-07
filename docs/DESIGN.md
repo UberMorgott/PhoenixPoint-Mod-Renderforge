@@ -533,6 +533,55 @@ stage, same early-out when all eight uniforms are zero.
 - Refresh rate was never applied: `OptionsManager.cs:523` calls `Screen.SetResolution(w, h, mode)` without one; the
   frame-rate limiter owns pacing. Log line: `Resolution list: N entries -> M unique sizes`.
 
+### Geoscape markers after reconstruction (2026-09-07)
+
+- **Symptom:** every temporal upscaler trails the globe markers when the geoscape rotates
+  (`docs\research\geoscape-dlss-2026-09-07\results.md`; the bias-current-colour mask is ignored by preset K,
+  `bias-mask\results.md`). **Correction to that diagnosis:** the markers are NOT the ~48 WorldSpace "PopUp" canvases
+  (those are empty, 0x0, no Graphic). Each `GeoSite` carries a `GeoSiteVisualsController` (decompile
+  `PhoenixPoint.Geoscape.View\GeoSiteVisualsController.cs:16`) whose `VisualsContainer` (:38, the `GS_*(Clone)` prefab)
+  holds MeshRenderer quads + TextMesh: `LocationIconParent` (:29, `Location_Icon`: site icon, frame, shadow, lock /
+  infested / owner icons, `Site_ID`), `LocationDetailsParent` (:26, the empty `PopUp` canvas = `CanvasIcons` :32) and the
+  `FoV` rows (resources, recruit, soldiers, timer, scanner progress). Shaders `Unlit/Colored, Animated Mask`,
+  `Unlit/Transparent`, `GUI/3D Cull Back Text Shader`, queues 2450-3000, `FovControllableBehavior` billboarding, no
+  motion-vector pass (`RenderforgeMod.DumpHierarchy` dumps such a tree). `SiteAddon` (:50/:52 containers, 3D haven-zone
+  models) is real geometry and stays in the upscaler.
+- **Mechanism (`src\GeoMarkerOverlay.cs`):** while a real (non-passthrough) generation is Live on `GeoscapeCamera`,
+  every active site's `VisualsContainer` subtree (minus the `SiteAddon` subtree) is moved to the one free Unity layer
+  (the game names every layer but **15**; picked by `LayerMask.LayerToName`), `GeoscapeCamera.cullingMask` loses that
+  bit (re-asserted every frame), and the driver's own `DlssPresent` camera draws the layer at output resolution: its
+  outRT blit moves from `AfterEverything` to `BeforeForwardOpaque`, a depth-only `ClearRenderTarget` follows it, the
+  camera goes `Forward` with `cullingMask = 1 << 15`, and a `Sync` MonoBehaviour copies GeoscapeCamera's pose, rect,
+  fov, near/far and `projectionMatrix` in `OnPreCull` (GeoscapeCamera has already rendered and reset its jitter by
+  then). `CanvasIcons.worldCamera` = that camera; site picking is untouched (physics raycast on `PickingCollider`,
+  layer 20, `ProbeMarkerClick` verifies pixel parity through both cameras). Everything is restored in
+  `DlssDriver.Detach` (release, level end, mode Off, provider switch): layers, worldCamera, mask, command-buffer
+  event, rendering path.
+- **A third screen camera does not work here** (measured, `marker-cam\results.md`): a separate marker camera after
+  DlssPresent (any clearFlags, any depth) leaves the present blit out of the buffer the HUD and end-of-frame
+  `ReadPixels` see - stale frames with marker trails; disabling it brings the blit back. Drawing with the present
+  camera itself is the design that survives.
+- **Arming gate:** `GeoMarkerOverlay.Tick` (from `DlssDriver.Step`, Live) arms only once
+  `LevelSwitchCurtainController.IsCurtainLifted` (`Base.Utils\LevelSwitchCurtainController.cs:113`, after the lift
+  fade) and `cullingMask != 0` (`CullEverythingController.cs:19` zeroes it under the curtain). Armed under the curtain
+  the takeover captured mask 0 and never saw the sites.
+- **Far side:** vanilla hid far-side markers with the globe's depth buffer, which the cleared depth cannot; a
+  segment/sphere test (centre origin, `GlobeUnits.GlobeRadius`, `PhoenixPoint.Common.Core\GlobeUnits.cs:28`) hands a
+  site whose pivot is behind the globe back to its original layers (drawn by GeoscapeCamera again, depth-hidden as
+  before), a quarter of the ~425 active sites per frame. No second hidden layer exists.
+- **New markers:** no Harmony seam - sites, highlight, addon, mission and diplomatic visuals spawn from several
+  places (`GeoSiteVisualsController.cs:410,561,601,627`, `AddSiteDetailsVisuals` :175, `GeoActorSpawner`), so a rescan
+  every 60 frames takes over newly active sites and re-walks known ones only when the geoscape hierarchy's
+  `Transform.hierarchyCount` moved (one number for the whole `Geoscape` tree: a change anywhere re-walks every near
+  site, ~5 ms, rare).
+- **Known look difference:** the markers no longer pass through PPv2's HDR tonemapping/grade: whites reach 255
+  (vanilla caps at 246), the unknown-site disk reads as a translucent grey instead of crushed black
+  (`marker-cam\still2-site116-on-vs-vanilla.png`), and a parked aircraft now sits under the soldier row instead of
+  over it. Trails are gone; A/B lever `RenderforgeMod.SetMarkerOverlay(bool)` (runtime-only).
+- Diagnostics: `GetMarkerOverlayStatus`, `ProbeMarkerClick`, `DumpScreen(path)` (raw RGB24 of the real backbuffer at
+  end of frame + `.txt` sidecar - PPCLI's `screenshot` re-renders the cameras itself and shows the level-curtain art
+  once the present camera draws objects), `DumpHierarchy(name, path)`.
+
 ### Data flow per frame
 
 ```
