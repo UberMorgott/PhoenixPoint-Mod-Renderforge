@@ -51,7 +51,7 @@ namespace Renderforge
         {
             nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen),
             nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
-            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts),
+            nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts), nameof(PixelPerfectUi),
             nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias),
             nameof(ColorVision), nameof(LevelsBlack), nameof(LevelsWhite), nameof(Contrast), nameof(Clarity)
         };
@@ -84,6 +84,9 @@ namespace Renderforge
         // Legacy (feature removed in 1.5.0): kept so an old ModConfig.json still round-trips; no UI, ignored at runtime
         // (OnModEnabled logs once when it is true).
         public bool CrispFonts = false;
+        // Canvas.pixelPerfect on root overlay canvases (PixelPerfectUi). Off: animated panels step by whole pixels.
+        [ConfigField("Pixel-perfect UI", "Snaps interface elements to the pixel grid: sharper text at non-native UI scales; animated panels may move in whole-pixel steps. Applies live, no restart.")]
+        public bool PixelPerfectUi = false;
         [ConfigField("Show DLSS in Graphics options")]
         public bool ShowInGraphicsOptions = true;
         // Pressed together with Ctrl+Alt (fixed chord, like ContentTool's fit bench Ctrl+Alt+B). No F-keys/Insert/End:
@@ -133,6 +136,7 @@ namespace Renderforge
             { nameof(LevelsWhite), new[] { "Точка белого", "Пиксели ярче этого значения становятся белыми — светлые участки ярче. 255 = выкл." } },
             { nameof(Contrast), new[] { "Контраст", "Опорная точка — средний серый: 100 = выкл, ниже — мягче, выше — контрастнее (тёмные сцены темнеют)." } },
             { nameof(Clarity), new[] { "Чёткость", "Локальный контраст мелких деталей; 0 = выкл. Только сцена, интерфейс не меняется." } },
+            { nameof(PixelPerfectUi), new[] { "Пиксельная точность интерфейса", "Привязывает элементы интерфейса к пиксельной сетке: текст чётче при ненативном масштабе интерфейса; анимированные панели могут двигаться шагами в целый пиксель. Применяется сразу, без перезапуска." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
             { nameof(OverlayHotkey), new[] { "Клавиша оверлея (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

@@ -20,6 +20,7 @@ Renderforge is a Phoenix Point mod for Windows that adds modern image reconstruc
 - **Scene styles** provide Cartoon and PixelArt with live strength controls. PixelArt defaults to 4-pixel blocks and a moderate palette; block size remains adjustable from 2 to 16 actual output pixels. The filters run after reconstruction and preserve the output-resolution interface.
 - **Colour vision correction** offers Deuteranopia, Protanopia and Tritanopia daltonization in tactical missions and on the Geoscape, at full fixed strength, composed on top of any LUT filter or scene style. It redistributes the colours the eye cannot separate onto the channels it can, using the Machado et al. (2009) simulation matrices. The correction applies to the **scene only** — the interface is composited after this pass and is not corrected.
 - **Levels, Contrast and Clarity** add ReShade-style black point, white point, contrast and clarity sliders in the same post pass, live in tactical missions and on the Geoscape, all off by default. Clarity is a luma unsharp mask against a 13-tap Poisson blur (local contrast on fine detail). Scene only; the HUD stays unchanged.
+- **Pixel-perfect UI** (off by default) snaps the interface to the pixel grid (`Canvas.pixelPerfect` on the root overlay canvases): measurably sharper text at 1440p, but animated panels may move in whole-pixel steps. Applies live, no restart.
 - **Frame-rate control** removes the vanilla 60 FPS pin and can optionally apply a 30–300 FPS limit.
 - **Benchmark overlay** toggles with `Ctrl+Alt+O` and shows the renderer, upscaler, mode, resolution, frame time, real FPS, and presented FPS when frame generation is active.
 - **Eight languages.** Every Renderforge row, value and tooltip follows the game's language setting: English, Russian, Chinese (Simplified), French, German, Italian, Polish and Spanish. Tooltips state where each row works (renderer, upscaler needed, scene only, restart). Strings live in `src\Localization\strings.csv`; corrections are welcome as pull requests.
@@ -75,7 +76,7 @@ Start Phoenix Point with mod support enabled, open **Main menu → Mods**, enabl
 
 ## Settings
 
-The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, colour vision, black/white point, contrast, clarity, and scene styles are under **Options → Graphics**; the FPS limiter is under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
+The regular controls live only in the normal game menus: renderer, upscaler, quality, frame generation, sharpness, LUT filter, LUT strength, colour vision, black/white point, contrast, clarity, and scene styles are under **Options → Graphics**; the FPS limiter and pixel-perfect UI are under **Options → Screen**. They are deliberately not duplicated under **Mods → Renderforge**, which contains only overlay and hotkey preferences. Developer diagnostics are runtime-only and always reset to the production-tested values when the mod starts.
 
 | Setting | Default | Notes |
 |---|---:|---|
@@ -97,6 +98,7 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 | Shadow resolution | Vanilla | Vanilla keeps the graphics preset's value; Very High raises the shadow map size. |
 | Anisotropic filtering | Vanilla | Vanilla leaves per-texture filtering alone; 16x forces 16 samples on every texture. |
 | LOD detail | 0 | 0 is Vanilla (the preset's own value); 1.0 to 4.0 keeps higher-detail models at distance. |
+| Pixel-perfect UI | Off | `Canvas.pixelPerfect` on every root screen-space overlay canvas (nested canvases inherit). Snaps interface elements to the pixel grid: sharper text at non-native UI scales (measured +2–7% edge contrast at 1440p); animated panels may move in whole-pixel steps. Live, no restart; camera/world canvases untouched. |
 | Frame-rate limit | Off | Caps final presented FPS, including generated frames; enabling it disables VSync. |
 | Max presented FPS | 60 | Used only when the Renderforge limit is enabled; range 30–300. A live 2x/3x/4x FG chain automatically renders at 1/2, 1/3 or 1/4 of this ceiling. |
 | Benchmark overlay | Off | Toggle with `Ctrl+Alt+O`; default position is top centre. |

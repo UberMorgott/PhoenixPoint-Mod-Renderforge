@@ -474,6 +474,18 @@ player actually sees. Runs wherever the pass runs (tactical + geoscape); the HUD
   0.585 blends mips that differ by 2–4/channel). Numbers, atlas inventory and rejected levers:
   `docs\research\2026-09-07-ui-sharpness-measurements.md`.
 
+### Pixel-perfect UI (1.5.1)
+
+- `DlssConfig.PixelPerfectUi` (default Off), row `RenderforgePixelPerfectUi` under Options → Screen (`src\VideoPanel.cs`,
+  pending/HasChanges/Apply like the FPS rows). `src\PixelPerfectUi.cs`: `Canvas.pixelPerfect = true` on every ROOT
+  `ScreenSpaceOverlay` canvas found by `Resources.FindObjectsOfTypeAll<Canvas>()` (scene objects only; nested canvases
+  inherit unless `overridePixelPerfect`; camera/world canvases never touched). Originals recorded on first sight,
+  restored on Off / `OnModDisabled`. Re-applied from `RenderforgeMod.OnLevelStart` so tactical/geoscape canvases get it.
+  No Harmony patch.
+- **Why optional:** `docs\research\font-remeasure-2026-09-07\results.md` — at 2560x1440 UI.Text Sobel +2–7%
+  (digits 1.05–1.06, `time 00:00` 1.07), but elements shift onto the pixel grid (maxDelta up to 180), so animated
+  panels step by whole pixels. The only UI lever that measured above noise; Crisp fonts (1.00) and Crisp icons were dropped.
+
 ### Data flow per frame
 
 ```

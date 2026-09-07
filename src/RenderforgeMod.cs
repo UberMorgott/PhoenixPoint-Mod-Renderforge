@@ -79,6 +79,7 @@ namespace Renderforge
                 ((Harmony)HarmonyInstance).PatchAll(typeof(RenderforgeMod).Assembly);
                 patched = true;
                 if (Cfg.CrispFonts) Logger.LogInfo("crisp fonts was removed in 1.5.0; the setting is ignored");
+                PixelPerfectUi.Apply(Cfg.PixelPerfectUi);
                 if (RendererSwitch.Wants12(Cfg) && !Availability.IsD3D12) RendererSwitch.ArmStartupRestart();
                 AttachAndApply();
                 QualityKnobs.ApplyAll();   // re-enable without a settings change: Disable() cleared the snapshot, ApplyScalars re-takes it
@@ -205,6 +206,7 @@ namespace Renderforge
                 Overlay.Destroy();
                 Pickers.Clear();
                 QualityKnobs.Disable();   // vanilla aniso / LOD bias / shadow res / vignette back before the UsePreset patch goes
+                PixelPerfectUi.Apply(false);
                 if (patched) { ((Harmony)HarmonyInstance).UnpatchAll(((Harmony)HarmonyInstance).Id); patched = false; }
             }
             catch (Exception ex) { Logger.LogError("Renderforge disable THREW " + ex); }
@@ -216,7 +218,7 @@ namespace Renderforge
             Instance = null;
         }
 
-        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); }   // Reapply covers a level that starts with the generation still live
+        public override void OnLevelStart(Level level) { AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); PixelPerfectUi.Reapply(); }   // Reapply covers a level that starts with the generation still live
 
         /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
         public override void OnLevelEnd(Level level) { DlssDriver.Instance?.Apply(RenderforgeMode.Off, Diagnostics.View); }
@@ -224,6 +226,7 @@ namespace Renderforge
         public override void OnConfigChanged()
         {
             Logger.LogInfo("DLSS mode = " + Cfg.Mode + " view = " + Diagnostics.View + " upscaler = " + Cfg.Upscaler);
+            PixelPerfectUi.Apply(Cfg.PixelPerfectUi);
             ApplyFrameRate();
             QualityKnobs.ApplyAll();
             ApplyUpscaler();
