@@ -27,26 +27,27 @@ namespace Renderforge
     /// the globe's depth buffer, which the cleared depth cannot, so a segment/sphere test hands far-side sites back to
     /// their original layers (the game names every layer but one, so a hidden layer was not available). Layer ownership
     /// changes only in GeoscapeCamera's own pre-cull (Camera.onPreCull), so both cameras draw one frame with one split.
-    /// Everything is restored on release; an exception anywhere here disables the overlay for the session, never the upscaler.</summary>
+    /// Everything is restored on release; an exception anywhere here disables the overlay until the next level start, never the upscaler.</summary>
     internal static class GeoMarkerOverlay
     {
-        private const int RescanEvery = 60;          // frames: sites activate mid-level; highlight / addon / mission visuals spawn under known ones
-        private const float RewalkMinInterval = 1f;  // s: a hierarchy change re-walks at most once a second
+        private const float RescanInterval = 0.25f;  // s wall time: sites activate mid-level; highlight / addon / mission visuals spawn under known ones
 
         private static Camera geo, M;                 // M = DlssDriver's present camera while active
         private static CommandBuffer cbPresent;
         private static Sync sync;
         private static int layer = -1;
+        private static Exception pendingFail;         // thrown inside a render callback; Fail/Restore run from the next Tick (Update), never mid-render
+        private static bool failed;                   // Fail switched Diagnostics.MarkerOverlay off; ResetFailure (level start) switches it back
         private static int origMask;                  // GeoscapeCamera's mask before the takeover (Walk: "was this ever drawn by it")
         private static readonly Dictionary<Camera, int> camMasks = new Dictionary<Camera, int>();   // every camera that lost bit `layer`
         private static readonly Dictionary<Transform, int> origLayers = new Dictionary<Transform, int>();
         private static readonly Dictionary<Canvas, Camera> origWorldCam = new Dictionary<Canvas, Camera>();
         private static readonly Dictionary<GeoSiteVisualsController, bool> near = new Dictionary<GeoSiteVisualsController, bool>();
         private static GeoSiteVisualsController[] active = new GeoSiteVisualsController[0];   // horizon-tested a quarter per frame
-        private static int cursor, frame;
+        private static int cursor;
         private static Transform hcRoot;              // the geoscape hierarchy the sites live in (hierarchyCount is per root)
         private static int walkedHc;
-        private static float walkedAt;
+        private static float nextScan;
         private static LevelSwitchCurtainController curtain;
         private static string lastGate;               // last logged "not armed" reason (log once per reason)
 
@@ -69,6 +70,7 @@ namespace Renderforge
         {
             try
             {
+                if (pendingFail != null) { var ex = pendingFail; pendingFail = null; Fail(ex); return; }
                 string why = Blocker(sceneCam, passthrough);
                 if (M != null)
                 {
@@ -133,7 +135,7 @@ namespace Renderforge
             M.cullingMask = 1 << layer;
             sync = M.gameObject.AddComponent<Sync>();
             Camera.onPreCull += OnScenePreCull;
-            hcRoot = null; walkedHc = -1; walkedAt = -1f; frame = 0; cursor = 0; lastGate = null;
+            hcRoot = null; walkedHc = -1; nextScan = 0f; cursor = 0; lastGate = null;
             int n = Rescan(true);
             Log("drawn after reconstruction by the DlssPresent camera, layer " + layer + ", " + n + " sites / " + origLayers.Count + " objects, " + camMasks.Count + " cameras lost the bit, GeoscapeCamera mask 0x" + origMask.ToString("X") + " -> 0x" + geo.cullingMask.ToString("X"));
         }
@@ -173,19 +175,33 @@ namespace Renderforge
                 M.transform.localPosition = sPos; M.transform.localRotation = sRot;
             }
             Log("restored " + near.Count + " sites / " + objects + " objects / " + camMasks.Count + " cameras, GeoscapeCamera mask 0x" + (geo ? geo.cullingMask.ToString("X") : "-"));
-            origLayers.Clear(); origWorldCam.Clear(); near.Clear(); camMasks.Clear();
-            active = new GeoSiteVisualsController[0]; cursor = 0;
-            geo = null; M = null; curtain = null; sync = null; cbPresent = null; hcRoot = null;
+            Forget();
         }
 
-        /// <summary>Any exception in the overlay: log, put everything back, switch the overlay off for the session. The
-        /// upscaler keeps running (DlssDriver.Fail never sees it).</summary>
+        /// <summary>Every map and handle back to the unarmed state (Restore's tail; Fail even when Restore threw).</summary>
+        private static void Forget()
+        {
+            origLayers.Clear(); origWorldCam.Clear(); near.Clear(); camMasks.Clear();
+            active = new GeoSiteVisualsController[0]; cursor = 0;
+            geo = null; M = null; curtain = null; sync = null; cbPresent = null; hcRoot = null; layer = -1; pendingFail = null;
+        }
+
+        /// <summary>Any exception in the overlay: log, put everything back, switch the overlay off until the next level start
+        /// (ResetFailure). The upscaler keeps running (DlssDriver.Fail never sees it).</summary>
         private static void Fail(Exception ex)
         {
-            RenderforgeMod.Instance?.Logger.LogError("Geoscape markers: disabled for this session - " + ex);
-            Diagnostics.MarkerOverlay = false;
+            RenderforgeMod.Instance?.Logger.LogError("Geoscape markers: disabled until the next level - " + ex);
+            Diagnostics.MarkerOverlay = false; failed = true;
             try { Restore(); }
-            catch (Exception ex2) { RenderforgeMod.Instance?.Logger.LogError("Geoscape markers: restore threw - " + ex2); geo = null; M = null; }
+            catch (Exception ex2) { RenderforgeMod.Instance?.Logger.LogError("Geoscape markers: restore threw - " + ex2); }
+            Forget();
+        }
+
+        /// <summary>RenderforgeMod.OnLevelStart: a Fail disables the overlay for its own level only.</summary>
+        internal static void ResetFailure()
+        {
+            if (!failed) return;
+            failed = false; Diagnostics.MarkerOverlay = true;
         }
 
         private static void Log(string s) => RenderforgeMod.Instance?.Logger.LogInfo("Geoscape markers: " + s);
@@ -197,34 +213,34 @@ namespace Renderforge
             if (dead != null) foreach (var k in dead) d.Remove(k);
         }
 
-        /// <summary>Every active GeoSiteVisualsController. Runs every RescanEvery frames but does the work only when the
-        /// geoscape hierarchy's transform count moved and the last walk is at least RewalkMinInterval old (force = activation).
+        /// <summary>Every active GeoSiteVisualsController. Every RescanInterval of wall time: cameras are re-stripped, and the
+        /// sites are re-walked only when the geoscape hierarchy's transform count moved (or no root is known yet; force = activation).
         /// ponytail: hierarchyCount is one number for the whole Geoscape tree, so a change anywhere re-walks every near
         /// site (~5 ms, the ceiling of one rescan); a site that merely toggles active without any spawn is not seen until
         /// something else changes the count. Per-site dirty flags if that ever shows.</summary>
         private static int Rescan(bool force)
         {
-            int hc = hcRoot ? hcRoot.hierarchyCount : walkedHc;
             float now = Time.unscaledTime;
-            if (!force && (hc == walkedHc || now - walkedAt < RewalkMinInterval)) return active.Length;
+            if (!force && now < nextScan) return active.Length;
+            nextScan = now + RescanInterval;
+            StripCameras();   // every tick: cameras that appeared or got enabled since (dialogs, cinematics) must not draw the marker layer either
+            int hc = hcRoot ? hcRoot.hierarchyCount : -1;
+            if (!force && hc >= 0 && hc == walkedHc) return active.Length;
             PruneDead(near); PruneDead(origLayers); PruneDead(origWorldCam); PruneDead(camMasks);
-            StripCameras();   // cameras that appeared since (dialogs, cinematics) must not draw the marker layer either
             var found = Object.FindObjectsOfType<GeoSiteVisualsController>();
             var list = new List<GeoSiteVisualsController>(found.Length);
-            if (hcRoot == null)
+            if (!hcRoot)
                 foreach (var v in found) if (v.VisualsContainer) { hcRoot = v.VisualsContainer.root; hc = hcRoot.hierarchyCount; break; }
             bool rewalk = hc != walkedHc;
-            walkedHc = hc; walkedAt = now;
-            Vector3 c = geo.transform.position;
+            walkedHc = hc;
+            Vector3 c = geo.transform.position, g = GlobeUnits.GlobeCenter;
             float r = GlobeUnits.GlobeRadius, r2 = r * r;
             foreach (var v in found)
             {
                 if (v.VisualsContainer == null) continue;
                 bool isNear;
                 if (near.TryGetValue(v, out isNear)) { if (isNear && rewalk) Layer(v, true); list.Add(v); continue; }
-                var cv = v.CanvasIcons;
-                if (cv && cv.isRootCanvas && cv.renderMode == RenderMode.WorldSpace && !origWorldCam.ContainsKey(cv)) { origWorldCam[cv] = cv.worldCamera; cv.worldCamera = M; }
-                isNear = FacesCamera(v.VisualsContainer.position, c, r2);   // classified on sight: a far-side site never gets a frame through the globe
+                isNear = FacesCamera(v.VisualsContainer.position, c, g, r2);   // classified on sight: a far-side site never gets a frame through the globe
                 near[v] = isNear;
                 if (isNear) Layer(v, true);
                 list.Add(v);
@@ -236,7 +252,8 @@ namespace Renderforge
 
         /// <summary>VisualsContainer subtree onto the marker layer (take = true) or back to the recorded originals
         /// (take = false); the SiteSpecialAddonContainer / SiteUniqueAddonContainer subtrees (3D haven-zone models,
-        /// GeoSiteVisualsController.cs:50,52) are pruned and stay with the upscaler.</summary>
+        /// GeoSiteVisualsController.cs:50,52) are pruned and stay with the upscaler. The site's WorldSpace root canvas
+        /// follows: worldCamera = M while taken, the recorded original while vanilla.</summary>
         private static void Layer(GeoSiteVisualsController v, bool take)
         {
             Transform root = v.VisualsContainer;
@@ -245,6 +262,10 @@ namespace Renderforge
             if (a == root) a = null;   // never prune the root itself
             if (b == root) b = null;
             Walk(root, a, b, take);
+            var cv = v.CanvasIcons;
+            if (take && cv && cv.isRootCanvas && cv.renderMode == RenderMode.WorldSpace && !origWorldCam.ContainsKey(cv)) origWorldCam[cv] = cv.worldCamera;
+            Camera orig;
+            if (cv && origWorldCam.TryGetValue(cv, out orig)) cv.worldCamera = take ? M : orig;
         }
 
         private static void Walk(Transform t, Transform pruneA, Transform pruneB, bool take)
@@ -272,7 +293,7 @@ namespace Renderforge
         }
 
         /// <summary>A site whose visuals pivot is behind the globe sphere (segment camera->pivot crosses the sphere;
-        /// centre at the origin, radius GlobeUnits.GlobeRadius) goes back to vanilla rendering, where the globe's depth
+        /// centre GlobeUnits.GlobeCenter, radius GlobeUnits.GlobeRadius) goes back to vanilla rendering, where the globe's depth
         /// hides it. Only the sites that changed side are re-walked.
         /// ponytail: the test is on the pivot, so a marker pops as a whole at the horizon instead of sinking; a quarter of
         /// the active sites per frame, so a side change lands up to 4 frames late. Per-renderer bounds / all sites per
@@ -281,14 +302,14 @@ namespace Renderforge
         {
             int n = active.Length;
             if (n == 0) return;
-            Vector3 c = geo.transform.position;
+            Vector3 c = geo.transform.position, g = GlobeUnits.GlobeCenter;
             float r = GlobeUnits.GlobeRadius, r2 = r * r;
             for (int k = Mathf.Max(1, n / 4); k > 0; k--)
             {
                 var v = active[cursor];
                 cursor = (cursor + 1) % n;
                 if (!v || !v.VisualsContainer) continue;
-                bool visible = FacesCamera(v.VisualsContainer.position, c, r2);
+                bool visible = FacesCamera(v.VisualsContainer.position, c, g, r2);
                 bool was;
                 if (!near.TryGetValue(v, out was) || visible == was) continue;
                 near[v] = visible;
@@ -296,14 +317,15 @@ namespace Renderforge
             }
         }
 
-        /// <summary>False when the segment camera -> p crosses the globe sphere (centre at the origin, radius^2 = r2).</summary>
-        private static bool FacesCamera(Vector3 p, Vector3 c, float r2)
+        /// <summary>False when the segment camera c -> p crosses the globe sphere (centre g, radius^2 = r2; GlobeUnits holds the
+        /// GlobeCollider's transform position and its unscaled SphereCollider.radius, GeoLevelController.cs:444 - the globe is unscaled).</summary>
+        private static bool FacesCamera(Vector3 p, Vector3 c, Vector3 g, float r2)
         {
-            Vector3 d = p - c;
+            Vector3 d = p - c, cg = c - g;
             float dd = d.sqrMagnitude;
             if (dd <= 1e-6f) return true;
-            float t = -Vector3.Dot(c, d) / dd;
-            return t <= 0f || t >= 1f || (c + d * t).sqrMagnitude >= r2;
+            float t = -Vector3.Dot(cg, d) / dd;
+            return t <= 0f || t >= 1f || (cg + d * t).sqrMagnitude >= r2;
         }
 
         /// <summary>GeoscapeCamera's own pre-cull: every layer-ownership change (mask re-assert, rescan, horizon) lands here,
@@ -311,14 +333,14 @@ namespace Renderforge
         /// GeoscapeCamera rendered) a side change dropped a marker for a frame (near->far) or doubled it (far->near).</summary>
         private static void OnScenePreCull(Camera c)
         {
-            if (c != geo || M == null) return;
+            if (c != geo || M == null || pendingFail != null) return;
             try
             {
                 geo.cullingMask &= ~(1 << layer);       // re-asserted: the game may rewrite it
-                if (++frame % RescanEvery == 0) Rescan(false);
+                Rescan(false);
                 UpdateHorizon();
             }
-            catch (Exception ex) { Fail(ex); }
+            catch (Exception ex) { pendingFail = ex; }   // never Restore inside a render callback: the next Tick does
         }
 
         /// <summary>On M: pose + projection copy only. GeoscapeCamera already rendered (depth order) and
@@ -327,7 +349,7 @@ namespace Renderforge
         {
             private void OnPreCull()
             {
-                if (geo == null || M == null) return;
+                if (geo == null || M == null || pendingFail != null) return;
                 try
                 {
                     M.transform.SetPositionAndRotation(geo.transform.position, geo.transform.rotation);
@@ -339,7 +361,7 @@ namespace Renderforge
                     M.farClipPlane = geo.farClipPlane;
                     M.projectionMatrix = geo.projectionMatrix;
                 }
-                catch (Exception ex) { Fail(ex); }
+                catch (Exception ex) { pendingFail = ex; }
             }
         }
 
@@ -410,13 +432,13 @@ namespace Renderforge
             Vector3 best = new Vector3(-1, -1, -1); float bestD = float.MaxValue; string site = "-";
             if (cam)
             {
-                Vector3 c = cam.transform.position; float r2 = GlobeUnits.GlobeRadius * GlobeUnits.GlobeRadius;
+                Vector3 c = cam.transform.position, g = GlobeUnits.GlobeCenter; float r2 = GlobeUnits.GlobeRadius * GlobeUnits.GlobeRadius;
                 var centre = new Vector2(w / 2f, h / 2f);
                 foreach (var v in Object.FindObjectsOfType<GeoSiteVisualsController>())
                 {
                     if (!v.VisualsContainer || !v.LocationIconParent || !v.LocationIconParent.gameObject.activeInHierarchy) continue;
                     Vector3 p = v.VisualsContainer.position;
-                    if (!FacesCamera(p, c, r2)) continue;
+                    if (!FacesCamera(p, c, g, r2)) continue;
                     Vector3 sp = cam.WorldToScreenPoint(p);
                     if (sp.z <= 0f) continue;
                     float dd = ((Vector2)sp - centre).sqrMagnitude;
