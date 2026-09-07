@@ -245,5 +245,12 @@ namespace Renderforge.Tests
             Assert.Contains(label, keys);
             Assert.Contains(tooltip, keys);
         }
+
+        /// <summary>The reset row's button text is the short verb (GradePanel.BuildReset), not the row label.</summary>
+        [Fact]
+        public void ResetButtonVerbHasExactKey()
+        {
+            Assert.Contains("Reset", Rows().Skip(1).Select(r => r[0]));
+        }
     }
 }

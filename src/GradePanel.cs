@@ -132,15 +132,16 @@ namespace Renderforge
                 go.name = ResetName;
                 reset = go.GetComponent<ArrowPickerController>();
             }
-            GraphicsPanel.SetRaw(reset.Title, null, "");   // the button carries the label; on reuse too, so a re-enabled Localize cannot restore TextureQuality
+            GraphicsPanel.SetRaw(reset.Title, null,   // label left like every other row; on reuse too, so a re-enabled Localize cannot restore TextureQuality
+                DlssConfig.Loc("Reset image settings", "Сбросить настройки изображения").ToUpperInvariant());
             reset.transform.SetSiblingIndex(after.GetSiblingIndex() + 1);
             reset.gameObject.SetActive(true);
             reset.PreviousArrow.gameObject.SetActive(false);
             reset.NextArrow.gameObject.SetActive(false);
             reset.CentralButton.SetEnabled(true);
             reset.CentralButton.PointerClicked = OnReset;   // assignment, not +=: a rebuilt panel must not stack handlers
-            GraphicsPanel.SetRaw(reset.CurrentItem, reset.CurrentItemText,
-                DlssConfig.Loc("Reset image settings", "Сбросить настройки изображения"));
+            GraphicsPanel.SetRaw(reset.CurrentItem, reset.CurrentItemText,   // one short verb: the long label wrapped and clipped inside the button
+                DlssConfig.Loc("Reset", "Сбросить").ToUpperInvariant());
             GraphicsPanel.Tip(reset.CentralButton.gameObject, DlssConfig.Loc(
                 "Resets Sharpness, LUT strength, Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance and Saturation to their defaults. The LUT filter, colour vision and scene style stay as chosen.",
                 "Сбрасывает резкость, силу LUT, экспозицию, точку чёрного, точку белого, яркость, контраст, чёткость, красочность и насыщенность к значениям по умолчанию. LUT-фильтр, цветовое зрение и стиль сцены не меняются."));

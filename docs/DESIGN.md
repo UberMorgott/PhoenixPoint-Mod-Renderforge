@@ -485,7 +485,8 @@ stage, same early-out when all eight uniforms are zero.
   - Saturation: `d = lerp(luma, d, S)`; S = 1 is the bit-exact bypass (`saturationDelta == 0`).
 - **Reset row** (`GradePanel.BuildReset`): `UIModuleGraphicsOptionsPanel` ships no standalone button, so the row is a
   `TextureQualityPicker` clone (the prefab every Renderforge picker row uses) with `PreviousArrow`/`NextArrow`
-  hidden, an empty `Title`, `CurrentItem` = "Reset image settings" and `CentralButton.PointerClicked` assigned
+  hidden, `Title` = "Reset image settings" (label left like every row), `CurrentItem` = the short verb "Reset"
+  (the long label wrapped and clipped inside the button) and `CentralButton.PointerClicked` assigned
   directly (`ArrowPickerController.Init` is NOT called — it binds the central button to `NextOption`,
   `ArrowPickerController.cs:45-48`). Click = `GradePanel.ResetAll`: Sharpness 40, LUT strength 100, the eight knobs
   to their defaults, `SaveConfig` + `ApplyLutSettings`, then `GradePanel.Sync` / `GraphicsPanel.SyncSharpness` /
