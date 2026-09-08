@@ -78,3 +78,31 @@ and is the mod author's job, not ours.
 - Measurement: `icon-bleed-2026-09-08\run.ps1 -Tag <tag> -Modes prod,base,...` (edit `$dir` to your output folder;
   needs python + Pillow) drives Mode → `connect screenshot` → `Rects` → `measure.py <png> "<rects>"`: per edge the max
   over one line outside + two inside of `max(0, min(R,B) − G)`; the table prints the worst edge per position.
+
+## Round 3 (2026-09-08): vanished vehicle icon, TFTV's real PNGs, vanilla sweep
+
+- **Regression + fix.** With `Canvas.pixelPerfect` on, `Image.OnPopulateMesh` → `Graphic.GetPixelAdjustedRect()` →
+  `RectTransformUtility.PixelAdjustRect`, which returns `(0,0,0,0)` for any element whose world matrix is singular. The
+  game's `ActorClassIcon` prefab carries `localScale.z = 0` (so does every child: `LeftClass/Mask/Icon`), as do
+  `UIPCHotkey` backgrounds, the weapon `WeaponEnabledIcon` and `ActionPointsBarFullPips/*/Full`. Diag sweep of every
+  enabled sprite `Image` OFF vs ON: **12 tactical + 6 Geoscape** images drew a zero rect ON (all with `lossyScale.z == 0`),
+  spread over nested `SquadManagementModule` / `AbilitiesAndSpottedEnemies` AND the root `TacticalUICanvas` /
+  `GeoscapeUICanvas` - excluding a canvas was not an option. Fix = `Graphic_GetPixelAdjustedRect_Patch`
+  (`src\PixelPerfectUi.cs`): a postfix that returns `rectTransform.rect` whenever the snapped rect has width or height
+  ≤ 0. Verified on the rebuilt DLL: `Graphic.GetPixelAdjustedRect` ≤ 0 on **0 of 442 / 469 / 160** images (tactical /
+  Options→Screen / Geoscape); `UI_Vehicle_ClassIcon_Armadillo` rect luminance OFF 88.4 → ON 88.4, all 45 z=0 rects
+  within 5/255 of OFF. Mip pin innocent (unchanged).
+- **TFTV's icons through `Helper.CreateSpriteFromImageFile`** (`new Texture2D(128,128,RGBA32,true)` + `LoadImage` +
+  3-arg `Sprite.Create`, Repeat wrap, 7-10 mips, pin writes −0.585): 36 px list on a root overlay canvas at .00/.33/.66
+  screen px, outermost row/col mean luminance minus panel background, worst edge per icon (OFF .00/.33/.66 → ON, ON is
+  position-independent):
+  `ODI_Skull` 12/32/49 → 8 · `Stat_Accuracy` 9/22/22 → 8 · `Drill_drawfire` 10/16/18 → 9 · `Drill_bullethell`
+  21/29/19 → 22 · `TFTVBasicClinicSmallIcon` 7/4/11 → 8 · `KG_Pistol_Ammo` 0/0/0 → 0 · `Drill_override` 50/52/38 → 51
+  (the bolt glyph touches the right edge) · `FactionIcons_NewJericho` 126/132/131 → 105 (the icon's own white frame).
+  The fractional-position surplus (+37 skull, +13 accuracy, +8 drawfire) is gone ON; what remains is the glyph itself.
+- **Vanilla sweep.** 237 vanilla sprite Images 12-96 px across the three screens, "line" = outermost row/col mean >
+  interior mean + 40 while the row just inside is not: OFF **0**, ON **2** (one 74 px Geoscape `UI_MainButton_Frame` +
+  its background whose frame bottom snapped into the rect - a button, not an icon). Top-5 crops OFF | ON identical
+  apart from the ≤ 1 px snap. Verdict: vanilla icons do not bleed OFF, and ON does not change them.
+- Diag used: `src\Diag\UiDiag.cs` (deleted after; Dump/Sweep/TftvSetup/Options via PPCLI `call`), scripts
+  `cmp_sweep.py` / `cmp_fix.py` / `measure_tftv.py` / `measure_vanilla.py` in the session scratchpad `round3\`.

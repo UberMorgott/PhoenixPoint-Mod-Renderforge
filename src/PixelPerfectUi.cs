@@ -1,8 +1,23 @@
 using System.Collections.Generic;
+using HarmonyLib;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Renderforge
 {
+    /// <summary>With Canvas.pixelPerfect on, Graphic.GetPixelAdjustedRect goes through RectTransformUtility.PixelAdjustRect,
+    /// which returns an EMPTY rect for any element whose world matrix is singular: the game's ActorClassIcon, UIPCHotkey
+    /// and AP-pip prefabs carry localScale.z = 0, so 18 icons across tactical + Geoscape vanished with the toggle on
+    /// (docs\research\icon-bleed-2026-09-08.md, Round 3). A degenerate result falls back to the unsnapped rect.</summary>
+    [HarmonyPatch(typeof(Graphic), nameof(Graphic.GetPixelAdjustedRect))]
+    internal static class Graphic_GetPixelAdjustedRect_Patch
+    {
+        static void Postfix(Graphic __instance, ref Rect __result)
+        {
+            if (__result.width <= 0f || __result.height <= 0f) __result = __instance.rectTransform.rect;
+        }
+    }
+
     /// <summary>Canvas.pixelPerfect on every ROOT ScreenSpaceOverlay canvas (nested canvases inherit unless they set
     /// overridePixelPerfect; camera/world canvases are never touched). Measured at 1440p: UI.Text Sobel +2-7%, elements
     /// shift onto the pixel grid (docs\research\font-remeasure-2026-09-07\results.md) - animated panels step by whole
