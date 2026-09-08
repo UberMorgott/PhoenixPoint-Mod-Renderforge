@@ -52,7 +52,8 @@ namespace Renderforge
         private bool aaSaved;
         private PostProcessLayer.Antialiasing savedAA;
 
-        private float mipReapplyAt;         // second MipBias sweep 2 s after Live: level content still streaming in
+        private float mipReapplyAt;         // second MipBias sweep 2 s after Live: level content still streaming in; also 0.5 s after a resolution change
+        private int lastScreenW = Screen.width, lastScreenH = Screen.height;
         private long frames, resets;
         private string lastFail = "";
         private bool broken;                // threw once inside a Unity callback -> self-disabled
@@ -180,6 +181,10 @@ namespace Renderforge
                 if (Input.GetKeyDown(cfg.ToggleHotkey)) RenderforgeMod.Toggle();
                 if (Input.GetKeyDown(cfg.OverlayHotkey)) RenderforgeMod.ToggleOverlay();
             }
+            // The UI pin is log2(canvas scale), which follows the resolution: re-sweep shortly after any change, in every
+            // generation state (with the upscaler Off nothing else would, and the pin would stay stale until the next level).
+            if (Screen.width != lastScreenW || Screen.height != lastScreenH) { lastScreenW = Screen.width; lastScreenH = Screen.height; mipReapplyAt = Time.unscaledTime + 0.5f; }
+            if (mipReapplyAt > 0f && Time.unscaledTime >= mipReapplyAt) { mipReapplyAt = 0f; MipBias.Reapply(); }
             if (broken && gen != Gen.Releasing && !shutdownRequested && ReferenceEquals(orphan, null)) return;
             try
             {
@@ -263,7 +268,6 @@ namespace Renderforge
                     KeepCameraState();
                     GeoMarkerOverlay.Tick(cam, passthrough);   // gated (geoscape, curtain up, D3D11, no FG, no colour vision); never throws
                     FrameGen.Retry();
-                    if (mipReapplyAt > 0f && Time.unscaledTime >= mipReapplyAt) { mipReapplyAt = 0f; MipBias.Reapply(); }
                     break;
                 case Gen.Releasing:
                     if (!TryRetire()) break;

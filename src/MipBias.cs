@@ -105,7 +105,9 @@ namespace Renderforge
             return max;
         }
 
-        private static bool Skip(string name)
+        /// <summary>Shared with Sprite_Create_Patch so a late-created texture the sweep would skip is never pinned either
+        /// (otherwise turning the pin off could not restore it).</summary>
+        internal static bool Skip(string name)
         {
             foreach (var s in skipNames) if (name.IndexOf(s, StringComparison.OrdinalIgnoreCase) >= 0) return true;
             return false;
