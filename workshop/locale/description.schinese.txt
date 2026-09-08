@@ -1,53 +1,55 @@
-[b]Renderforge 是 Windows 版 Phoenix Point 的图形与渲染器模组：提供超分辨率、锐化、帧生成、色彩滤镜、画质调节、FPS 限制器和性能叠加层。[/b]
+[b]用 Renderforge 的超分辨率、帧生成和画质设置，让 Windows 版 Phoenix Point 画面更清晰、动态更流畅。[/b]
 
 [hr][/hr]
 
 [h1]功能[/h1]
 [list]
-[*][b]超分辨率与抗锯齿：[/b]DLSS Super Resolution、原生分辨率 DLAA、FSR 和 XeSS；Auto 根据 GPU 和渲染器选择可用的超分辨率方案。
-[*][b]地球界面标记：[/b]地点标记在 DLSS 之后以输出分辨率绘制，旋转地球时不再留下拖影。适用于 DirectX 11，且需关闭帧生成和色觉校正；其他组合沿用原版渲染方式。标记不经过游戏的后处理，因此白色会略亮。
-[*][b]锐化：[/b]超分辨率设为“关闭”时仍可使用 NIS，并保留游戏自身的抗锯齿；将锐度设为 0 可关闭 NIS。
-[*][b]帧生成：[/b]DirectX 12 下启用超分辨率后，DLSS-G、FSR 和 XeSS-FG 支持 2x；RTX 50 上的 DLSS-G 还提供 3x/4x。默认关闭。
-[*][b]图像：[/b]战术任务和地球界面均可使用 LUT 色彩滤镜，另有 Cartoon/PixelArt 场景风格，均可调节强度；HUD 保持不变。
-[*][b]图像调节：[/b]选项 > 图形中的曝光、黑场、白场、亮度、对比度、清晰度、自然饱和度和饱和度滑块实时生效，每个提示框都注明默认值，与 LUT 滤镜在同一处理通道中应用。仅影响战术任务和地球界面的场景；HUD 保持不变。
-[*][b]重置图像设置：[/b]选项 > 图形中的一个条目可将 Renderforge 的所有图像和画质设置恢复为默认值；提示框会列出这些设置。渲染器、超分辨率、质量、帧生成和色觉保留当前选择。
-[*][b]色觉：[/b]提供绿色盲、红色盲和蓝色盲校正，可与 LUT 滤镜或场景风格叠加。仅影响战术任务和地球界面的场景；HUD 和菜单保持不变。
-[*][b]画质：[/b]关闭战术任务和地球界面的暗角、选择极高阴影、强制 16x 各向异性过滤，并通过 LOD 提高远处模型的细节。每项的“游戏原设”档位都会恢复画质预设的原值。
-[*][b]渲染器：[/b]在游戏内切换 DirectX 11 / DirectX 12；需要重启。
-[*][b]FPS：[/b]移除原版 60 FPS 锁定；可选的 30–300 FPS 限制包含生成帧。
-[*][b]分辨率列表：[/b]选项 > 屏幕中每种分辨率只列一次，保留其最高刷新率，不再为每个刷新率重复列出同一分辨率。
-[*][b]像素级精准界面：[/b]可选，默认关闭：将界面元素对齐到像素网格，使文字略微清晰；动画面板可能会以整像素步长移动。实时生效，无需重启。
-[*][b]快捷键：[/b]Ctrl+Alt+O 切换性能测量叠加层（渲染器、超分辨率方案、分辨率、帧耗时和 FPS）；Ctrl+Alt+U 关闭/开启超分辨率。
+[*][b]超分辨率与抗锯齿：[/b]使用 DLSS Super Resolution、原生分辨率 DLAA、FSR 或 XeSS，兼顾清晰度与性能。Auto 根据显卡和渲染器选择可用方案；可随时切换，即时生效。
+[*][b]帧生成：[/b]启用超分辨率后，可在 DirectX 12 下使用 DLSS-G、FSR 或 XeSS-FG 实现 2x 帧生成，让动态更流畅。RTX 50 上的 DLSS-G 还支持 3x/4x。默认关闭。
+[*][b]锐化：[/b]用 NIS 调整细节，即使关闭超分辨率也能使用，并保留游戏自带的抗锯齿。锐度设为 0 即可关闭。
+[*][b]纹理细节：[/b]自动调整纹理，在从低分辨率放大时保留细节。
+[*][b]LUT 滤镜：[/b]为战术任务和全球地图选择色彩风格，并调整强度。仅影响场景，不改动 HUD。
+[*][b]场景风格：[/b]为战术任务和全球地图启用 Cartoon 或 PixelArt 风格。可调节强度及 PixelArt 像素块大小，不改动 HUD。
+[*][b]画面滑块：[/b]在 Options > Graphics 中实时调整曝光、黑场、白场、亮度、对比度、清晰度、自然饱和度和饱和度。仅影响战术任务与全球地图的场景，不改动 HUD。提示中列有默认值。
+[*][b]一键重置：[/b]Options > Graphics 中的一行设置可将 Renderforge 的所有画面与画质设置恢复默认，提示中列有重置项目。渲染器、超分辨率、质量、帧生成和色觉设置会保留当前选择。
+[*][b]色觉辅助：[/b]支持绿色盲、红色盲和蓝色盲校正，可与 LUT 滤镜或场景风格配合使用。适用于战术任务和全球地图，仅影响场景，不改动 HUD 和菜单。
+[*][b]画质设置：[/b]关闭战术任务和全球地图的暗角，消除边缘变暗；选择 Very High 阴影，用 16x 各向异性过滤提升倾斜表面的清晰度，用 LOD 保留远处模型的细节。每项均有 Vanilla 选项，可恢复游戏画质预设的值。
+[*][b]清晰的全球地图标记：[/b]旋转地球时，地点标记依然清晰。使用 DirectX 11 且关闭帧生成和色觉校正时，标记在 DLSS 之后以输出分辨率绘制。其他组合沿用游戏原有方式。标记不经过后处理，因此白色会略亮。
+[*][b]渲染器选择：[/b]在游戏内切换 DirectX 11 与 DirectX 12，重启后生效。
+[*][b]FPS 控制：[/b]解除游戏锁定的 60 FPS，或设置 30–300 FPS 上限，计入生成帧。
+[*][b]精简分辨率列表：[/b]Options > Screen 中每种分辨率只显示一次，并采用其最高刷新率。
+[*][b]Pixel-perfect UI：[/b]默认开启，让文字更清晰、图标保持完整分辨率。像素网格对齐和全分辨率界面纹理可消除其他模组（如 TFTV）图标边缘出现的 1 像素线条。在 Options > Screen 中关闭，即时生效。面板动画可能以整像素步进移动。
+[*][b]快捷键：[/b]Ctrl+Alt+O 显示性能浮层：渲染器、超分辨率方案、模式、分辨率、帧耗时和 FPS；启用帧生成时还显示实际渲染与呈现的 FPS。Ctrl+Alt+U 开关超分辨率。
 [/list]
 
 [h1]硬件与渲染器[/h1]
 [list]
 [*]DLSS / DLAA：NVIDIA GeForce RTX，DirectX 11 或 DirectX 12。
-[*]DLSS-G：NVIDIA RTX 40 或更新系列，DirectX 12；3x/4x 需要 RTX 50。
-[*]FSR / XeSS 超分辨率和 2x 帧生成：任何现代 GPU，DirectX 12。
-[*]NIS、LUT 滤镜、色觉校正、mip 偏移、FPS 控制和叠加层：任何受支持的 GPU，DirectX 11 或 DirectX 12。
-[*]不启用超分辨率时的后处理：已在 NVIDIA RTX 上验证；AMD、Intel 和 GTX 尚未进行基本运行测试。
-[*]默认使用 DirectX 11。DirectX 12 是可选的实验性模式；更改分辨率可能导致 DLSS 关闭。
+[*]DLSS-G：NVIDIA RTX 40 或更新显卡，DirectX 12；3x/4x 需要 RTX 50。
+[*]FSR / XeSS 超分辨率及 2x 帧生成：任何现代显卡，DirectX 12。
+[*]NIS、LUT 滤镜、色觉校正、mip bias、FPS 控制和性能浮层：任何受支持的显卡，DirectX 11 或 DirectX 12。
+[*]不启用超分辨率时的后处理：已在 NVIDIA RTX 上验证；AMD、Intel 和 GTX 尚未做基础测试。
+[*]默认使用 DirectX 11。DirectX 12 为可选实验功能；更改分辨率可能使 DLSS 停用。
 [*]帧生成需要窗口或无边框模式，可能增加延迟并产生画面瑕疵。游戏失去焦点时，DLSS-G 会暂停。
 [/list]
 
 [h1]使用方法[/h1]
 [list=1]
-[*]在模组菜单中启用 Renderforge，然后重启一次。更新后也可能需要再次重启。
-[*]选项 > 图形：渲染器、超分辨率、质量、帧生成、锐度、图像滤镜和画质调节。
-[*]选项 > 屏幕：FPS 限制器和像素级精准界面。模组 > Renderforge：仅包含叠加层和快捷键设置。
-[*]除渲染器外，设置均即时生效：选择渲染器后点击应用并确认重启。不受支持的选项会显示为灰色。
+[*]在 Mods 中启用 Renderforge，然后重启一次。更新后可能需要再次重启。
+[*]Options > Graphics：渲染器、超分辨率、质量、帧生成、锐度、画面滤镜和画质设置。
+[*]Options > Screen：FPS 上限和 Pixel-perfect UI。Mods > Renderforge：仅设置性能浮层与快捷键。
+[*]除渲染器外，设置均即时生效。选择渲染器后，点击 Apply 并确认重启。不支持的选项会变灰。
 [/list]
 
 [h1]语言[/h1]
-模组界面跟随游戏语言：英语、俄语、简体中文、法语、德语、意大利语、波兰语和西班牙语。提示框会说明各项设置的适用条件。
+界面跟随游戏语言，支持英语、俄语、简体中文、法语、德语、意大利语、波兰语和西班牙语。提示会说明各项设置的适用范围。
 
 [h1]问题反馈[/h1]
-[b]请在 [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url] 报告问题。[/b]模板要求提供叠加层截图和 Player.log。Steam 评论很少查看，留言可能得不到回复。
+[b]请到 [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url] 报告问题。[/b]模板要求附上性能浮层截图和 Player.log。Steam 评论很少查看，可能不会回复。
 
-[h1]源代码、发行版与许可[/h1]
+[h1]源码、版本与许可[/h1]
 [list]
 [*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge]源代码[/url]
-[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]发行版与 ZIP 下载[/url]：将 Full ZIP 解压到游戏的 Mods 文件夹，得到 Mods\Renderforge\。
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]版本与 ZIP 下载[/url]：将 Full ZIP 解压到游戏的 Mods 文件夹，形成 Mods\Renderforge\ 目录。
 [/list]
-作者：Morgott。许可：CC BY-NC 4.0。NVIDIA DLSS/Streamline/NIS、AMD FidelityFX 和 Intel XeSS 运行库按各自的许可再分发。本模组与 NVIDIA、AMD、Intel 或 Snapshot Games 无关联。
+作者：Morgott。许可：CC BY-NC 4.0。NVIDIA DLSS/Streamline/NIS、AMD FidelityFX 和 Intel XeSS 运行库按各自许可再分发。本模组与 NVIDIA、AMD、Intel 或 Snapshot Games 无隶属关系。

@@ -1,53 +1,55 @@
-[b]Renderforge ist ein Grafik- und Renderer-Mod für Phoenix Point unter Windows: Upscaling, Schärfung, Frame-Generierung, Farbfilter, Qualitätsregler, FPS-Limit und Leistungsoverlay.[/b]
+[b]Renderforge bringt Phoenix Point unter Windows ein klareres Bild, flüssigere Bewegungen und mehr Kontrolle über die Grafik.[/b]
 
 [hr][/hr]
 
 [h1]Funktionen[/h1]
 [list]
-[*][b]Upscaling und Kantenglättung:[/b] DLSS Super Resolution und DLAA in nativer Auflösung, FSR und XeSS; Auto wählt einen verfügbaren Upscaler für GPU und Renderer.
-[*][b]Geoscape-Markierungen:[/b] Standortmarkierungen werden nach DLSS in der Ausgabeauflösung gezeichnet, sodass beim Drehen des Globus keine Geisterspuren mehr entstehen. Unter DirectX 11 bei ausgeschalteter Frame-Generierung und Farbsehkorrektur; jede andere Kombination nutzt die ursprüngliche Darstellung. Die Markierungen durchlaufen die Nachbearbeitung des Spiels nicht, daher wirken ihre Weißtöne etwas heller.
-[*][b]Schärfung:[/b] NIS funktioniert auch bei ausgeschaltetem Upscaler („Aus“), ohne die Kantenglättung des Spiels zu ändern; Schärfe 0 schaltet NIS ab.
-[*][b]Frame-Generierung:[/b] DLSS-G, FSR und XeSS-FG mit 2x unter DirectX 12 bei aktivem Upscaler; DLSS-G bietet auf RTX 50 auch 3x/4x. Standardmäßig aus.
-[*][b]Bild:[/b] LUT-Farbfilter in taktischen Missionen und auf dem Geoscape sowie Szenenstile Cartoon/PixelArt mit einstellbarer Stärke; das HUD bleibt unverändert.
-[*][b]Bildregler:[/b] Belichtung, Schwarzpunkt, Weißpunkt, Helligkeit, Kontrast, Klarheit, Dynamik und Sättigung unter Optionen > Grafik: sofort wirksame Schieberegler, jeder Tooltip nennt den Standardwert, im selben Durchgang wie die LUT-Filter. Nur die Szene, in taktischen Missionen und auf dem Geoscape; das HUD bleibt unverändert.
-[*][b]Bildeinstellungen zurücksetzen:[/b] ein Eintrag unter Optionen > Grafik setzt alle Bild- und Qualitätseinstellungen von Renderforge auf ihre Standardwerte zurück; der Tooltip listet sie auf. Renderer, Upscaler, Qualität, Frame-Generierung und Farbsehen bleiben wie gewählt.
-[*][b]Farbsehen:[/b] Korrektur für Deuteranopie, Protanopie und Tritanopie, kombinierbar mit LUT-Filtern oder Szenenstilen. Nur die Szene, in taktischen Missionen und auf dem Geoscape; HUD und Menüs bleiben unverändert.
-[*][b]Qualität:[/b] Vignette in taktischen Missionen und auf dem Geoscape abschalten, sehr hohe Schatten wählen, anisotrope Filterung mit 16x erzwingen und entfernte Modelle über LOD detaillierter darstellen. Jede Stellung „Wie im Spiel“ stellt den Wert der Grafikvoreinstellung wieder her.
-[*][b]Renderer:[/b] im Spiel zwischen DirectX 11 und DirectX 12 wechseln; Neustart erforderlich.
-[*][b]FPS:[/b] hebt die ursprüngliche 60-FPS-Begrenzung auf; optionales Limit von 30–300 FPS einschließlich generierter Frames.
-[*][b]Auflösungsliste:[/b] Optionen > Bildschirm zeigt jede Auflösung nur einmal mit ihrer höchsten Bildwiederholrate, statt dieselbe Auflösung für jede Bildwiederholrate zu wiederholen.
-[*][b]Pixelgenaue Oberfläche:[/b] optional, standardmäßig deaktiviert: richtet Oberflächenelemente am Pixelraster aus, wodurch Text etwas schärfer dargestellt wird; animierte Bedienfelder können sich in ganzen Pixelschritten bewegen. Wird sofort angewendet, kein Neustart erforderlich.
-[*][b]Tastenkürzel:[/b] Strg+Alt+O schaltet das Benchmark-Overlay um (Renderer, Upscaler, Auflösung, Framezeit und FPS); Strg+Alt+U schaltet den Upscaler aus/ein.
+[*][b]Upscaling und Kantenglättung:[/b] stimme Bildqualität und Leistung mit DLSS Super Resolution, DLAA in nativer Auflösung, FSR oder XeSS ab. Auto wählt einen verfügbaren Upscaler für GPU und Renderer. Wechsel sind im laufenden Spiel möglich.
+[*][b]Frame-Generierung:[/b] flüssigere Bewegungen mit DLSS-G, FSR oder XeSS-FG bei 2x unter DirectX 12 mit aktivem Upscaler. DLSS-G bietet 3x/4x auf RTX 50. Standardmäßig aus.
+[*][b]Schärfung:[/b] NIS betont Details auch ohne Upscaler und erhält dabei die Kantenglättung des Spiels. Schärfe 0 schaltet den Effekt aus.
+[*][b]Texturdetails:[/b] automatische Anpassung hält Texturen beim Hochskalieren aus niedrigerer Auflösung detailreich.
+[*][b]LUT-Filter:[/b] wähle die Farbstimmung und Effektstärke für taktische Missionen und den Geoscape. Nur die Szene wird verändert; das HUD bleibt unverändert.
+[*][b]Szenenstile:[/b] Cartoon oder PixelArt für taktische Missionen und den Geoscape, mit regelbarer Stärke und PixelArt-Blockgröße. Das HUD bleibt unverändert.
+[*][b]Bildregler:[/b] passe Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance und Saturation unter Options > Graphics live an. Nur die Szene in taktischen Missionen und auf dem Geoscape; das HUD bleibt unverändert. Tooltips nennen die Standardwerte.
+[*][b]Einfach zurücksetzen:[/b] eine Zeile unter Options > Graphics setzt alle Bild- und Detailoptionen von Renderforge zurück; der Tooltip listet sie auf. Renderer, Upscaler, Quality, Frame generation und Colour vision behalten deine Auswahl.
+[*][b]Farbsehkorrektur:[/b] Deuteranopie, Protanopie und Tritanopie lassen sich mit LUT-Filtern oder Szenenstilen kombinieren. Nur die Szene in taktischen Missionen und auf dem Geoscape; HUD und Menüs bleiben unverändert.
+[*][b]Detailoptionen:[/b] entferne dunkle Bildränder mit ausgeschalteter Vignette in taktischen Missionen und auf dem Geoscape. Wähle Very High für Schatten, 16x anisotrope Filterung für schräg betrachtete Flächen und mehr LOD-Details in der Ferne. Jede Option hat eine Vanilla-Stellung für den Wert des Grafikpresets.
+[*][b]Klare Geoscape-Marker:[/b] Standortmarker bleiben beim Drehen des Globus scharf: nach DLSS in Ausgabeauflösung gezeichnet, unter DirectX 11 ohne Frame-Generierung und Farbsehkorrektur. Sonst gilt der Vanilla-Pfad. Ohne Nachbearbeitung wirkt ihr Weiß etwas heller.
+[*][b]Renderer wählen:[/b] wechsle im Spiel zwischen DirectX 11 und DirectX 12; ein Neustart übernimmt die Änderung.
+[*][b]FPS-Steuerung:[/b] hebt die feste Bindung an 60 FPS auf; optionales Limit von 30–300 FPS, erzeugte Zwischenbilder eingeschlossen.
+[*][b]Übersichtliche Auflösungen:[/b] Options > Screen zeigt jede Bildschirmgröße einmal mit ihrer höchsten Bildwiederholrate.
+[*][b]Pixel-perfect UI:[/b] standardmäßig an für schärferen Text und Symbole in voller Auflösung. Pixelraster-Ausrichtung und UI-Texturen in voller Auflösung beseitigen die 1-Pixel-Randlinien, die Symbole anderer Mods wie TFTV zeigen können. Unter Options > Screen live abschaltbar. Animierte Panels können sich in ganzen Pixelschritten bewegen.
+[*][b]Tastenkürzel:[/b] Ctrl+Alt+O zeigt das Leistungs-Overlay mit Renderer, Upscaler, Modus, Auflösung, Frame-Zeit und FPS, bei Frame-Generierung auch echte und angezeigte FPS. Ctrl+Alt+U schaltet den Upscaler aus/ein.
 [/list]
 
 [h1]Hardware und Renderer[/h1]
 [list]
 [*]DLSS / DLAA: NVIDIA GeForce RTX, DirectX 11 oder DirectX 12.
-[*]DLSS-G: NVIDIA RTX 40 oder neuer, DirectX 12; 3x/4x erfordern RTX 50.
-[*]FSR / XeSS-Upscaling und 2x-Frame-Generierung: jede moderne GPU, DirectX 12.
-[*]NIS, LUT-Filter, Farbsehkorrektur, Mip-Bias, FPS-Regler und Overlay: jede unterstützte GPU, DirectX 11 oder DirectX 12.
-[*]Nachbearbeitung ohne Upscaler: auf NVIDIA RTX geprüft; grundlegende Tests auf AMD, Intel und GTX stehen noch aus.
-[*]DirectX 11 ist Standard. DirectX 12 ist optional und experimentell; ein Auflösungswechsel kann DLSS abschalten.
-[*]Frame-Generierung benötigt Fenstermodus oder randloses Fenster; Latenz und Artefakte sind möglich. DLSS-G pausiert, wenn das Spiel den Fokus verliert.
+[*]DLSS-G: NVIDIA RTX 40 oder neuer, DirectX 12; 3x/4x benötigen RTX 50.
+[*]FSR / XeSS-Upscaling und 2x Frame-Generierung: jede moderne GPU, DirectX 12.
+[*]NIS, LUT-Filter, Farbsehkorrektur, Mip-Bias, FPS-Steuerung und Overlay: jede unterstützte GPU, DirectX 11 oder DirectX 12.
+[*]Nachbearbeitung ohne Upscaler: auf NVIDIA RTX geprüft; AMD, Intel und GTX wurden noch keinem Kurztest unterzogen.
+[*]DirectX 11 ist Standard. DirectX 12 ist optional und experimentell; ein Auflösungswechsel kann DLSS deaktivieren.
+[*]Frame-Generierung braucht Fenster- oder rahmenlosen Modus; sie kann Latenz und Artefakte verursachen. DLSS-G pausiert, wenn das Spiel den Fokus verliert.
 [/list]
 
-[h1]Verwendung[/h1]
+[h1]So geht's[/h1]
 [list=1]
 [*]Aktiviere Renderforge unter Mods und starte einmal neu. Nach einem Update kann ein weiterer Neustart nötig sein.
-[*]Optionen > Grafik: Renderer, Upscaler, Qualität, Frame-Generierung, Schärfe, Bildfilter und Qualitätsregler.
-[*]Optionen > Bildschirm: FPS-Limit und Pixelgenaue Oberfläche. Mods > Renderforge: nur Overlay- und Tastenkürzel-Einstellungen.
-[*]Einstellungen wirken sofort, außer dem Renderer: auswählen, Übernehmen drücken und den Neustart bestätigen. Nicht unterstützte Optionen sind ausgegraut.
+[*]Options > Graphics: Renderer, Upscaler, Qualität, Frame-Generierung, Schärfe, Bildfilter und Detailoptionen.
+[*]Options > Screen: FPS-Limit und Pixel-perfect UI. Mods > Renderforge: nur Overlay- und Tastenkürzel-Einstellungen.
+[*]Alles gilt sofort, außer dem Renderer: auswählen, Apply drücken und Neustart bestätigen. Nicht unterstützte Optionen sind ausgegraut.
 [/list]
 
 [h1]Sprachen[/h1]
-Die Mod-Oberfläche folgt der Spielsprache: Englisch, Russisch, Chinesisch (vereinfacht), Französisch, Deutsch, Italienisch, Polnisch und Spanisch. Tooltips erklären, wo jede Einstellung funktioniert.
+Die Oberfläche folgt der Spielsprache: Englisch, Russisch, Chinesisch (vereinfacht), Französisch, Deutsch, Italienisch, Polnisch oder Spanisch. Tooltips erklären, wo die Einstellungen funktionieren.
 
-[h1]Fehlerberichte[/h1]
-[b]Melde Probleme über [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] Die Vorlage fragt nach einem Overlay-Screenshot und Player.log. Steam-Kommentare werden selten gelesen und können unbeantwortet bleiben.
+[h1]Fehler melden[/h1]
+[b]Melde Probleme über [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] Die Vorlage fragt nach einem Overlay-Screenshot und Player.log. Steam-Kommentare lese ich selten; sie können unbeantwortet bleiben.
 
 [h1]Quellcode, Releases und Lizenz[/h1]
 [list]
 [*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge]Quellcode[/url]
-[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]Releases und ZIP-Download[/url]: Full-ZIP in den Mods-Ordner des Spiels entpacken, sodass Mods\Renderforge\ entsteht.
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]Releases und ZIP-Download[/url]: Full ZIP in den Mods-Ordner des Spiels entpacken, sodass Mods\Renderforge\ entsteht.
 [/list]
-Von Morgott. Lizenz: CC BY-NC 4.0. Die Laufzeitbibliotheken NVIDIA DLSS/Streamline/NIS, AMD FidelityFX und Intel XeSS werden unter ihren eigenen Lizenzen weitergegeben. Keine Verbindung zu NVIDIA, AMD, Intel oder Snapshot Games.
+Von Morgott. Lizenz: CC BY-NC 4.0. Die Laufzeitbibliotheken von NVIDIA DLSS/Streamline/NIS, AMD FidelityFX und Intel XeSS werden unter ihren eigenen Lizenzen weitergegeben. Keine Verbindung zu NVIDIA, AMD, Intel oder Snapshot Games.

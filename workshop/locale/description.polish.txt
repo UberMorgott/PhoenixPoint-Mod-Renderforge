@@ -1,53 +1,55 @@
-[b]Renderforge to mod grafiki i renderera dla Phoenix Point na Windows: skalowanie obrazu, wyostrzanie, generowanie klatek, filtry kolorów, ustawienia jakości, limit FPS i nakładka wydajności.[/b]
+[b]Renderforge daje Phoenix Point na Windows ostrzejszy obraz, płynniejszy ruch i więcej ustawień grafiki.[/b]
 
 [hr][/hr]
 
 [h1]Funkcje[/h1]
 [list]
-[*][b]Skalowanie i antyaliasing:[/b] DLSS Super Resolution i DLAA w natywnej rozdzielczości, FSR i XeSS; Auto wybiera dostępny upscaler dla GPU i renderera.
-[*][b]Znaczniki Geoscape:[/b] znaczniki miejsc są rysowane po DLSS w rozdzielczości wyjściowej, więc obracanie globu nie zostawia już za nimi smug. W DirectX 11, przy wyłączonym generowaniu klatek i korekcji widzenia barw; każda inna kombinacja zachowuje oryginalny sposób renderowania. Znaczniki pomijają postprocessing gry, dlatego ich biele są nieco jaśniejsze.
-[*][b]Wyostrzanie:[/b] NIS działa też przy upscalerze ustawionym na „Wył.”, zachowując antyaliasing gry; ustaw ostrość na 0, aby wyłączyć NIS.
-[*][b]Generowanie klatek:[/b] DLSS-G, FSR i XeSS-FG w 2x na DirectX 12 z aktywnym upscalerem; DLSS-G oferuje też 3x/4x na RTX 50. Domyślnie wyłączone.
-[*][b]Obraz:[/b] filtry kolorów LUT w misjach taktycznych i na Geoscape oraz style sceny Cartoon/PixelArt z regulacją siły efektu; HUD pozostaje bez zmian.
-[*][b]Ustawienia obrazu:[/b] Ekspozycja, Punkt czerni, Punkt bieli, Jasność, Kontrast, Przejrzystość, Jaskrawość i Nasycenie w Opcje > Grafika: suwaki działają od razu, każda podpowiedź podaje wartość domyślną, w tym samym przebiegu co filtry LUT. Tylko scena, w misjach taktycznych i na Geoscape; HUD pozostaje bez zmian.
-[*][b]Resetuj ustawienia obrazu:[/b] jedna pozycja w Opcje > Grafika przywraca domyślne wartości wszystkich ustawień obrazu i jakości Renderforge; jej podpowiedź je wymienia. Renderer, upscaler, jakość, generowanie klatek i widzenie barw zachowują wybrane wartości.
-[*][b]Widzenie barw:[/b] korekcja deuteranopii, protanopii i tritanopii, łączona z filtrami LUT lub stylami. Tylko scena, w misjach taktycznych i na Geoscape; HUD i menu pozostają bez zmian.
-[*][b]Jakość:[/b] wyłączenie winiety w misjach taktycznych i na Geoscape, bardzo wysokie cienie, wymuszenie filtrowania anizotropowego 16x i więcej detali odległych modeli przez LOD. Pozycja „Jak w grze” przywraca wartość z presetu graficznego.
-[*][b]Renderer:[/b] przełączanie DirectX 11 / DirectX 12 w grze; wymaga restartu.
-[*][b]FPS:[/b] usunięcie oryginalnej blokady 60 FPS; opcjonalny limit 30–300 FPS obejmuje generowane klatki.
-[*][b]Lista rozdzielczości:[/b] Opcje > Ekran pokazuje każdą rozdzielczość tylko raz, z najwyższą częstotliwością odświeżania, zamiast powtarzać ją dla każdej częstotliwości.
-[*][b]Interfejs wyrównany do pikseli:[/b] opcjonalny, domyślnie wyłączony: wyrównuje elementy interfejsu do siatki pikseli, dzięki czemu tekst jest nieco ostrzejszy; animowane panele mogą poruszać się skokowo o całe piksele. Zmiany są stosowane na żywo, bez ponownego uruchamiania.
-[*][b]Skróty:[/b] Ctrl+Alt+O włącza/wyłącza nakładkę pomiarową (renderer, upscaler, rozdzielczość, czas klatki i FPS); Ctrl+Alt+U wyłącza/włącza upscaler.
+[*][b]Skalowanie i wygładzanie krawędzi:[/b] dobierz jakość i wydajność dzięki DLSS Super Resolution, DLAA w natywnej rozdzielczości, FSR lub XeSS. Auto wybiera dostępny skaler dla GPU i renderera; możesz zmieniać go w trakcie gry.
+[*][b]Generowanie klatek:[/b] płynniejszy ruch z DLSS-G, FSR lub XeSS-FG w trybie 2x na DirectX 12 z aktywnym skalerem. DLSS-G oferuje też 3x/4x na RTX 50. Domyślnie wyłączone.
+[*][b]Wyostrzanie:[/b] podkreśl szczegóły za pomocą NIS, także bez skalera, zachowując wygładzanie krawędzi gry. Wartość 0 wyłącza efekt.
+[*][b]Szczegóły tekstur:[/b] automatyczna regulacja zachowuje detale przy skalowaniu z niższej rozdzielczości.
+[*][b]Filtry LUT:[/b] wybierz kolorystykę i siłę efektu w misjach taktycznych i na Geoscape. Zmienia się tylko scena; HUD pozostaje bez zmian.
+[*][b]Style sceny:[/b] nadaj misjom taktycznym i Geoscape wygląd Cartoon lub PixelArt. Reguluj siłę efektu i wielkość bloków PixelArt; HUD pozostaje bez zmian.
+[*][b]Suwaki obrazu:[/b] zmieniaj ekspozycję, punkt czerni, punkt bieli, jasność, kontrast, klarowność, żywość barw i nasycenie na żywo w Options > Graphics. Tylko scena, w misjach taktycznych i na Geoscape; HUD bez zmian. Podpowiedzi podają wartości domyślne.
+[*][b]Szybki reset:[/b] jeden wiersz w Options > Graphics przywraca domyślne ustawienia obrazu i detali Renderforge; podpowiedź zawiera ich listę. Renderer, Upscaler, Quality, Frame generation i Colour vision zachowują twój wybór.
+[*][b]Widzenie barw:[/b] korekcja deuteranopii, protanopii i tritanopii współpracuje z filtrami LUT oraz stylami sceny. Tylko scena, w misjach taktycznych i na Geoscape; HUD i menu bez zmian.
+[*][b]Jakość grafiki:[/b] usuń ciemne brzegi, wyłączając winietę w misjach taktycznych i na Geoscape. Wybierz cienie Very High, filtrowanie anizotropowe 16x dla ostrzejszych powierzchni oglądanych pod kątem oraz więcej detali odległych modeli dzięki LOD. Każda opcja ma pozycję Vanilla, która przywraca wartość z ustawienia jakości gry.
+[*][b]Wyraźne znaczniki Geoscape:[/b] pozostają czytelne podczas obracania globu, rysowane po DLSS w rozdzielczości wyjściowej. DirectX 11, bez generowania klatek i korekcji widzenia barw; inne kombinacje korzystają ze standardowej ścieżki gry. Znaczniki omijają postprocessing, więc biel jest nieco jaśniejsza.
+[*][b]Wybór renderera:[/b] przełączaj DirectX 11 i DirectX 12 w grze; zastosowanie wymaga restartu.
+[*][b]Kontrola FPS:[/b] usuwa przywiązanie do 60 FPS; opcjonalny limit 30–300 FPS obejmuje też wygenerowane klatki.
+[*][b]Czytelna lista rozdzielczości:[/b] Options > Screen pokazuje każdy rozmiar raz, z najwyższą częstotliwością odświeżania.
+[*][b]Pixel-perfect UI:[/b] domyślnie włączone: ostrzejszy tekst i ikony w pełnej rozdzielczości. Wyrównanie do siatki pikseli i tekstury interfejsu w pełnej rozdzielczości usuwają linie o szerokości 1 piksela przy krawędziach ikon innych modów, np. TFTV. Wyłączysz je w Options > Screen bez restartu. Animowane panele mogą przesuwać się skokami o całe piksele.
+[*][b]Skróty:[/b] Ctrl+Alt+O pokazuje nakładkę wydajności: renderer, skaler, tryb, rozdzielczość, czas klatki i FPS, w tym rzeczywiste i wyświetlane FPS przy generowaniu klatek. Ctrl+Alt+U wyłącza/włącza skaler.
 [/list]
 
 [h1]Sprzęt i renderer[/h1]
 [list]
 [*]DLSS / DLAA: NVIDIA GeForce RTX, DirectX 11 lub DirectX 12.
-[*]DLSS-G: NVIDIA RTX 40 lub nowsze, DirectX 12; 3x/4x wymagają RTX 50.
-[*]Skalowanie FSR / XeSS i generowanie klatek 2x: dowolny nowoczesny GPU, DirectX 12.
-[*]NIS, filtry LUT, korekcja widzenia barw, mip bias, regulacja FPS i nakładka: dowolny obsługiwany GPU, DirectX 11 lub DirectX 12.
-[*]Postprocessing bez upscalera: sprawdzony na NVIDIA RTX; podstawowe testy na AMD, Intel i GTX nie zostały jeszcze wykonane.
+[*]DLSS-G: NVIDIA RTX 40 lub nowsza, DirectX 12; 3x/4x wymagają RTX 50.
+[*]Skalowanie FSR / XeSS i generowanie klatek 2x: dowolny współczesny GPU, DirectX 12.
+[*]NIS, filtry LUT, korekcja widzenia barw, mip bias, kontrola FPS i nakładka: dowolny obsługiwany GPU, DirectX 11 lub DirectX 12.
+[*]Postprocessing bez skalera: sprawdzony na NVIDIA RTX; AMD, Intel i GTX nie przeszły jeszcze wstępnych testów działania.
 [*]Domyślnie DirectX 11. DirectX 12 jest opcjonalny i eksperymentalny; zmiana rozdzielczości może wyłączyć DLSS.
-[*]Generowanie klatek wymaga trybu okna lub okna bez ramek; może zwiększać opóźnienia i powodować artefakty. DLSS-G wstrzymuje pracę, gdy okno gry traci fokus.
+[*]Generowanie klatek wymaga trybu okienkowego lub bez ramek; może zwiększać opóźnienia i powodować artefakty. DLSS-G wstrzymuje pracę, gdy okno gry traci fokus.
 [/list]
 
 [h1]Jak używać[/h1]
 [list=1]
 [*]Włącz Renderforge w Mods i uruchom grę ponownie. Aktualizacja może wymagać kolejnego restartu.
-[*]Opcje > Grafika: renderer, upscaler, jakość, generowanie klatek, ostrość, filtry i ustawienia jakości.
-[*]Opcje > Ekran: limit FPS i Interfejs wyrównany do pikseli. Mods > Renderforge: tylko ustawienia nakładki i skrótów.
-[*]Ustawienia działają od razu, poza rendererem: wybierz go, naciśnij Zastosuj i potwierdź restart. Nieobsługiwane opcje są wyszarzone.
+[*]Options > Graphics: renderer, skaler, jakość, generowanie klatek, ostrość, filtry i jakość grafiki.
+[*]Options > Screen: limit FPS i Pixel-perfect UI. Mods > Renderforge: tylko ustawienia nakładki i skrótów.
+[*]Ustawienia działają od razu, poza rendererem: wybierz go, naciśnij Apply i zaakceptuj restart. Nieobsługiwane opcje są wyszarzone.
 [/list]
 
 [h1]Języki[/h1]
-Interfejs moda używa języka gry: angielskiego, rosyjskiego, chińskiego (uproszczonego), francuskiego, niemieckiego, włoskiego, polskiego i hiszpańskiego. Podpowiedzi wskazują, gdzie działa każde ustawienie.
+Interfejs używa języka gry: angielskiego, rosyjskiego, chińskiego uproszczonego, francuskiego, niemieckiego, włoskiego, polskiego lub hiszpańskiego. Podpowiedzi określają, gdzie działają ustawienia.
 
 [h1]Zgłaszanie błędów[/h1]
-[b]Zgłaszaj problemy przez [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] Szablon wymaga zrzutu nakładki i Player.log. Komentarze na Steam są czytane rzadko i mogą pozostać bez odpowiedzi.
+[b]Zgłaszaj problemy na [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] Szablon prosi o zrzut nakładki i Player.log. Komentarze Steam czytam rzadko; mogą pozostać bez odpowiedzi.
 
-[h1]Kod źródłowy, wydania i licencja[/h1]
+[h1]Kod, wydania i licencja[/h1]
 [list]
 [*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge]Kod źródłowy[/url]
-[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]Wydania i plik ZIP[/url]: wypakuj ZIP Full do folderu Mods gry, aby uzyskać Mods\Renderforge\.
+[*][url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/releases]Wydania i pliki ZIP[/url]: wypakuj Full ZIP do folderu Mods gry, aby otrzymać Mods\Renderforge\.
 [/list]
 Autor: Morgott. Licencja: CC BY-NC 4.0. Biblioteki NVIDIA DLSS/Streamline/NIS, AMD FidelityFX i Intel XeSS są rozpowszechniane na własnych licencjach. Mod nie jest powiązany z NVIDIA, AMD, Intel ani Snapshot Games.

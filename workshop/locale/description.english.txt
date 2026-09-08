@@ -1,23 +1,25 @@
-[b]Renderforge is a graphics and renderer mod for Phoenix Point on Windows: upscaling, sharpening, frame generation, colour filters, quality controls, an FPS limiter and a performance overlay.[/b]
+[b]Give Phoenix Point on Windows a clearer image and smoother motion with Renderforge's upscaling, frame generation and graphics controls.[/b]
 
 [hr][/hr]
 
 [h1]Features[/h1]
 [list]
-[*][b]Upscaling and anti-aliasing:[/b] DLSS Super Resolution and native-resolution DLAA, FSR and XeSS; Auto selects an available upscaler for your GPU and renderer.
-[*][b]Geoscape markers:[/b] site markers are drawn after DLSS at output resolution, so rotating the globe no longer leaves ghost trails behind them. DirectX 11, with frame generation and colour vision off; any other combination keeps the vanilla path. The markers skip the game's post-processing, so their whites read slightly brighter.
-[*][b]Sharpening:[/b] NIS also works with the upscaler Off, preserving the game's anti-aliasing; set sharpness to 0 to disable it.
-[*][b]Frame generation:[/b] DLSS-G, FSR and XeSS-FG at 2x on DirectX 12 with an active upscaler; DLSS-G also offers 3x/4x on RTX 50. Off by default.
-[*][b]Image:[/b] LUT colour filters in tactical missions and on the Geoscape, plus Cartoon/PixelArt scene styles, with adjustable strength; the HUD stays unchanged.
-[*][b]Image controls:[/b] Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance and Saturation under Options > Graphics: live sliders, every tooltip states the default, in the same pass as LUT filters. Scene only, in tactical missions and on the Geoscape; the HUD stays unchanged.
-[*][b]Reset image settings:[/b] one row under Options > Graphics puts every Renderforge image and quality setting back to its default; its tooltip lists them. Renderer, Upscaler, Quality, Frame generation and Colour vision stay as chosen.
-[*][b]Colour vision:[/b] Deuteranopia, Protanopia and Tritanopia correction, combined with LUT filters or scene styles. Scene only, in tactical missions and on the Geoscape; HUD and menus stay unchanged.
-[*][b]Quality controls:[/b] disable vignette in tactical missions and on the Geoscape, select Very High shadows, force 16x anisotropic filtering and increase distant model detail with LOD. Each Vanilla position restores the graphics preset's value.
-[*][b]Renderer:[/b] switch between DirectX 11 and DirectX 12 in-game; requires a restart.
-[*][b]FPS:[/b] removes the vanilla 60 FPS pin; optional 30–300 FPS limit includes generated frames.
-[*][b]Resolution list:[/b] Options > Screen lists every screen size once, keeping its highest refresh rate, instead of repeating the same size for each rate.
-[*][b]Pixel-perfect UI:[/b] optional, off by default: snaps interface elements to the pixel grid for slightly sharper text; animated panels may move in whole-pixel steps. Applies live, no restart.
-[*][b]Hotkeys:[/b] Ctrl+Alt+O toggles the benchmark overlay (renderer, upscaler, resolution, frame time and FPS); Ctrl+Alt+U toggles the upscaler off/on.
+[*][b]Upscaling and anti-aliasing:[/b] balance clarity and performance with DLSS Super Resolution, native-resolution DLAA, FSR or XeSS. Auto picks an available upscaler for your GPU and renderer; switch upscalers live.
+[*][b]Frame generation:[/b] smoother motion with DLSS-G, FSR or XeSS-FG at 2x on DirectX 12 with an active upscaler. DLSS-G offers 3x/4x on RTX 50. Off by default.
+[*][b]Sharpening:[/b] tune detail with NIS, even with the upscaler Off and the game's anti-aliasing intact. Set sharpness to 0 to disable it.
+[*][b]Texture detail:[/b] automatic adjustment keeps textures detailed when upscaling from a lower resolution.
+[*][b]LUT filters:[/b] choose a colour mood for tactical missions and the Geoscape, with adjustable strength. Scene only; the HUD stays untouched.
+[*][b]Scene styles:[/b] give tactical missions and the Geoscape a Cartoon or PixelArt look. Adjust strength and PixelArt block size; the HUD stays untouched.
+[*][b]Image sliders:[/b] tune Exposure, Black point, White point, Brightness, Contrast, Clarity, Vibrance and Saturation live under Options > Graphics. Scene only, in tactical missions and on the Geoscape; the HUD stays untouched. Tooltips show defaults.
+[*][b]Easy reset:[/b] one row under Options > Graphics restores all Renderforge image and quality settings to their defaults; its tooltip lists them. Renderer, Upscaler, Quality, Frame generation and Colour vision keep your choices.
+[*][b]Colour vision:[/b] Deuteranopia, Protanopia and Tritanopia correction works with LUT filters or scene styles in tactical missions and on the Geoscape. Scene only; HUD and menus stay untouched.
+[*][b]Quality controls:[/b] clear darkened edges by turning off vignette in tactical missions and on the Geoscape, choose Very High shadows, sharpen angled surfaces with 16x anisotropic filtering and keep distant models detailed with LOD. Each control has a Vanilla position to restore the graphics preset's value.
+[*][b]Crisp Geoscape markers:[/b] site markers stay clear as you rotate the globe, drawn after DLSS at output resolution on DirectX 11 with frame generation and colour vision off. Other combinations use the vanilla path. Markers bypass post-processing, so whites look slightly brighter.
+[*][b]Renderer choice:[/b] switch between DirectX 11 and DirectX 12 in-game, then restart to apply.
+[*][b]FPS controls:[/b] unlock the game's 60 FPS pin or choose a 30–300 FPS limit, including generated frames.
+[*][b]Clean resolution list:[/b] Options > Screen shows each screen size once, with its highest refresh rate.
+[*][b]Pixel-perfect UI:[/b] on by default for sharper text and full-resolution icons. Pixel-grid alignment and full-resolution interface textures remove the 1-pixel edge lines that other mods' icons, such as TFTV's, can show. Turn it off under Options > Screen; changes apply live. Animated panels may move in whole-pixel steps.
+[*][b]Hotkeys:[/b] Ctrl+Alt+O shows the performance overlay: renderer, upscaler, mode, resolution, frame time and FPS, including real and presented FPS with frame generation. Ctrl+Alt+U toggles the upscaler off/on.
 [/list]
 
 [h1]Hardware and renderer[/h1]
@@ -33,17 +35,17 @@
 
 [h1]How to use[/h1]
 [list=1]
-[*]Enable Renderforge under Mods and restart once. An update may require another restart.
+[*]Enable Renderforge under Mods and restart once. An update may need another restart.
 [*]Options > Graphics: renderer, upscaler, quality, frame generation, sharpness, image filters and quality controls.
 [*]Options > Screen: FPS limiter and Pixel-perfect UI. Mods > Renderforge: overlay and hotkey preferences only.
 [*]Settings apply live except the renderer: choose it, press Apply and accept the restart. Unsupported choices are greyed out.
 [/list]
 
 [h1]Languages[/h1]
-The mod's UI follows the game language: English, Russian, Chinese (Simplified), French, German, Italian, Polish and Spanish. Tooltips state where each setting works.
+The UI follows your game language: English, Russian, Chinese (Simplified), French, German, Italian, Polish or Spanish. Tooltips explain where settings work.
 
 [h1]Bug reports[/h1]
-[b]Report problems on [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] The template asks for an overlay screenshot and Player.log. Steam comments are read rarely; a Steam comment may go unanswered.
+[b]Report problems on [url=https://github.com/UberMorgott/PhoenixPoint-Mod-Renderforge/issues]GitHub Issues[/url].[/b] The template asks for an overlay screenshot and Player.log. Steam comments are rarely read and may go unanswered.
 
 [h1]Source, releases and license[/h1]
 [list]
