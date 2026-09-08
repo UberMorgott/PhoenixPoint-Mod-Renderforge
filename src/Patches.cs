@@ -1,7 +1,9 @@
+using System;
 using Base.Cameras;
 using Base.Lighting;
 using HarmonyLib;
 using PhoenixPoint.Common.Core;
+using UnityEngine;
 using UnityEngine.Rendering.PostProcessing;
 
 namespace Renderforge
@@ -43,5 +45,20 @@ namespace Renderforge
     internal static class OptionsManager_InitVideoOptions_Patch
     {
         static void Postfix() => RenderforgeMod.ApplyFrameRate();
+    }
+
+    /// <summary>UI pin for textures a mod creates AFTER the last MipBias sweep: every shorter Sprite.Create overload
+    /// chains into this 8-argument one (UnityEngine.CoreModule 2019.4), so one postfix covers them all.</summary>
+    [HarmonyPatch(typeof(Sprite), nameof(Sprite.Create), typeof(Texture2D), typeof(Rect), typeof(Vector2), typeof(float), typeof(uint), typeof(SpriteMeshType), typeof(Vector4), typeof(bool))]
+    internal static class Sprite_Create_Patch
+    {
+        static void Postfix(Texture2D __0)
+        {
+            try
+            {
+                if (MipBias.UiPin && __0 != null && __0.mipmapCount > 1) __0.mipMapBias = Mathf.Min(__0.mipMapBias, MipBias.CurrentUiBias);
+            }
+            catch (Exception) { }
+        }
     }
 }

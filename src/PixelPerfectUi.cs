@@ -6,7 +6,9 @@ namespace Renderforge
     /// <summary>Canvas.pixelPerfect on every ROOT ScreenSpaceOverlay canvas (nested canvases inherit unless they set
     /// overridePixelPerfect; camera/world canvases are never touched). Measured at 1440p: UI.Text Sobel +2-7%, elements
     /// shift onto the pixel grid (docs\research\font-remeasure-2026-09-07\results.md) - animated panels step by whole
-    /// pixels, hence off by default. Re-applied from RenderforgeMod.OnLevelStart so the level's own canvases get it.</summary>
+    /// pixels. Also pins UI textures to mip 0 (MipBias.UiPin): with it the 1 px edge bleed on runtime-created mod icons
+    /// measures 0 at every fractional position (docs\research\icon-bleed-2026-09-08.md), hence on by default since 1.6.1.
+    /// Re-applied from RenderforgeMod.OnLevelStart so the level's own canvases get it.</summary>
     internal static class PixelPerfectUi
     {
         // ponytail: keys of destroyed canvases stay until the next Restore (a handful per level); prune if it ever matters.
@@ -15,6 +17,8 @@ namespace Renderforge
 
         internal static void Apply(bool on)
         {
+            // UI textures to mip 0 (log2(canvasScale)); MipBias.Reapply keeps it across level starts.
+            if (MipBias.UiPin != on) { MipBias.UiPin = on; MipBias.Resweep(); }
             if (!on) { Restore(); return; }
             active = true;
             int touched = 0;

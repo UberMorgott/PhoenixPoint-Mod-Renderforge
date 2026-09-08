@@ -54,8 +54,8 @@ namespace Renderforge
                 GraphicsPanel.SetRaw(rowC.Find("UITextGeneric_Medium (1)").GetComponent<Localize>(), null,
                     DlssConfig.Loc("Pixel-perfect UI", "Пиксельная точность интерфейса").ToUpperInvariant());
                 GraphicsPanel.Tip(pixel.gameObject, DlssConfig.Loc(
-                    "Snaps interface elements to the pixel grid: sharper text at non-native UI scales; animated panels may move in whole-pixel steps. Applies live, no restart.",
-                    "Привязывает элементы интерфейса к пиксельной сетке: текст чётче при ненативном масштабе интерфейса; анимированные панели могут двигаться шагами в целый пиксель. Применяется сразу, без перезапуска."));
+                    "Snaps interface elements to the pixel grid and keeps interface textures at full resolution: sharper text at non-native UI scales, no 1-pixel edge lines on mod icons; animated panels may move in whole-pixel steps. Applies live, no restart.",
+                    "Привязывает элементы интерфейса к пиксельной сетке и держит текстуры интерфейса в полном разрешении: текст чётче при ненативном масштабе интерфейса, нет линий в 1 пиксель по краям иконок модов; анимированные панели могут двигаться шагами в целый пиксель. Применяется сразу, без перезапуска."));
                 pixel.SetIsOnWithoutNotify(pendingPixel);
                 pixel.onValueChanged.RemoveAllListeners();
                 pixel.onValueChanged.AddListener(on => { pendingPixel = on; onChanged?.Invoke(); });

@@ -507,14 +507,33 @@ stage, same early-out when all eight uniforms are zero.
   0.585 blends mips that differ by 2–4/channel). Numbers, atlas inventory and rejected levers:
   `docs\research\2026-09-07-ui-sharpness-measurements.md`.
 
-### Pixel-perfect UI (1.5.1)
+### Pixel-perfect UI (1.5.1; UI texture pin + default On, 1.6.1)
 
-- `DlssConfig.PixelPerfectUi` (default Off), row `RenderforgePixelPerfectUi` under Options → Screen (`src\VideoPanel.cs`,
-  pending/HasChanges/Apply like the FPS rows). `src\PixelPerfectUi.cs`: `Canvas.pixelPerfect = true` on every ROOT
-  `ScreenSpaceOverlay` canvas found by `Resources.FindObjectsOfTypeAll<Canvas>()` (scene objects only; nested canvases
-  inherit unless `overridePixelPerfect`; camera/world canvases never touched). Originals recorded on first sight,
-  restored on Off / `OnModDisabled`. Re-applied from `RenderforgeMod.OnLevelStart` so tactical/geoscape canvases get it.
-  No Harmony patch.
+- `DlssConfig.PixelPerfectUi` (default **On** since 1.6.1; a saved `false` survives — `ModConfig.LoadFromRawConfig`
+  overwrites every field present in the profile's `ModConfig.json`, verified live on Instance2: saved `false` + new
+  default `true` → `Cfg.PixelPerfectUi == false` after load), row `RenderforgePixelPerfectUi` under Options → Screen
+  (`src\VideoPanel.cs`, pending/HasChanges/Apply like the FPS rows). `src\PixelPerfectUi.cs`: `Canvas.pixelPerfect = true`
+  on every ROOT `ScreenSpaceOverlay` canvas found by `Resources.FindObjectsOfTypeAll<Canvas>()` (scene objects only;
+  nested canvases inherit unless `overridePixelPerfect`; camera/world canvases never touched). Originals recorded on
+  first sight, restored on Off / `OnModDisabled`. Re-applied from `RenderforgeMod.OnLevelStart` so tactical/geoscape
+  canvases get it.
+- **UI texture pin (1.6.1)** — `PixelPerfectUi.Apply(on)` sets `MipBias.UiPin` and calls `MipBias.Resweep()`. In the
+  sweep, textures behind any `Sprite` (`Resources.FindObjectsOfTypeAll<Sprite>()`, distinct `.texture`) get
+  `min(dlssBias, log2(uiScale))` where `uiScale` = the smallest `scaleFactor` over root overlay canvases (the game's
+  3840x2160 reference → 0.6667 at 1440p → −0.585; a mod canvas with a 1080p reference scales 1.33 and never wins;
+  pin clamped to ≤ 0, so 4K = 0). Everything else keeps the DLSS bias. `MipBias.Reapply` (level start, +2 s after a
+  generation) sweeps when the pin is on even at bias 0. Harmony postfix `Sprite_Create_Patch` (`src\Patches.cs`) on
+  the 8-argument `Sprite.Create(Texture2D, Rect, Vector2, float, uint, SpriteMeshType, Vector4, bool)` — every shorter
+  overload chains into it (verified: a sprite made through the 3-argument overload came back with −0.585) — pins
+  textures a mod creates after the last sweep. Log: `MipBias: bias=0.000 applied to N textures (ui=-0.585 on M sprite
+  textures, skipped K)`.
+- **Why the pin:** `docs\research\icon-bleed-2026-09-08.md`. A 64² icon inside an unpadded runtime atlas (or a
+  Repeat-wrapped full-rect texture) minified 0.667x by the canvas samples mip 1 (`MIN_MAG_LINEAR_MIP_POINT`), whose
+  kernel reaches 0.125 texel past the sprite rect → a 1 px line of the neighbour, magenta intensity 138/255; at mip 0 a
+  fractional quad edge still reaches it (118). Measured at 2560x1440: base 138/136/0, mip0 alone 118/115/0,
+  pixelPerfect alone 61/61/61, mip0 + pixelPerfect **0/0/0** at every fractional position, both synthetic cases;
+  vanilla atlases (SpriteAtlas padding) never bled (control 104 flat in every mode) and are merely sharpened. DLSS
+  Quality hid the bug by coincidence: its bias −0.585 = log2(0.667); DLAA/Off wrote 0 → bleed.
 - **Why optional:** `docs\research\font-remeasure-2026-09-07\results.md` — at 2560x1440 UI.Text Sobel +2–7%
   (digits 1.05–1.06, `time 00:00` 1.07), but elements shift onto the pixel grid (sub-pixel snap; pixel-value maxDelta up to 180 in the diff), so animated
   panels step by whole pixels. The only UI lever that measured above noise; Crisp fonts (1.00) and Crisp icons were dropped.

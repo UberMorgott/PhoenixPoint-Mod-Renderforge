@@ -94,9 +94,10 @@ namespace Renderforge
         // Legacy (feature removed in 1.5.0): kept so an old ModConfig.json still round-trips; no UI, ignored at runtime
         // (OnModEnabled logs once when it is true).
         public bool CrispFonts = false;
-        // Canvas.pixelPerfect on root overlay canvases (PixelPerfectUi). Off: animated panels step by whole pixels.
-        [ConfigField("Pixel-perfect UI", "Snaps interface elements to the pixel grid: sharper text at non-native UI scales; animated panels may move in whole-pixel steps. Applies live, no restart.")]
-        public bool PixelPerfectUi = false;
+        // Canvas.pixelPerfect on root overlay canvases + UI textures pinned to mip 0 (PixelPerfectUi / MipBias.UiPin).
+        // On by default since 1.6.1: it is what removes the 1 px edge line on mod icons. Caveat: animated panels step by whole pixels.
+        [ConfigField("Pixel-perfect UI", "Snaps interface elements to the pixel grid and keeps interface textures at full resolution: sharper text at non-native UI scales, no 1-pixel edge lines on mod icons; animated panels may move in whole-pixel steps. Applies live, no restart.")]
+        public bool PixelPerfectUi = true;
         [ConfigField("Show DLSS in Graphics options")]
         public bool ShowInGraphicsOptions = true;
         // Pressed together with Ctrl+Alt (fixed chord, like ContentTool's fit bench Ctrl+Alt+B). No F-keys/Insert/End:
@@ -150,7 +151,7 @@ namespace Renderforge
             { nameof(Clarity), new[] { "Чёткость", "Локальный контраст мелких деталей; 0 = выкл. Только сцена, интерфейс не меняется. По умолчанию: 0." } },
             { nameof(Vibrance), new[] { "Красочность", "Усиление насыщенности только приглушённых цветов; яркие почти не меняются. Ниже 0 — приглушает. Только сцена, интерфейс не меняется. По умолчанию: 0." } },
             { nameof(Saturation), new[] { "Насыщенность", "Интенсивность всех цветов: 0 = чёрно-белое, 100 = как отрисовано, 200 = вдвое сильнее. Только сцена, интерфейс не меняется. По умолчанию: 100." } },
-            { nameof(PixelPerfectUi), new[] { "Пиксельная точность интерфейса", "Привязывает элементы интерфейса к пиксельной сетке: текст чётче при ненативном масштабе интерфейса; анимированные панели могут двигаться шагами в целый пиксель. Применяется сразу, без перезапуска." } },
+            { nameof(PixelPerfectUi), new[] { "Пиксельная точность интерфейса", "Привязывает элементы интерфейса к пиксельной сетке и держит текстуры интерфейса в полном разрешении: текст чётче при ненативном масштабе интерфейса, нет линий в 1 пиксель по краям иконок модов; анимированные панели могут двигаться шагами в целый пиксель. Применяется сразу, без перезапуска." } },
             { nameof(ShowInGraphicsOptions), new[] { "Показывать DLSS в настройках графики", null } },
             { nameof(ToggleHotkey), new[] { "Клавиша DLSS вкл/выкл (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },
             { nameof(OverlayHotkey), new[] { "Клавиша оверлея (с Ctrl+Alt)", "Нажимайте Ctrl+Alt+<клавиша>" } },

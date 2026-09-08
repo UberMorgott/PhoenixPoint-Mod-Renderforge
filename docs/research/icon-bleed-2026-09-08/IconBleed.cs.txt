@@ -1,0 +1,263 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace Renderforge
+{
+    /// <summary>TEMPORARY diagnostic (not wired, no config): reproduces the "1px bright line on runtime-created UI icon
+    /// edges" bug and lets PPCLI switch Renderforge-side mitigations. Own root overlay canvas with the game's CanvasScaler
+    /// settings; three sprites (gutterless atlas sub-rect, full-rect Repeat texture, a vanilla control) at three fractional
+    /// screen positions. Magenta neighbours make any bleed unmistakable.
+    /// PPCLI: {"op":"invoke","type":"Renderforge.IconBleed","assembly":"Renderforge","member":"Setup","args":[]}
+    /// then Mode("base"|"clamp"|"mip0"|"pp"|"mip0+pp"|"clamp+mip0+pp"|"nomip"|"point"), Rects(), Teardown().</summary>
+    public static class IconBleed
+    {
+        private const int Icon = 64, Atlas = 128;
+        private static readonly float[] fracs = { 0f, 0.33f, 0.66f };
+        private static GameObject root;
+        private static Canvas canvas;
+        private static Texture2D atlasTex, fullTex, vanillaTex;
+        private static Sprite vanilla;
+        private static readonly List<Image> images = new List<Image>();
+        private static readonly List<string> names = new List<string>();
+        private static float baseBias, vanillaBaseBias;
+        private static string current = "none";
+
+        public static string Setup()
+        {
+            if (root != null) Teardown();
+            var log = RenderforgeMod.Instance?.Logger;
+            // Copy the scaler of a live game root overlay canvas so the scale factor is the game's own.
+            // Prefer the game's 3840x2160 reference (tactical/geoscape UI); the HomeScreen also has 1920x1080 canvases.
+            CanvasScaler src = null;
+            var seen = new StringBuilder();
+            foreach (var c in Resources.FindObjectsOfTypeAll<Canvas>())
+            {
+                if (!c.gameObject.scene.IsValid() || !c.isRootCanvas || c.renderMode != RenderMode.ScreenSpaceOverlay || !c.gameObject.activeInHierarchy) continue;
+                var s = c.GetComponent<CanvasScaler>();
+                if (s == null || s.uiScaleMode != CanvasScaler.ScaleMode.ScaleWithScreenSize) continue;
+                seen.Append(c.name).Append('=').Append(s.referenceResolution.x).Append('x').Append(s.referenceResolution.y).Append('/').Append(s.matchWidthOrHeight).Append(' ');
+                if (src == null || (s.referenceResolution.x == 3840f && src.referenceResolution.x != 3840f)) src = s;
+            }
+            log?.LogInfo("IconBleed: root overlay canvases: " + seen);
+            if (src != null && src.referenceResolution.x != 3840f) src = null; // fall back to the constant below
+            root = new GameObject("RenderforgeIconBleed");
+            UnityEngine.Object.DontDestroyOnLoad(root);
+            canvas = root.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 30000;
+            var scaler = root.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = src != null ? src.referenceResolution : new Vector2(3840, 2160);
+            scaler.screenMatchMode = src != null ? src.screenMatchMode : CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = src != null ? src.matchWidthOrHeight : 0f;
+            scaler.referencePixelsPerUnit = src != null ? src.referencePixelsPerUnit : 100f;
+
+            // Vanilla control: a bilinear atlas sub-rect sprite of icon size; prefer a mipmapped one if any exists.
+            int mipped = 0, total = 0;
+            Sprite fallback = null;
+            foreach (var s in Resources.FindObjectsOfTypeAll<Sprite>())
+            {
+                if (s == null || s.texture == null || string.IsNullOrEmpty(s.name) || s.texture.name.StartsWith("IconBleed")) continue; // skip our own leaked sprites
+                var r = s.rect;
+                if (r.width < 48 || r.width > 96 || r.height < 48 || r.height > 96) continue;
+                if (r.width >= s.texture.width && r.height >= s.texture.height) continue;
+                total++;
+                if (s.texture.mipmapCount > 1) { mipped++; if (vanilla == null) vanilla = s; }
+                else if (fallback == null) fallback = s;
+            }
+            if (vanilla == null) vanilla = fallback;
+            vanillaTex = vanilla != null ? vanilla.texture : null;
+            vanillaBaseBias = vanillaTex != null ? vanillaTex.mipMapBias : 0f;
+            log?.LogInfo("IconBleed: vanilla icon-size atlas sprites=" + total + " mipmapped=" + mipped + " control=" + (vanilla != null ? vanilla.name + " tex=" + vanillaTex.name + " " + vanillaTex.width + "x" + vanillaTex.height + " mips=" + vanillaTex.mipmapCount + " wrap=" + vanillaTex.wrapMode + " filter=" + vanillaTex.filterMode + " bias=" + vanillaBaseBias.ToString("F3") + " rect=" + vanilla.rect : "none"));
+
+            float scale = ExpectedScale(scaler);
+            // Dark background: 900x300 canvas units, bottom-left anchored at (200,200) canvas units.
+            var bg = NewRect("bg", root.transform, new Vector2(900, 300), new Vector2(200, 200));
+            bg.color = new Color(0.05f, 0.05f, 0.05f, 1f);
+            bg.raycastTarget = false;
+
+            // Three kinds x three fractional screen positions. Position in canvas units = screen px / scale.
+            string[] kinds = { "atlas", "fullrect", "vanilla" };
+            for (int k = 0; k < kinds.Length; k++)
+                for (int f = 0; f < fracs.Length; f++)
+                {
+                    float px = Mathf.Round((200 + 60 + k * 280) * scale) + fracs[f];
+                    float py = Mathf.Round((200 + 40 + f * 75) * scale) + fracs[f];
+                    var img = NewRect(kinds[k] + "_" + fracs[f].ToString("F2"), root.transform, new Vector2(Icon, Icon), new Vector2(px / scale, py / scale));
+                    img.raycastTarget = false;
+                    images.Add(img); names.Add(img.name);
+                }
+            baseBias = MipBiasCurrent();
+            log?.LogInfo("IconBleed: Setup screen=" + Screen.width + "x" + Screen.height + " expectedScale=" + scale.ToString("F4") + " baseBias=" + baseBias.ToString("F3") + " ref=" + scaler.referenceResolution + " match=" + scaler.matchWidthOrHeight);
+            Mode("prod");
+            return "setup ok; screen=" + Screen.width + "x" + Screen.height + " scale=" + scale.ToString("F4") + " control=" + (vanilla != null ? vanilla.name + " mips=" + vanillaTex.mipmapCount : "none") + " mippedVanilla=" + mipped + "/" + total;
+        }
+
+        /// <summary>Rebuilds the synthetic textures every time (cheap) so each mode starts from a clean state.</summary>
+        public static string Mode(string mode)
+        {
+            if (root == null) return "not set up";
+            bool nomip = mode.Contains("nomip");
+            bool clamp = mode.Contains("clamp");
+            bool mip0 = mode.Contains("mip0");
+            bool pp = mode.Contains("pp");
+            bool point = mode.Contains("point");
+            bool prod = mode.Contains("prod");   // leave the production pin (MipBias.UiPin + PixelPerfectUi) alone
+            if (atlasTex != null) UnityEngine.Object.Destroy(atlasTex);
+            if (fullTex != null) UnityEngine.Object.Destroy(fullTex);
+            atlasTex = MakeAtlas(!nomip);
+            fullTex = MakeFull(!nomip);
+            var atlasSprite = Sprite.Create(atlasTex, new Rect(0, 0, Icon, Icon), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            var fullSprite = Sprite.Create(fullTex, new Rect(0, 0, Icon, Icon), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            for (int i = 0; i < images.Count; i++)
+            {
+                int kind = i / fracs.Length;
+                images[i].sprite = kind == 0 ? atlasSprite : kind == 1 ? fullSprite : vanilla;
+                images[i].enabled = images[i].sprite != null;
+            }
+            float scale = ExpectedScale(canvas.GetComponent<CanvasScaler>()); // canvas.scaleFactor lags one frame after creation
+            float bias = prod ? atlasTex.mipMapBias : mip0 ? Mathf.Log(scale, 2f) : baseBias;
+            if (!prod)
+            {
+                foreach (var t in new[] { atlasTex, fullTex })
+                {
+                    t.wrapMode = clamp ? TextureWrapMode.Clamp : TextureWrapMode.Repeat;
+                    t.filterMode = point ? FilterMode.Point : FilterMode.Bilinear;
+                    if (!nomip) t.mipMapBias = bias;
+                }
+                if (vanillaTex != null && vanillaTex.mipmapCount > 1) vanillaTex.mipMapBias = mip0 ? Mathf.Log(scale, 2f) : vanillaBaseBias;
+                PixelPerfectUi.Apply(pp);
+            }
+            current = mode;
+            RenderforgeMod.Instance?.Logger.LogInfo("IconBleed: mode=" + mode + " scale=" + scale.ToString("F4") + " canvas.scaleFactor=" + canvas.scaleFactor.ToString("F4") + " bias=" + bias.ToString("F3") + " clamp=" + clamp + " pp=" + pp + " nomip=" + nomip + " point=" + point + " atlasMips=" + atlasTex.mipmapCount + " rects=" + Rects());
+            return "mode=" + mode + " scale=" + scale.ToString("F4") + " canvas.scaleFactor=" + canvas.scaleFactor.ToString("F4") + " bias=" + bias.ToString("F3") + " atlasMips=" + atlasTex.mipmapCount;
+        }
+
+        /// <summary>A sprite created after Setup through the SHORT Sprite.Create overload: reports the texture's mipMapBias
+        /// (the Sprite_Create_Patch postfix must have pinned it when MipBias.UiPin is on).</summary>
+        public static string LateSprite()
+        {
+            var t = new Texture2D(32, 32, TextureFormat.RGBA32, true);
+            t.Apply(true, false);
+            t.name = "IconBleedLate";
+            var s = Sprite.Create(t, new Rect(0, 0, 32, 32), new Vector2(0.5f, 0.5f));
+            string r = "late sprite mips=" + t.mipmapCount + " bias=" + t.mipMapBias.ToString("F3") + " uiPin=" + MipBias.UiPin + " currentUiBias=" + MipBias.CurrentUiBias.ToString("F3");
+            UnityEngine.Object.Destroy(s);
+            UnityEngine.Object.Destroy(t);
+            return r;
+        }
+
+        /// <summary>Screen rects in PNG (top-down) pixel coords: name:left,top,right,bottom; ... (right/bottom exclusive-ish floats).</summary>
+        public static string Rects()
+        {
+            if (root == null) return "";
+            var sb = new StringBuilder();
+            var corners = new Vector3[4];
+            for (int i = 0; i < images.Count; i++)
+            {
+                images[i].rectTransform.GetWorldCorners(corners);
+                float l = corners[0].x, b = corners[0].y, r = corners[2].x, t = corners[2].y;
+                sb.Append(names[i]).Append(':').Append(l.ToString("F2")).Append(',').Append((Screen.height - t).ToString("F2")).Append(',')
+                  .Append(r.ToString("F2")).Append(',').Append((Screen.height - b).ToString("F2")).Append(';');
+            }
+            return sb.ToString();
+        }
+
+        public static string Teardown()
+        {
+            if (root == null) return "nothing";
+            PixelPerfectUi.Apply(RenderforgeMod.Instance?.Cfg?.PixelPerfectUi ?? false);
+            if (vanillaTex != null && vanillaTex.mipmapCount > 1) vanillaTex.mipMapBias = vanillaBaseBias;
+            UnityEngine.Object.Destroy(root);
+            if (atlasTex != null) UnityEngine.Object.Destroy(atlasTex);
+            if (fullTex != null) UnityEngine.Object.Destroy(fullTex);
+            root = null; canvas = null; atlasTex = fullTex = vanillaTex = null; vanilla = null;
+            images.Clear(); names.Clear(); current = "none";
+            return "torn down";
+        }
+
+        private static Image NewRect(string name, Transform parent, Vector2 size, Vector2 pos)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            var img = go.AddComponent<Image>();
+            var rt = img.rectTransform;
+            rt.anchorMin = rt.anchorMax = Vector2.zero;
+            rt.pivot = Vector2.zero;
+            rt.sizeDelta = size;
+            rt.anchoredPosition = pos;
+            img.type = Image.Type.Simple;
+            return img;
+        }
+
+        private static float ExpectedScale(CanvasScaler s)
+        {
+            float lw = Mathf.Log(Screen.width / s.referenceResolution.x, 2f), lh = Mathf.Log(Screen.height / s.referenceResolution.y, 2f);
+            return Mathf.Pow(2f, Mathf.Lerp(lw, lh, s.matchWidthOrHeight));
+        }
+
+        private static float MipBiasCurrent()
+        {
+            // What the MipBias sweep currently leaves on textures (0 in passthrough, log2(renderW/outW) under DLSS).
+            foreach (var t in Resources.FindObjectsOfTypeAll<Texture2D>())
+                if (t != null && t.mipmapCount > 1 && t.name.IndexOf("lut", StringComparison.OrdinalIgnoreCase) < 0) return t.mipMapBias;
+            return 0f;
+        }
+
+        /// <summary>128x128, four 64x64 cells, no gutter. Cell (0,0) = icon A: opaque dark grey with a white disc, opaque
+        /// to the edge so a bleed shows as magenta over grey (transparent edges would dilute the signal by alpha).
+        /// Its right/top/diagonal neighbours = solid magenta.</summary>
+        private static Texture2D MakeAtlas(bool mips)
+        {
+            var t = new Texture2D(Atlas, Atlas, TextureFormat.RGBA32, mips);
+            var px = new Color32[Atlas * Atlas];
+            var magenta = new Color32(255, 0, 255, 255);
+            var grey = new Color32(26, 26, 26, 255);
+            var white = new Color32(255, 255, 255, 255);
+            for (int y = 0; y < Atlas; y++)
+                for (int x = 0; x < Atlas; x++)
+                {
+                    bool inA = x < Icon && y < Icon;
+                    Color32 c = magenta;
+                    if (inA)
+                    {
+                        float dx = x - 31.5f, dy = y - 31.5f;
+                        c = dx * dx + dy * dy < 20f * 20f ? white : grey;
+                    }
+                    px[y * Atlas + x] = c;
+                }
+            t.SetPixels32(px);
+            t.filterMode = FilterMode.Bilinear;
+            t.wrapMode = TextureWrapMode.Repeat;
+            t.Apply(mips, false);
+            t.name = "IconBleedAtlas";
+            return t;
+        }
+
+        /// <summary>64x64 full-rect icon: opaque grey with a white disc; bottom row + left column magenta, so Repeat wrap
+        /// bleeds them onto the TOP and RIGHT edges.</summary>
+        private static Texture2D MakeFull(bool mips)
+        {
+            var t = new Texture2D(Icon, Icon, TextureFormat.RGBA32, mips);
+            var px = new Color32[Icon * Icon];
+            var magenta = new Color32(255, 0, 255, 255);
+            var grey = new Color32(26, 26, 26, 255);
+            var white = new Color32(255, 255, 255, 255);
+            for (int y = 0; y < Icon; y++)
+                for (int x = 0; x < Icon; x++)
+                {
+                    float dx = x - 31.5f, dy = y - 31.5f;
+                    px[y * Icon + x] = (x == 0 || y == 0) ? magenta : dx * dx + dy * dy < 20f * 20f ? white : grey;
+                }
+            t.SetPixels32(px);
+            t.filterMode = FilterMode.Bilinear;
+            t.wrapMode = TextureWrapMode.Repeat;
+            t.Apply(mips, false);
+            t.name = "IconBleedFull";
+            return t;
+        }
+    }
+}
