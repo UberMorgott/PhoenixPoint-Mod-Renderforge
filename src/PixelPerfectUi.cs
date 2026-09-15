@@ -1,65 +1,93 @@
-using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace Renderforge
 {
-    /// <summary>With Canvas.pixelPerfect on, Graphic.GetPixelAdjustedRect goes through RectTransformUtility.PixelAdjustRect,
-    /// which returns an EMPTY rect for any element whose world matrix is singular: the game's ActorClassIcon, UIPCHotkey
-    /// and AP-pip prefabs carry localScale.z = 0, so 18 icons across tactical + Geoscape vanished with the toggle on
-    /// (docs\research\icon-bleed-2026-09-08.md, Round 3). A degenerate result falls back to the unsnapped rect.</summary>
+    /// <summary>Pixel snapping WITHOUT Canvas.pixelPerfect. UGUI 2019.4 consults canvas.pixelPerfect in exactly two
+    /// managed methods - Graphic.GetPixelAdjustedRect (Image quads: simple, sliced, sprite-mesh) and
+    /// Graphic.PixelAdjustPoint (UI.Text rounding offset). Everything else the flag switches on is native per-frame
+    /// canvas work that measured 0.5-0.6 ms/frame even on an idle screen (docs\research\pixelperfect-motion-cost-
+    /// 2026-09-15\results.md, the Discord "fps drops during UI motion" report). So the canvas flag stays off and these
+    /// postfixes snap instead, paying only when a mesh is actually rebuilt.
+    /// The snap is our own math: the natives RectTransformUtility.PixelAdjustRect/Point read canvas.pixelPerfect
+    /// THEMSELVES and are identity while it is off (live-probed: PixelAdjustPoint(0,0) = (0,0) off, (-0.495,-0.495) on;
+    /// snap-experiments.md next to results.md). A ScreenSpaceOverlay root canvas lives in pixel units in world space,
+    /// so rounding the world xy of a corner IS the pixel snap; the native rounds each corner the same way (rect
+    /// (-0.495,-0.495 64.5x64.5) for a 64-unit quad at .33 px, scale 0.667).
+    /// A non-invertible transform (ActorClassIcon, UIPCHotkey, AP-pip prefabs carry localScale.z = 0,
+    /// docs\research\icon-bleed-2026-09-08.md Round 3) fails the round trip and keeps the unsnapped value.</summary>
     [HarmonyPatch(typeof(Graphic), nameof(Graphic.GetPixelAdjustedRect))]
     internal static class Graphic_GetPixelAdjustedRect_Patch
     {
         static void Postfix(Graphic __instance, ref Rect __result)
         {
-            if (__result.width <= 0f || __result.height <= 0f) __result = __instance.rectTransform.rect;
+            if (PixelPerfectUi.SnapCanvas(__instance) == null) return;
+            Rect snapped;
+            if (PixelPerfectUi.SnapRect(__instance.rectTransform, __result, out snapped)) __result = snapped;
         }
     }
 
-    /// <summary>Canvas.pixelPerfect on every ROOT ScreenSpaceOverlay canvas (nested canvases inherit unless they set
-    /// overridePixelPerfect; camera/world canvases are never touched). Measured at 1440p: UI.Text Sobel +2-7%, elements
-    /// shift onto the pixel grid (docs\research\font-remeasure-2026-09-07\results.md) - animated panels step by whole
-    /// pixels. Also pins UI textures to mip 0 (MipBias.UiPin): with it the 1 px edge bleed on runtime-created mod icons
-    /// measures 0 at every fractional position (docs\research\icon-bleed-2026-09-08.md), hence on by default since 1.6.1.
-    /// Re-applied from RenderforgeMod.OnLevelStart so the level's own canvases get it.</summary>
+    [HarmonyPatch(typeof(Graphic), nameof(Graphic.PixelAdjustPoint))]
+    internal static class Graphic_PixelAdjustPoint_Patch
+    {
+        static void Postfix(Graphic __instance, Vector2 point, ref Vector2 __result)
+        {
+            if (PixelPerfectUi.SnapCanvas(__instance) == null) return;
+            Vector2 snapped;
+            if (PixelPerfectUi.SnapPoint(__instance.transform, point, out snapped)) __result = snapped;
+        }
+    }
+
+    /// <summary>Option "Pixel-perfect UI": snap (patches above, ScreenSpaceOverlay canvases only, same guards as
+    /// UGUI's own) + UI textures pinned to mip 0 (MipBias.UiPin). Measured: UI.Text Sobel +2-7% at 1440p
+    /// (docs\research\font-remeasure-2026-09-07\results.md); with the pin the 1 px edge bleed on runtime-created
+    /// mod icons measures 0 at every fractional position (docs\research\icon-bleed-2026-09-08.md) - snap alone 61,
+    /// pin alone 118, both 0 - hence on by default since 1.6.1. Graphics created later build with the snap on
+    /// their first mesh, so nothing is re-applied per level.</summary>
     internal static class PixelPerfectUi
     {
-        // ponytail: keys of destroyed canvases stay until the next Restore (a handful per level); prune if it ever matters.
-        private static readonly Dictionary<Canvas, bool> original = new Dictionary<Canvas, bool>();
         private static bool active;
+
+        /// <summary>Local point -> nearest whole screen pixel -> local. False when the transform does not round-trip
+        /// (singular matrix) - the caller keeps the unsnapped value.</summary>
+        internal static bool SnapPoint(Transform t, Vector2 local, out Vector2 snapped)
+        {
+            var w = t.TransformPoint(local);
+            w.x = Mathf.Round(w.x); w.y = Mathf.Round(w.y);
+            var l = t.InverseTransformPoint(w);
+            var back = t.TransformPoint(l);
+            snapped = new Vector2(l.x, l.y);
+            return Mathf.Abs(back.x - w.x) < 0.01f && Mathf.Abs(back.y - w.y) < 0.01f;
+        }
+
+        internal static bool SnapRect(Transform t, Rect r, out Rect snapped)
+        {
+            Vector2 a, b;
+            snapped = r;
+            if (!SnapPoint(t, r.min, out a) || !SnapPoint(t, r.max, out b)) return false;
+            snapped = Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y), Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
+            return snapped.width > 0f && snapped.height > 0f;
+        }
+
+        internal static Canvas SnapCanvas(Graphic g)
+        {
+            if (!active) return null;
+            var canvas = g.canvas;
+            if (!canvas || canvas.pixelPerfect || canvas.scaleFactor == 0f || canvas.rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay) return null;
+            return canvas;
+        }
 
         internal static void Apply(bool on)
         {
             // UI textures to mip 0 (log2(canvasScale)); MipBias.Reapply keeps it across level starts.
             if (MipBias.UiPin != on) { MipBias.UiPin = on; MipBias.Resweep(); }
-            if (!on) { Restore(); return; }
-            active = true;
-            int touched = 0;
-            foreach (var canvas in Resources.FindObjectsOfTypeAll<Canvas>())
-            {
-                if (!canvas.gameObject.scene.IsValid() || !canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceOverlay) continue;
-                if (!original.ContainsKey(canvas)) original[canvas] = canvas.pixelPerfect;
-                canvas.pixelPerfect = true;
-                touched++;
-            }
-            RenderforgeMod.Instance?.Logger.LogInfo("Pixel-perfect UI on: " + touched + " root overlay canvases");
-        }
-
-        /// <summary>OnLevelStart (the level's UI canvases exist only now) and Overlay.Create.</summary>
-        // ponytail: a root canvas another mod creates mid-level waits for the next level start; rescan on a timer if reported.
-        internal static void Reapply() { if (active) Apply(true); }
-
-        private static void Restore()
-        {
-            if (!active) return;
-            active = false;
-            int restored = 0;
-            foreach (var pair in original)
-                if (pair.Key) { pair.Key.pixelPerfect = pair.Value; restored++; }
-            original.Clear();
-            RenderforgeMod.Instance?.Logger.LogInfo("Pixel-perfect UI off: " + restored + " canvases restored");
+            if (active == on) return;
+            active = on;
+            int rebuilt = 0;
+            foreach (var g in Resources.FindObjectsOfTypeAll<Graphic>())
+                if (g.gameObject.scene.IsValid()) { g.SetVerticesDirty(); rebuilt++; }
+            RenderforgeMod.Instance?.Logger.LogInfo("Pixel-perfect UI " + (on ? "on" : "off") + ": " + rebuilt + " graphics rebuilt");
         }
     }
 }

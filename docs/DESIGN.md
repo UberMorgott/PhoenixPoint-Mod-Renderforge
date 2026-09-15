@@ -512,11 +512,24 @@ stage, same early-out when all eight uniforms are zero.
 - `DlssConfig.PixelPerfectUi` (default **On** since 1.6.1; a saved `false` survives — `ModConfig.LoadFromRawConfig`
   overwrites every field present in the profile's `ModConfig.json`, verified live on Instance2: saved `false` + new
   default `true` → `Cfg.PixelPerfectUi == false` after load), row `RenderforgePixelPerfectUi` under Options → Screen
-  (`src\VideoPanel.cs`, pending/HasChanges/Apply like the FPS rows). `src\PixelPerfectUi.cs`: `Canvas.pixelPerfect = true`
-  on every ROOT `ScreenSpaceOverlay` canvas found by `Resources.FindObjectsOfTypeAll<Canvas>()` (scene objects only;
-  nested canvases inherit unless `overridePixelPerfect`; camera/world canvases never touched). Originals recorded on
-  first sight, restored on Off / `OnModDisabled`. Re-applied from `RenderforgeMod.OnLevelStart` so tactical/geoscape
-  canvases get it.
+  (`src\VideoPanel.cs`, pending/HasChanges/Apply like the FPS rows). `src\PixelPerfectUi.cs` (rewritten 2026-09-15):
+  the snap is done by two Harmony postfixes, `Graphic.GetPixelAdjustedRect` (Image quads: simple/sliced/sprite-mesh)
+  and `Graphic.PixelAdjustPoint` (UI.Text rounding offset), with OUR OWN math (`SnapPoint`: local →
+  `TransformPoint` → `Mathf.Round` world xy → `InverseTransformPoint`; a ScreenSpaceOverlay root canvas lives in pixel
+  units in world space, so that IS the pixel snap; accepted only if the round trip lands within 0.01 px, so the
+  `localScale.z = 0` prefabs keep the unsnapped value) for graphics whose root canvas is `ScreenSpaceOverlay` (same
+  guards as UGUI's own: canvas present, `scaleFactor != 0`; a canvas that already has `pixelPerfect` is left to UGUI).
+  NOT via `RectTransformUtility.PixelAdjustRect/Point`: those natives read `canvas.pixelPerfect` themselves and are
+  identity while it is off (live-probed, `snap-experiments.md`: `PixelAdjustPoint(0,0)` = (0,0) off, (−0.495,−0.495)
+  on) — the first attempt through them measured exactly the "mip0 alone" bleed row (`verify.md`). **`Canvas.pixelPerfect`
+  is never set any more**: UGUI 2019.4 reads that flag in exactly those two managed methods (ilspy of
+  `UnityEngine.UI.dll`), and everything else the flag enables is native per-frame canvas work that measured
+  0.5–0.6 ms/frame even on an idle screen — 336 vs 399 fps geoscape idle, 287 vs 345 roster at 1440p, growing to
+  ~1.65 ms under geoscape fast-forward (`docs\research\pixelperfect-motion-cost-2026-09-15\results.md`; the pin
+  measured 0). With the postfixes the snap costs only at mesh rebuild. `Apply(on)` flips a static and
+  `SetVerticesDirty()`s every scene `Graphic` once (log `Pixel-perfect UI on|off: N graphics rebuilt`); graphics
+  created later build with the snap on their first mesh, so there is no per-level re-apply. The empty-rect fallback
+  for singular matrices (`localScale.z = 0` prefabs) lives in the same postfix.
 - **UI texture pin (1.6.1)** — `PixelPerfectUi.Apply(on)` sets `MipBias.UiPin` and calls `MipBias.Resweep()`. In the
   sweep, textures behind any `Sprite` (`Resources.FindObjectsOfTypeAll<Sprite>()`, distinct `.texture`) get
   `min(dlssBias, log2(uiScale))` where `uiScale` = the smallest `scaleFactor` over root overlay canvases (the game's
