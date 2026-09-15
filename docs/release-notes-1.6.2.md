@@ -1,3 +1,3 @@
-# Renderforge 1.6.2 (unreleased draft)
+# Renderforge 1.6.2
 
 - **Fix: Pixel-perfect UI no longer costs frame rate.** 1.6.1 turned on Unity's canvas-level pixel-perfect mode, which made the engine re-align every interface element natively each frame -- about 0.5-0.6 ms per frame even on a static screen, more while the interface moved (globe rotation, panel animations, the Personnel camera), reported as heavy FPS drops during UI motion. The interface is now snapped to the pixel grid by the mod itself, only when an element's mesh is actually rebuilt. Same result on screen: sharper text, no 1-pixel edge lines on mod icons, class icons / hotkey badges / action-point pips intact. Measured: geoscape 336 -> 346 fps with the option on, equal to the option off (1440p, RTX 5070 Ti); edge bleed still 0 at every fractional position.
