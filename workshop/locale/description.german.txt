@@ -18,7 +18,7 @@
 [*][b]Renderer wählen:[/b] wechsle im Spiel zwischen DirectX 11 und DirectX 12; ein Neustart übernimmt die Änderung.
 [*][b]FPS-Steuerung:[/b] hebt die feste Bindung an 60 FPS auf; optionales Limit von 30–300 FPS, erzeugte Zwischenbilder eingeschlossen.
 [*][b]Übersichtliche Auflösungen:[/b] Options > Screen zeigt jede Bildschirmgröße einmal mit ihrer höchsten Bildwiederholrate.
-[*][b]Pixel-perfect UI:[/b] standardmäßig an für schärferen Text und Symbole in voller Auflösung. Pixelraster-Ausrichtung und UI-Texturen in voller Auflösung beseitigen die 1-Pixel-Randlinien, die Symbole anderer Mods wie TFTV zeigen können. Unter Options > Screen live abschaltbar. Animierte Panels können sich in ganzen Pixelschritten bewegen.
+[*][b]Pixel-perfect UI:[/b] standardmäßig an für schärferen Text und Symbole in voller Auflösung. Pixelraster-Ausrichtung und UI-Texturen in voller Auflösung beseitigen die 1-Pixel-Randlinien, die Symbole anderer Mods wie TFTV zeigen können. Unter Options > Screen live abschaltbar.
 [*][b]Tastenkürzel:[/b] Ctrl+Alt+O zeigt das Leistungs-Overlay mit Renderer, Upscaler, Modus, Auflösung, Frame-Zeit und FPS, bei Frame-Generierung auch echte und angezeigte FPS. Ctrl+Alt+U schaltet den Upscaler aus/ein.
 [/list]
 

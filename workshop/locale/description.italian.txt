@@ -18,7 +18,7 @@
 [*][b]Scelta del renderer:[/b] passa da DirectX 11 a DirectX 12 nel gioco, poi riavvia per applicare.
 [*][b]Controllo FPS:[/b] rimuove il vincolo a 60 FPS; puoi impostare un limite di 30–300 FPS, inclusi i fotogrammi generati.
 [*][b]Elenco risoluzioni ordinato:[/b] Options > Screen mostra ogni dimensione una sola volta, con la frequenza di aggiornamento più alta.
-[*][b]Pixel-perfect UI:[/b] attiva per impostazione predefinita, per testo più nitido e icone a piena risoluzione. L'allineamento alla griglia dei pixel e le texture dell'interfaccia a piena risoluzione eliminano le linee di bordo da 1 pixel che possono comparire sulle icone di altri mod, come TFTV. Si disattiva in Options > Screen, senza riavvio. I pannelli animati possono muoversi a scatti di un pixel.
+[*][b]Pixel-perfect UI:[/b] attiva per impostazione predefinita, per testo più nitido e icone a piena risoluzione. L'allineamento alla griglia dei pixel e le texture dell'interfaccia a piena risoluzione eliminano le linee di bordo da 1 pixel che possono comparire sulle icone di altri mod, come TFTV. Si disattiva in Options > Screen, senza riavvio.
 [*][b]Scorciatoie:[/b] Ctrl+Alt+O mostra l'overlay prestazioni: renderer, upscaler, modalità, risoluzione, tempo per fotogramma e FPS, reali e visualizzati con generazione attiva. Ctrl+Alt+U disattiva/attiva l'upscaler.
 [/list]
 

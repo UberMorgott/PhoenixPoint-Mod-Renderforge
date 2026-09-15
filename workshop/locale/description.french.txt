@@ -18,7 +18,7 @@
 [*][b]Choix du rendu :[/b] passez de DirectX 11 à DirectX 12 dans le jeu, puis redémarrez pour appliquer.
 [*][b]Contrôle des FPS :[/b] libérez le jeu de sa fixation à 60 FPS ou activez une limite de 30–300 FPS, images générées comprises.
 [*][b]Liste des résolutions épurée :[/b] Options > Screen affiche chaque taille une seule fois, avec sa fréquence de rafraîchissement maximale.
-[*][b]Pixel-perfect UI :[/b] activé par défaut pour un texte plus net et des icônes en pleine résolution. L'alignement sur la grille de pixels et les textures d'interface en pleine résolution éliminent les lignes de bord d'un pixel que peuvent afficher les icônes d'autres mods, comme TFTV. Désactivable dans Options > Screen, sans redémarrage. Les panneaux animés peuvent avancer par pixels entiers.
+[*][b]Pixel-perfect UI :[/b] activé par défaut pour un texte plus net et des icônes en pleine résolution. L'alignement sur la grille de pixels et les textures d'interface en pleine résolution éliminent les lignes de bord d'un pixel que peuvent afficher les icônes d'autres mods, comme TFTV. Désactivable dans Options > Screen, sans redémarrage.
 [*][b]Raccourcis :[/b] Ctrl+Alt+O affiche les performances : moteur de rendu, outil de mise à l'échelle, mode, résolution, temps par image et FPS, réels et affichés si la génération d'images est active. Ctrl+Alt+U active/désactive la mise à l'échelle.
 [/list]
 

@@ -18,7 +18,7 @@
 [*][b]Renderer choice:[/b] switch between DirectX 11 and DirectX 12 in-game, then restart to apply.
 [*][b]FPS controls:[/b] unlock the game's 60 FPS pin or choose a 30–300 FPS limit, including generated frames.
 [*][b]Clean resolution list:[/b] Options > Screen shows each screen size once, with its highest refresh rate.
-[*][b]Pixel-perfect UI:[/b] on by default for sharper text and full-resolution icons. Pixel-grid alignment and full-resolution interface textures remove the 1-pixel edge lines that other mods' icons, such as TFTV's, can show. Turn it off under Options > Screen; changes apply live. Animated panels may move in whole-pixel steps.
+[*][b]Pixel-perfect UI:[/b] on by default for sharper text and full-resolution icons. Pixel-grid alignment and full-resolution interface textures remove the 1-pixel edge lines that other mods' icons, such as TFTV's, can show. Turn it off under Options > Screen; changes apply live.
 [*][b]Hotkeys:[/b] Ctrl+Alt+O shows the performance overlay: renderer, upscaler, mode, resolution, frame time and FPS, including real and presented FPS with frame generation. Ctrl+Alt+U toggles the upscaler off/on.
 [/list]
 

@@ -18,7 +18,7 @@
 [*][b]Elige el renderizador:[/b] cambia entre DirectX 11 y DirectX 12 desde el juego y reinicia para aplicar.
 [*][b]Control de FPS:[/b] elimina la fijación a 60 FPS; límite opcional de 30–300 FPS, incluidos los fotogramas generados.
 [*][b]Resoluciones sin duplicados:[/b] Options > Screen muestra cada tamaño una vez, con su mayor frecuencia de actualización.
-[*][b]Pixel-perfect UI:[/b] activado por defecto para texto más nítido e iconos a resolución completa. La alineación con la cuadrícula de píxeles y las texturas de interfaz a plena resolución eliminan las líneas de borde de 1 píxel que pueden mostrar los iconos de otros mods, como TFTV. Se desactiva en Options > Screen sin reiniciar. Los paneles animados pueden moverse en pasos de píxeles enteros.
+[*][b]Pixel-perfect UI:[/b] activado por defecto para texto más nítido e iconos a resolución completa. La alineación con la cuadrícula de píxeles y las texturas de interfaz a plena resolución eliminan las líneas de borde de 1 píxel que pueden mostrar los iconos de otros mods, como TFTV. Se desactiva en Options > Screen sin reiniciar.
 [*][b]Atajos:[/b] Ctrl+Alt+O muestra la superposición de rendimiento: renderizador, reescalador, modo, resolución, tiempo por fotograma y FPS, reales y presentados con generación activa. Ctrl+Alt+U desactiva/activa el reescalador.
 [/list]
 

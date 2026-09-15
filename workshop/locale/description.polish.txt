@@ -18,7 +18,7 @@
 [*][b]Wybór renderera:[/b] przełączaj DirectX 11 i DirectX 12 w grze; zastosowanie wymaga restartu.
 [*][b]Kontrola FPS:[/b] usuwa przywiązanie do 60 FPS; opcjonalny limit 30–300 FPS obejmuje też wygenerowane klatki.
 [*][b]Czytelna lista rozdzielczości:[/b] Options > Screen pokazuje każdy rozmiar raz, z najwyższą częstotliwością odświeżania.
-[*][b]Pixel-perfect UI:[/b] domyślnie włączone: ostrzejszy tekst i ikony w pełnej rozdzielczości. Wyrównanie do siatki pikseli i tekstury interfejsu w pełnej rozdzielczości usuwają linie o szerokości 1 piksela przy krawędziach ikon innych modów, np. TFTV. Wyłączysz je w Options > Screen bez restartu. Animowane panele mogą przesuwać się skokami o całe piksele.
+[*][b]Pixel-perfect UI:[/b] domyślnie włączone: ostrzejszy tekst i ikony w pełnej rozdzielczości. Wyrównanie do siatki pikseli i tekstury interfejsu w pełnej rozdzielczości usuwają linie o szerokości 1 piksela przy krawędziach ikon innych modów, np. TFTV. Wyłączysz je w Options > Screen bez restartu.
 [*][b]Skróty:[/b] Ctrl+Alt+O pokazuje nakładkę wydajności: renderer, skaler, tryb, rozdzielczość, czas klatki i FPS, w tym rzeczywiste i wyświetlane FPS przy generowaniu klatek. Ctrl+Alt+U wyłącza/włącza skaler.
 [/list]
 
