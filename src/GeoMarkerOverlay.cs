@@ -49,7 +49,8 @@ namespace Renderforge
         private static int walkedHc;
         private static float nextScan;
         private static LevelSwitchCurtainController curtain;
-        private static string lastGate;               // last logged "not armed" reason (log once per reason)
+        private static CameraManager camMgr;
+        private static string lastGate;              // last logged "not armed" reason (log once per reason)
 
         // Present-camera snapshot, taken before the first Sync, restored verbatim.
         private static Rect sRect;
@@ -95,6 +96,9 @@ namespace Renderforge
         /// DlssPresent blit never reaches the backbuffer again for the life of that M - the loading art stays on
         /// screen with the HUD over it (observed 2026-09-07 on every level start; re-creating M mid-level is fine).
         /// So arm only once LevelSwitchCurtainController.IsCurtainLifted (set after the lift fade, LevelSwitchCurtainController.cs:113).
+        /// The game's own pause is authoritative too: a geoscape cutscene (UIStateGeoCutscene.cs:62) sets
+        /// CameraManager.PauseObjectRendering, whose CullEverythingController zeroes GeoscapeCamera's mask for the whole video;
+        /// the overlay stays released until the pause lifts (re-arming on the mask alone flapped every other frame, 1.6.2).
         /// ponytail: D3D11 only, no frame generation, no colour vision - the markers bypass the shim's post pass, so
         /// daltonisation would stop covering the colour-coded icons, FG's interpolated frames would lack them, and the
         /// D3D12 sRGB blend of this pass is untested. Every other combination keeps the vanilla path unchanged.</summary>
@@ -108,8 +112,10 @@ namespace Renderforge
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (FrameGen.Live || (cfg != null && cfg.FrameGen != FrameGenMode.Off)) return "frame generation on (interpolated frames would lack the markers)";
             if (cfg != null && cfg.ColorVision != ColorVisionMode.None) return "colour vision " + cfg.ColorVision + " (markers would bypass the daltonisation pass)";
-            if (curtain == null) curtain = GameUtl.GameComponent<CameraManager>()?.GetComponentInParent<LevelSwitchCurtainController>();
+            if (camMgr == null) camMgr = GameUtl.GameComponent<CameraManager>();
+            if (curtain == null) curtain = camMgr?.GetComponentInParent<LevelSwitchCurtainController>();
             if (curtain == null || !curtain.IsCurtainLifted) return "level curtain down";
+            if (camMgr != null && camMgr.PauseObjectRendering) return "object rendering paused by the game (cutscene)";
             if (sceneCam.cullingMask == 0) return "GeoscapeCamera culls nothing";
             return null;
         }
@@ -165,7 +171,11 @@ namespace Renderforge
             int objects = 0;
             foreach (var kv in origLayers) if (kv.Key) { kv.Key.gameObject.layer = kv.Value; objects++; }
             foreach (var kv in origWorldCam) if (kv.Key) kv.Key.worldCamera = kv.Value;
-            foreach (var kv in camMasks) if (kv.Key) kv.Key.cullingMask |= kv.Value & (1 << layer);
+            // Only the bit we stripped, and only onto the mask we left behind: a camera the game zeroed meanwhile
+            // (CullEverythingController.PauseRendering during a cutscene) or rewrote keeps its mask - writing our bit
+            // onto 0 made the next Tick see a non-zero mask, re-arm, strip, release, every other frame.
+            int bit = 1 << layer;
+            foreach (var kv in camMasks) if (kv.Key && kv.Key.cullingMask != 0 && kv.Key.cullingMask == (kv.Value & ~bit)) kv.Key.cullingMask |= kv.Value & bit;
             if (M)
             {
                 if (sync) Object.Destroy(sync);
@@ -191,7 +201,7 @@ namespace Renderforge
             if (pendingFail != null) { Disable(pendingFail); pendingFail = null; }
             origLayers.Clear(); origWorldCam.Clear(); near.Clear(); camMasks.Clear();
             active = new GeoSiteVisualsController[0]; cursor = 0;
-            geo = null; M = null; curtain = null; sync = null; cbPresent = null; hcRoot = null; layer = -1;
+            geo = null; M = null; curtain = null; camMgr = null; sync = null; cbPresent = null; hcRoot = null; layer = -1;
         }
 
         /// <summary>Any exception in the overlay: log, put everything back, switch the overlay off until the next level start
