@@ -87,8 +87,9 @@ struct IFgProvider
     // False = nothing usable was recorded for this frame (no context/twins, a failed SDK prepare): the host then leaves
     // the frame unprepared and the next Present takes the idle path instead of generating from stale inputs.
     virtual bool     Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f) = 0;
-    // Render thread: Prepare returned true but the host could not submit its list, so no Present will consume this
-    // frame. Undo per-frame bookkeeping that expects one (DLSS-G's token FIFO). Default no-op.
+    // Render thread: no Present will consume the frames prepared so far - the host starts a new frame (every earlier
+    // unpresented one is superseded) or could not submit this frame's list. Undo ALL per-frame bookkeeping that expects
+    // a Present (DLSS-G's token FIFO). Default no-op.
     virtual void     DropPrepared() {}
     // Render thread, inside the Present hook, BEFORE the host copies the real frame into `shadow`.
     // `unityBackBuffer` is Unity's finished frame (state PRESENT). The provider generates its in-between

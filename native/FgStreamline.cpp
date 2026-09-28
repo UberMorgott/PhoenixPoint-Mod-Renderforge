@@ -208,8 +208,9 @@ struct ProviderStreamline : IFgProvider
     unsigned            frames;        // Prepare calls on this chain
     // Tokens awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent pops
     // exactly one per Present so the PRESENT_START/END markers name the frame whose inputs were tagged (DLSS_G.md:933).
-    // A Present the host skipped (GetBuffer / copy failed) leaves its token behind: a full ring drops the OLDEST token,
-    // so the FIFO can never wedge - it drains one per Present and re-aligns by itself (kTokens > SL's 3 in flight).
+    // A Present the host skipped (GetBuffer / copy failed) or a prepared frame superseded before its Present leaves its
+    // token behind: the host's next FgHostPrepare drops every unpresented token (DropPrepared), so at most one is queued.
+    // The full-ring guard below stays as a backstop (kTokens > SL's 3 in flight).
     static const unsigned kTokens = 4;
     sl::FrameToken*     fifo[kTokens];
     unsigned            head, tail;
@@ -429,8 +430,9 @@ struct ProviderStreamline : IFgProvider
         return true;
     }
 
-    // The host could not submit the prep list: no Present will pop this frame's token, so take it back out.
-    void DropPrepared() { if (tail != head) --tail; }
+    // Render thread. No Present will pop the unpresented tokens (the host is starting a new frame, or could not submit
+    // this frame's prep list): drop them ALL, so the next Present pops exactly the token of the frame it presents.
+    void DropPrepared() { head = tail; }
 
     // Render thread, Present hook: nothing to do here - the options went out in Prepare (IssueOptions), the markers
     // come after the copy, in BeforePresent.

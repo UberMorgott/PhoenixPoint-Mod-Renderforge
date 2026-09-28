@@ -424,14 +424,18 @@ void FgHostSetFrame(const FgFrame& f)
 void FgHostPrepare(void)
 {
     if (!Pin()) return;
+    // A new frame supersedes whatever is still unpresented: an earlier success nobody presented, or a token a skipped
+    // Present (GetBuffer/copy failed) left behind. Reset BEFORE the input checks, so a frame with a missing input or a
+    // failing Prepare leaves prepared = 0 and no stale DLSS-G token that a later Present would pop for the wrong frame.
+    H.prepared = 0;
+    H.c.prov->DropPrepared();
     // The pass-through provider has nothing to prepare. Nothing is declared to Unity: providers read the
     // shim-owned twins (COMMON at rest), never the Unity RTs - declaring those as NON_PIXEL_SHADER_RESOURCE made
     // Unity transition them under the upscaler's own barriers (debug layer id=527 on every frame).
     if (H.cur.hudless && H.cur.depth && H.cur.mv) {
         // The frame counts as prepared only once the provider's tags/constants are recorded AND the list reached the
         // queue: a failed Begin/Prepare/End leaves prepared = 0, so the next Present takes the idle path (Unity presents
-        // its own frame) instead of feeding the generator the previous frame's data. An earlier unconsumed success is
-        // dropped too - it is older than this frame.
+        // its own frame) instead of feeding the generator the previous frame's data.
         int ok = 1;
         if (H.c.prov->Id() != FG_PROVIDER_NONE) {
             ok = 0;
