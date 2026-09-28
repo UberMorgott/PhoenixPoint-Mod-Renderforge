@@ -35,6 +35,8 @@ struct FrameParams
     int colorVision;          // DLSS_CV_*; cleared by SetFrame, filled by SetColorVision before the event is queued
     GradeParams grade;        // Exposure/Levels/Brightness/Contrast/Clarity/Vibrance/Saturation; zero = Off (SetFrame's memset), filled by SetGrade
     int biasMaskMode;         // DIAG (Dlss_SetBiasMaskMode): 0 = no bias mask bound, 1 = bound all-zero, 2 = bound all-one. D3D11 only.
+    int passthrough;          // Dlss_Passthrough latched by Dlss_SetFrame: the render thread evaluates THIS frame's mode even if
+                              // the main thread flips the global (BeginRelease) while this slot's event is still queued
 };
 
 // Feature-creation parameters, stored by Dlss_SetCreateParams and consumed by DLSS_EV_CREATE.

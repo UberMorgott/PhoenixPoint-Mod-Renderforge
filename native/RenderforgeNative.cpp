@@ -87,7 +87,7 @@ static struct {
     FrameParams slots[4];
     unsigned slotIdx;
     FrameParams* lastSlot;
-    int passthrough;
+    int passthrough;                    // Dlss_Passthrough; latched into each slot by Dlss_SetFrame, never read by the render thread
     int provider;                       // DLSS_PROVIDER_*, latched by Dlss_Init
     int wantProvider;                   // what Dlss_SetProvider asked for
     int providerCode;                   // what the backend's Init() really returned (retained under POST_ONLY)
@@ -223,6 +223,7 @@ void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void*
     p->lutStrength = lutStrength > 0 ? (lutStrength < 1 ? lutStrength : 1) : 0;   // NaN also disables the pass
     p->nearZ = S.nearZ; p->farZ = S.farZ; p->fovY = S.fovY;
     p->biasMaskMode = S.biasMaskMode;
+    p->passthrough = S.passthrough;   // per-frame snapshot: Dlss_Passthrough may change before the render thread runs this slot
     // p->grade: all-zero from the memset above = Off (GradeParams encodes every knob so that zero is off).
 }
 
@@ -275,7 +276,7 @@ static void __stdcall OnRenderEventAndData(int eventId, void* data)
         FrameParams* p = (FrameParams*)data;
         if (!p) p = S.lastSlot;
         if (!p) { S.dev->lastEval = NVSDK_NGX_Result_FAIL_MissingInput; S.dev->lastError = (int)S.dev->lastEval; break; }
-        S.dev->Evaluate(*p, S.passthrough != 0);
+        S.dev->Evaluate(*p, p->passthrough != 0);
         break;
     }
     case DLSS_EV_RELEASE:

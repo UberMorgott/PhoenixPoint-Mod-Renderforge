@@ -94,6 +94,7 @@ DLSS_API void* __cdecl Dlss_GetRenderEventFunc(void);
 // Unity UnityRenderingEventAndData: void (__stdcall*)(int eventId, void* data). Event 2 reads the slot in `data`; 1/3 ignore it.
 DLSS_API void* __cdecl Dlss_GetRenderEventAndDataFunc(void);
 // When on, DLSS_EV_EVALUATE does CopyResource(output, color) (sizes must match) instead of NGX. Returns previous value.
+// Latched into each slot by Dlss_SetFrame (call it BEFORE SetFrame): a slot already queued keeps the mode it was filled with.
 DLSS_API int __cdecl Dlss_Passthrough(int on);
 // Last failure: an NVSDK_NGX_Result, or one of the DLSS_ERR_* negatives above. 0 = none.
 DLSS_API int __cdecl Dlss_LastError(void);
