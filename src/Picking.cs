@@ -17,11 +17,14 @@ namespace Renderforge
     /// *_Injected icalls) are patched; the 1-arg overloads route through them.</summary>
     internal static class Seams
     {
-        /// <summary>render / screen scale for the live scene camera; false (1,1) for any other camera, DLAA or Off.</summary>
+        /// <summary>render / screen scale for the live scene camera; false (1,1) for any other camera, DLAA or Off.
+        /// Hot (every ScreenPointToRay / WorldToScreenPoint in the game): plain reference compares on the driver's live state,
+        /// no UnityEngine.Object equality. Instance is nulled in the driver's OnDestroy, and a destroyed scene camera only
+        /// matches itself (its own icall throws anyway) - so this answers exactly what the Unity checks did, every call.</summary>
         public static bool Scaled(Camera c, out float sx, out float sy)
         {
             var d = DlssDriver.Instance;
-            if (d == null || c == null || !d.IsLive || c != d.SceneCamera || (d.RenderW == d.OutW && d.RenderH == d.OutH)) { sx = sy = 1f; return false; }
+            if (ReferenceEquals(d, null) || ReferenceEquals(c, null) || !d.IsLive || !ReferenceEquals(c, d.SceneCamera) || (d.RenderW == d.OutW && d.RenderH == d.OutH)) { sx = sy = 1f; return false; }
             sx = (float)d.RenderW / d.OutW;
             sy = (float)d.RenderH / d.OutH;
             return true;
