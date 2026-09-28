@@ -579,15 +579,15 @@ namespace Renderforge
                 {
                     var v = cam.worldToCameraMatrix;
                     var pr = cam.nonJitteredProjectionMatrix;
-                    float[] view = { v.m00, v.m01, v.m02, v.m03, v.m10, v.m11, v.m12, v.m13, v.m20, v.m21, v.m22, v.m23, v.m30, v.m31, v.m32, v.m33 };
-                    float[] proj = { pr.m00, pr.m01, pr.m02, pr.m03, pr.m10, pr.m11, pr.m12, pr.m13, pr.m20, pr.m21, pr.m22, pr.m23, pr.m30, pr.m31, pr.m32, pr.m33 };
+                    Row(fgView, v); Row(fgProj, pr);
                     Vector3 cp = cam.transform.position, cu = cam.transform.up, cr = cam.transform.right, cf = cam.transform.forward;
-                    float[] camv = { cp.x, cp.y, cp.z, cu.x, cu.y, cu.z, cr.x, cr.y, cr.z, cf.x, cf.y, cf.z };
+                    fgCam[0] = cp.x; fgCam[1] = cp.y; fgCam[2] = cp.z; fgCam[3] = cu.x; fgCam[4] = cu.y; fgCam[5] = cu.z;
+                    fgCam[6] = cr.x; fgCam[7] = cr.y; fgCam[8] = cr.z; fgCam[9] = cf.x; fgCam[10] = cf.y; fgCam[11] = cf.z;
                     Native.Fg_SetFrame(outPtr, depthPtr, mvPtr, -jx, -jy, -renderW, -renderH,
                         cam.nearClipPlane, cam.farClipPlane, cam.fieldOfView * Mathf.Deg2Rad,
                         Time.unscaledDeltaTime * 1000f, reset,
                         (uint)renderW, (uint)renderH, (uint)outW, (uint)outH, (ulong)frames,
-                        view, proj, camv);
+                        fgView, fgProj, fgCam);
                     cbEval.IssuePluginEvent(evFn, Native.DLSS_EV_FG_PREPARE);
                 }
                 frames++;
@@ -694,6 +694,18 @@ namespace Renderforge
                 case RenderforgeMode.UltraQualityPlus: return Native.DLSS_Q_ULTRA_QUALITY_PLUS;
                 default: return Native.DLSS_Q_DLAA;
             }
+        }
+
+        // Fg_SetFrame inputs, reused every frame: the shim memcpy's them inside the call (RenderforgeNative.cpp Fg_SetFrame).
+        private static readonly float[] fgView = new float[16], fgProj = new float[16], fgCam = new float[12];
+
+        /// <summary>Row-major m00..m33, the order Fg_SetFrame always got.</summary>
+        private static void Row(float[] d, Matrix4x4 m)
+        {
+            d[0] = m.m00; d[1] = m.m01; d[2] = m.m02; d[3] = m.m03;
+            d[4] = m.m10; d[5] = m.m11; d[6] = m.m12; d[7] = m.m13;
+            d[8] = m.m20; d[9] = m.m21; d[10] = m.m22; d[11] = m.m23;
+            d[12] = m.m30; d[13] = m.m31; d[14] = m.m32; d[15] = m.m33;
         }
 
         private static void Halton(int index, out float x, out float y)
