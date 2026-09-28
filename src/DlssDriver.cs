@@ -443,7 +443,8 @@ namespace Renderforge
             if (NeedsMvDepth)
             {
                 cam.depthTextureMode |= DepthTextureMode.Depth | DepthTextureMode.MotionVectors;
-                if (!copyAttached) { cam.AddCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy); copyAttached = true; }
+                // Attached mid-generation: the MV/depth history so far is missing, so the first frame fed is a reset.
+                if (!copyAttached) { cam.AddCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy); copyAttached = true; resetNext = true; }
             }
             else if (copyAttached)
             {
