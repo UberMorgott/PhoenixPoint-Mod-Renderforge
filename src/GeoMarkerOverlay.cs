@@ -4,6 +4,7 @@ using System.Linq;
 using Base.Cameras;
 using Base.Core;
 using Base.Utils;
+using HarmonyLib;
 using PhoenixPoint.Common.Core;
 using PhoenixPoint.Geoscape.View;
 using UnityEngine;
@@ -30,7 +31,14 @@ namespace Renderforge
     /// Everything is restored on release; an exception anywhere here disables the overlay until the next level start, never the upscaler.</summary>
     internal static class GeoMarkerOverlay
     {
-        private const float RescanInterval = 0.25f;  // s wall time: sites activate mid-level; highlight / addon / mission visuals spawn under known ones
+        // New marker objects arrive through Harmony seams (GeoSiteVisuals_* patches below: a site enabled, a highlight /
+        // mission / diplomatic / details object spawned under a known one) and are walked the same frame, one site each.
+        // FallbackInterval is only the safety net for spawners without a seam: the geoscape hierarchyCount is read that
+        // often, and a change re-walks the near sites amortised, RewalkPerFrame at a time - never one ~5 ms burst.
+        private const float FallbackInterval = 2f;   // s wall time
+        private const int RewalkPerFrame = 8;
+        /// <summary>Set by the OnEnable seam's Prepare: false (method missing) = the fallback also runs the scene-wide site search.</summary>
+        internal static bool Hooked;
 
         private static Camera geo, M;                 // M = DlssDriver's present camera while active
         private static CommandBuffer cbPresent;
@@ -43,11 +51,18 @@ namespace Renderforge
         private static readonly Dictionary<Transform, int> origLayers = new Dictionary<Transform, int>();
         private static readonly Dictionary<Canvas, Camera> origWorldCam = new Dictionary<Canvas, Camera>();
         private static readonly Dictionary<GeoSiteVisualsController, bool> near = new Dictionary<GeoSiteVisualsController, bool>();
-        private static GeoSiteVisualsController[] active = new GeoSiteVisualsController[0];   // horizon-tested a quarter per frame
+        private static readonly List<GeoSiteVisualsController> active = new List<GeoSiteVisualsController>();   // horizon-tested a quarter per frame
         private static int cursor;
+        private static readonly HashSet<GeoSiteVisualsController> dirty = new HashSet<GeoSiteVisualsController>();   // seams, drained in OnScenePreCull
+        private static readonly Queue<GeoSiteVisualsController> rewalk = new Queue<GeoSiteVisualsController>();       // fallback, RewalkPerFrame per frame
+        private static bool sitesDied;                // a GeoSiteVisualsController.OnDestroy since the last drain
         private static Transform hcRoot;              // the geoscape hierarchy the sites live in (hierarchyCount is per root)
         private static int walkedHc;
         private static float nextScan;
+        private static int fullScans, eventWalks, fallbackPasses;   // PPCLI Status counters, reset per activation
+        private static Camera nameCam;                // last scene camera whose name was read (Camera.name allocates a string)
+        private static bool nameIsGeo;
+        private static readonly Predicate<GeoSiteVisualsController> deadSite = v => !v;
         private static LevelSwitchCurtainController curtain;
         private static CameraManager camMgr;
         private static string lastGate;              // last logged "not armed" reason (log once per reason)
@@ -83,7 +98,7 @@ namespace Renderforge
                 }
                 if (why != null)
                 {
-                    if (why != lastGate && sceneCam != null && sceneCam.name == "GeoscapeCamera") { lastGate = why; Log("not armed - " + why); }
+                    if (why != lastGate && IsGeoCam(sceneCam)) { lastGate = why; Log("not armed - " + why); }
                     return;
                 }
                 Activate(sceneCam);
@@ -106,7 +121,7 @@ namespace Renderforge
         {
             if (!Diagnostics.MarkerOverlay) return "disabled";
             if (disabledByFailure) return "disabled after a failure (until the next level)";
-            if (sceneCam == null || sceneCam.name != "GeoscapeCamera") return "not the geoscape camera";
+            if (!IsGeoCam(sceneCam)) return "not the geoscape camera";
             if (passthrough) return "passthrough generation";
             if (!Availability.IsD3D11) return "API " + Availability.ApiName + " (marker pass only verified on D3D11)";
             var cfg = RenderforgeMod.Instance?.Cfg;
@@ -118,6 +133,14 @@ namespace Renderforge
             if (camMgr != null && camMgr.PauseObjectRendering) return "object rendering paused by the game (cutscene)";
             if (sceneCam.cullingMask == 0) return "GeoscapeCamera culls nothing";
             return null;
+        }
+
+        /// <summary>Name read once per camera object (every Live frame asked; Camera.name allocates). A destroyed camera is a
+        /// different reference from its successor, so the cache never answers for a new camera.</summary>
+        private static bool IsGeoCam(Camera c)
+        {
+            if (!ReferenceEquals(c, nameCam)) { nameCam = c; nameIsGeo = c != null && c.name == "GeoscapeCamera"; }
+            return nameIsGeo && c != null;
         }
 
         private static void Activate(Camera sceneCam)
@@ -142,8 +165,11 @@ namespace Renderforge
             M.cullingMask = 1 << layer;
             sync = M.gameObject.AddComponent<Sync>();
             Camera.onPreCull += OnScenePreCull;
-            hcRoot = null; walkedHc = -1; nextScan = 0f; cursor = 0; lastGate = null;
-            int n = Rescan(true);
+            hcRoot = null; walkedHc = -1; nextScan = Time.unscaledTime + FallbackInterval; cursor = 0; lastGate = null;
+            fullScans = eventWalks = fallbackPasses = 0;
+            dirty.Clear(); rewalk.Clear(); sitesDied = false;
+            int n = FullScan();
+            walkedHc = hcRoot ? hcRoot.hierarchyCount : -1;
             Log("drawn after reconstruction by the DlssPresent camera, layer " + layer + ", " + n + " sites / " + origLayers.Count + " objects, " + camMasks.Count + " cameras lost the bit, GeoscapeCamera mask 0x" + origMask.ToString("X") + " -> 0x" + geo.cullingMask.ToString("X"));
         }
 
@@ -200,7 +226,7 @@ namespace Renderforge
         {
             if (pendingFail != null) { Disable(pendingFail); pendingFail = null; }
             origLayers.Clear(); origWorldCam.Clear(); near.Clear(); camMasks.Clear();
-            active = new GeoSiteVisualsController[0]; cursor = 0;
+            active.Clear(); cursor = 0; dirty.Clear(); rewalk.Clear(); sitesDied = false;
             geo = null; M = null; curtain = null; camMgr = null; sync = null; cbPresent = null; hcRoot = null; layer = -1;
         }
 
@@ -233,42 +259,82 @@ namespace Renderforge
             if (dead != null) foreach (var k in dead) d.Remove(k);
         }
 
-        /// <summary>Every active GeoSiteVisualsController. Every RescanInterval of wall time the sites are re-walked, and only
-        /// when the geoscape hierarchy's transform count moved (or no root is known yet; force = activation).
-        /// ponytail: hierarchyCount is one number for the whole Geoscape tree, so a change anywhere re-walks every near
-        /// site (~5 ms, the ceiling of one rescan); a site that merely toggles active without any spawn is not seen until
-        /// something else changes the count. Per-site dirty flags if that ever shows.</summary>
-        private static int Rescan(bool force)
+        /// <summary>Scene-wide search for GeoSiteVisualsControllers: activation, and the fallback when the OnEnable seam is
+        /// missing. Only sites never seen before are classified and walked; known ones are left to the seams / rewalk queue.</summary>
+        private static int FullScan()
+        {
+            fullScans++;
+            var found = Object.FindObjectsOfType<GeoSiteVisualsController>();
+            if (!hcRoot)
+                foreach (var v in found) if (v.VisualsContainer) { hcRoot = v.VisualsContainer.root; break; }
+            foreach (var v in found) if (!near.ContainsKey(v)) Admit(v);
+            return active.Count;
+        }
+
+        /// <summary>One site from a seam (or a scan): a new one is classified on sight - a far-side site never gets a frame
+        /// through the globe - and walked if near; a known near one is re-walked (something spawned under it).</summary>
+        private static void Admit(GeoSiteVisualsController v)
+        {
+            if (!v || !v.VisualsContainer) return;
+            bool isNear;
+            if (near.TryGetValue(v, out isNear)) { if (isNear) { Layer(v, true); eventWalks++; } return; }
+            isNear = FacesCamera(v.VisualsContainer.position, geo.transform.position, GlobeUnits.GlobeCenter, GlobeUnits.GlobeRadius * GlobeUnits.GlobeRadius);
+            near[v] = isNear;
+            if (isNear) { Layer(v, true); eventWalks++; }
+            active.Add(v);
+        }
+
+        /// <summary>Seam events since the last frame, applied before GeoscapeCamera culls: the spawning frame already draws
+        /// the new object on the marker layer.</summary>
+        private static void DrainEvents()
+        {
+            if (sitesDied) { sitesDied = false; active.RemoveAll(deadSite); PruneDead(near); cursor = 0; }
+            if (dirty.Count == 0) return;
+            foreach (var v in dirty) Admit(v);
+            dirty.Clear();
+        }
+
+        /// <summary>Safety net for spawners without a seam, every FallbackInterval: when the geoscape hierarchyCount moved,
+        /// queue every near site for an amortised re-walk (RewalkPerFrame per frame); when it shrank, drop destroyed keys
+        /// from the maps (cheap managed liveness checks, but ~17k of them - not per frame). Without the OnEnable seam the
+        /// scene-wide site search runs here too.</summary>
+        private static void Fallback()
         {
             float now = Time.unscaledTime;
-            if (!force && now < nextScan) return active.Length;
-            nextScan = now + RescanInterval;
+            if (now < nextScan) return;
+            nextScan = now + FallbackInterval;
             int hc = hcRoot ? hcRoot.hierarchyCount : -1;
-            if (!force && hc >= 0 && hc == walkedHc) return active.Length;
-            PruneDead(near); PruneDead(origLayers); PruneDead(origWorldCam); PruneDead(camMasks);
-            var found = Object.FindObjectsOfType<GeoSiteVisualsController>();
-            var list = new List<GeoSiteVisualsController>(found.Length);
-            if (!hcRoot)
-                foreach (var v in found) if (v.VisualsContainer) { hcRoot = v.VisualsContainer.root; hc = hcRoot.hierarchyCount; break; }
-            bool rewalk = hc != walkedHc;
-            walkedHc = hc;
-            Vector3 c = geo.transform.position, g = GlobeUnits.GlobeCenter;
-            float r = GlobeUnits.GlobeRadius, r2 = r * r;
-            foreach (var v in found)
+            if (hc >= 0 && hc == walkedHc) return;
+            fallbackPasses++;
+            if (hc < walkedHc)
             {
-                if (v.VisualsContainer == null) continue;
-                bool isNear;
-                if (near.TryGetValue(v, out isNear)) { if (isNear && rewalk) Layer(v, true); list.Add(v); continue; }
-                isNear = FacesCamera(v.VisualsContainer.position, c, g, r2);   // classified on sight: a far-side site never gets a frame through the globe
-                near[v] = isNear;
-                if (isNear) Layer(v, true);
-                list.Add(v);
+                PruneDead(near); PruneDead(origLayers); PruneDead(origWorldCam); PruneDead(camMasks);
+                active.RemoveAll(deadSite); cursor = 0;
             }
-            if (rewalk && !force) Log("rescan: " + list.Count + " sites / " + origLayers.Count + " objects, hierarchy " + hc + ", t=" + now.ToString("F3") + " frame=" + Time.frameCount);
-            active = list.ToArray();
-            cursor = 0;
-            return active.Length;
+            if (!Hooked || hc < 0) { FullScan(); if (hc < 0 && hcRoot) hc = hcRoot.hierarchyCount; }
+            walkedHc = hc;
+            rewalk.Clear();
+            foreach (var kv in near) if (kv.Value && kv.Key) rewalk.Enqueue(kv.Key);
         }
+
+        private static void Rewalk()
+        {
+            for (int k = 0; k < RewalkPerFrame && rewalk.Count > 0; k++)
+            {
+                var v = rewalk.Dequeue();
+                bool isNear;
+                if (v && v.VisualsContainer && near.TryGetValue(v, out isNear) && isNear) Layer(v, true);
+            }
+        }
+
+        /// <summary>Harmony seams (GeoSiteVisuals_* patches): a site enabled / something spawned under it. Cheap no-op while unarmed.</summary>
+        internal static void MarkDirty(GeoSiteVisualsController v)
+        {
+            if (M == null || ReferenceEquals(v, null)) return;
+            dirty.Add(v);
+        }
+
+        internal static void SiteDestroyed() { if (M != null) sitesDied = true; }
 
         /// <summary>VisualsContainer subtree onto the marker layer (take = true) or back to the recorded originals
         /// (take = false); the SiteSpecialAddonContainer / SiteUniqueAddonContainer subtrees (3D haven-zone models,
@@ -320,8 +386,9 @@ namespace Renderforge
         /// frame if either is ever visible.</summary>
         private static void UpdateHorizon()
         {
-            int n = active.Length;
+            int n = active.Count;
             if (n == 0) return;
+            if (cursor >= n) cursor = 0;
             Vector3 c = geo.transform.position, g = GlobeUnits.GlobeCenter;
             float r = GlobeUnits.GlobeRadius, r2 = r * r;
             for (int k = Mathf.Max(1, n / 4); k > 0; k--)
@@ -357,7 +424,9 @@ namespace Renderforge
             try
             {
                 geo.cullingMask &= ~(1 << layer);       // re-asserted: the game may rewrite it
-                Rescan(false);
+                DrainEvents();
+                Fallback();
+                Rewalk();
                 UpdateHorizon();
             }
             catch (Exception ex) { pendingFail = ex; }   // never Restore inside a render callback: the next Tick does
@@ -392,7 +461,8 @@ namespace Renderforge
             if (M == null) return "inactive layer=" + layer + " gate=" + (lastGate ?? "-");
             int onNear = near.Count(kv => kv.Key && kv.Value);
             string g = geo ? geo.name : "destroyed";
-            return "active layer=" + layer + " sites=" + near.Count + " activeSites=" + active.Length + " onNear=" + onNear + " objects=" + origLayers.Count + " canvases=" + origWorldCam.Count + " cameras=" + camMasks.Count
+            return "active layer=" + layer + " sites=" + near.Count + " activeSites=" + active.Count + " onNear=" + onNear + " objects=" + origLayers.Count + " canvases=" + origWorldCam.Count + " cameras=" + camMasks.Count
+                 + " hooked=" + Hooked + " fullScans=" + fullScans + " eventWalks=" + eventWalks + " fallbackPasses=" + fallbackPasses + " rewalkQueue=" + rewalk.Count
                  + " geo=" + g + " geoMask=0x" + (geo ? geo.cullingMask.ToString("X") : "-") + " origMask=0x" + origMask.ToString("X")
                  + " M=" + M.name + " M.enabled=" + M.enabled + " M.pos=" + M.transform.position + " geo.pos=" + (geo ? geo.transform.position.ToString() : "-") + " M.rot=" + M.transform.rotation.eulerAngles + " geo.rot=" + (geo ? geo.transform.rotation.eulerAngles.ToString() : "-")
                  + " M.depth=" + M.depth + " geo.depth=" + (geo ? geo.depth.ToString() : "-") + " M.mask=0x" + M.cullingMask.ToString("X") + " M.clear=" + M.clearFlags + " M.cbs=" + M.commandBufferCount
@@ -494,6 +564,70 @@ namespace Renderforge
             }
             sb.Append('\n');
             for (int i = 0; i < t.childCount; i++) Dump(t.GetChild(i), depth + 1, sb);
+        }
+    }
+
+    // ---------------------------------------------------------------- marker seams (decompile GeoSiteVisualsController.cs)
+    // Every place that brings a marker object into a site's VisualsContainer tree: OnEnable :167 (site spawned by
+    // GeoActorSpawner or re-activated), AddSiteDetailsVisuals :175 (GeoSite.cs:939), RefreshAnimations :404 (highlight
+    // under LocationIconParent :410), RefreshMissionVisuals :595 (diplomatic :601 / mission :627 under VisualsContainer).
+    // Haven-zone addons (:514/:519) go under the pruned SiteAddon containers; RefreshSiteAddons :542 has no caller.
+    // Prepare = false (method or field renamed by a game update) skips that seam; the 2 s fallback still covers it.
+
+    [HarmonyPatch(typeof(GeoSiteVisualsController), nameof(GeoSiteVisualsController.OnEnable))]
+    internal static class GeoSiteVisuals_OnEnable_Patch
+    {
+        static bool Prepare() => GeoMarkerOverlay.Hooked = AccessTools.Method(typeof(GeoSiteVisualsController), nameof(GeoSiteVisualsController.OnEnable)) != null;
+        static void Postfix(GeoSiteVisualsController __instance) => GeoMarkerOverlay.MarkDirty(__instance);
+    }
+
+    [HarmonyPatch(typeof(GeoSiteVisualsController), "OnDestroy")]
+    internal static class GeoSiteVisuals_OnDestroy_Patch
+    {
+        static bool Prepare() => AccessTools.Method(typeof(GeoSiteVisualsController), "OnDestroy") != null;
+        static void Postfix() => GeoMarkerOverlay.SiteDestroyed();
+    }
+
+    [HarmonyPatch(typeof(GeoSiteVisualsController), nameof(GeoSiteVisualsController.AddSiteDetailsVisuals))]
+    internal static class GeoSiteVisuals_AddSiteDetailsVisuals_Patch
+    {
+        static bool Prepare() => AccessTools.Method(typeof(GeoSiteVisualsController), nameof(GeoSiteVisualsController.AddSiteDetailsVisuals)) != null;
+        static void Postfix(GeoSiteVisualsController __instance) => GeoMarkerOverlay.MarkDirty(__instance);
+    }
+
+    [HarmonyPatch(typeof(GeoSiteVisualsController), nameof(GeoSiteVisualsController.RefreshAnimations))]
+    internal static class GeoSiteVisuals_RefreshAnimations_Patch
+    {
+        static bool Prepare() => AccessTools.Method(typeof(GeoSiteVisualsController), nameof(GeoSiteVisualsController.RefreshAnimations)) != null
+                              && AccessTools.Field(typeof(GeoSiteVisualsController), "_highlight") != null;
+        static void Prefix(GameObject ____highlight, out GameObject __state) => __state = ____highlight;
+        static void Postfix(GeoSiteVisualsController __instance, GameObject ____highlight, GameObject __state)
+        {
+            if (!ReferenceEquals(____highlight, null) && !ReferenceEquals(____highlight, __state)) GeoMarkerOverlay.MarkDirty(__instance);
+        }
+    }
+
+    /// <summary>Called on every site refresh: only a NEW mission / diplomatic visual marks the site (a refresh without a
+    /// spawn must not re-walk it - a day tick refreshes every site at once).</summary>
+    [HarmonyPatch(typeof(GeoSiteVisualsController), "RefreshMissionVisuals")]
+    internal static class GeoSiteVisuals_RefreshMissionVisuals_Patch
+    {
+        internal struct Before { public Object Mission, Diplomatic; }
+
+        static bool Prepare() => AccessTools.Method(typeof(GeoSiteVisualsController), "RefreshMissionVisuals") != null
+                              && AccessTools.Field(typeof(GeoSiteVisualsController), "_missionVisualsController") != null
+                              && AccessTools.Field(typeof(GeoSiteVisualsController), "_diplomaticObjectiveController") != null;
+
+        static void Prefix(GeoUpdatedableMissionVisualsController ____missionVisualsController,
+                           GeoDiplomaticObjectiveVisualsController ____diplomaticObjectiveController, out Before __state)
+            => __state = new Before { Mission = ____missionVisualsController, Diplomatic = ____diplomaticObjectiveController };
+
+        static void Postfix(GeoSiteVisualsController __instance, GeoUpdatedableMissionVisualsController ____missionVisualsController,
+                            GeoDiplomaticObjectiveVisualsController ____diplomaticObjectiveController, Before __state)
+        {
+            if ((!ReferenceEquals(____missionVisualsController, null) && !ReferenceEquals(____missionVisualsController, __state.Mission))
+                || (!ReferenceEquals(____diplomaticObjectiveController, null) && !ReferenceEquals(____diplomaticObjectiveController, __state.Diplomatic)))
+                GeoMarkerOverlay.MarkDirty(__instance);
         }
     }
 }
