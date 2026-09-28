@@ -379,6 +379,21 @@ namespace Renderforge
             return "sharpness=" + m.Cfg.Sharpness;
         }
 
+        /// <summary>The DLSS MODEL row and PPCLI: {"member":"SetDlssModel","args":["E"]} - Auto / K / J / M / L / E / F.
+        /// Saved; while DLSS runs the driver sees the new preset next frame and re-creates the NGX feature on it
+        /// (DlssDriver Live check). No effect on FSR/XeSS.</summary>
+        public static string SetDlssModel(string name)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            DlssModel want;
+            if (!Enum.TryParse(name, true, out want) || !Enum.IsDefined(typeof(DlssModel), want))
+                return "bad DLSS model '" + name + "' (Auto / K / J / M / L / E / F)";
+            m.Cfg.DlssModel = want;
+            SaveConfig();
+            return "dlssModel=" + want + " ngxPreset=" + DlssConfig.NgxPreset(want);
+        }
+
         internal static void ApplyLutSettings()
         {
             var m = Instance;

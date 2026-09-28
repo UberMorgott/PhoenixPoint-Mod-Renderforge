@@ -36,6 +36,7 @@ namespace Renderforge
         private int renderW, renderH, outW, outH, quality;
         private bool wantsFeature;          // false in Passthrough: no NGX feature is created at all
         private bool liveMvJittered;        // DLSS_F_MV_JITTERED the feature was created with (runtime diagnostic)
+        private int livePreset;             // NGX render preset the feature was created with (Cfg.DlssModel; 0 = per-mode defaults)
         private bool liveSrgbViews;         // DLSS_F_SRGB_VIEWS the generation was created with (D3D12 runtime diagnostic)
         private bool liveColorDesc;         // colorRT created from an explicit R8G8B8A8_SRGB descriptor (D3D12 runtime diagnostic)
         private bool liveHalfColor;         // colorRT + outRT linear ARGBHalf, DLSS_F_HDR (fixed-on production path)
@@ -47,6 +48,7 @@ namespace Renderforge
         private Vector3 lastPos;
         private float lastFov;
         private bool suspended;             // level end: no generation until the next Apply (OnLevelStart)
+        private bool copyAttached;          // cbCopy on the camera + Depth|MotionVectors forced (see NeedsMvDepth)
 
         private bool depthModeSaved;
         private DepthTextureMode savedDepthMode;
@@ -169,7 +171,7 @@ namespace Renderforge
                 int c, e, alive; int init = Native.Dlss_Status(out c, out e, out alive);
                 return "gen=" + gen + " mode=" + liveMode + " view=" + liveView + " want=" + wantMode + "/" + wantView
                      + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " screen=" + Screen.width + "x" + Screen.height
-                     + " q=" + quality + " passthrough=" + passthrough + " liveMvJittered=" + liveMvJittered + " liveSrgbViews=" + liveSrgbViews + " frames=" + frames + " resets=" + resets + " fov=" + (cam ? cam.fieldOfView.ToString("F3") : "-") + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
+                     + " q=" + quality + " preset=" + livePreset + "/" + Native.DlssPreset() + " passthrough=" + passthrough + " liveMvJittered=" + liveMvJittered + " liveSrgbViews=" + liveSrgbViews + " frames=" + frames + " resets=" + resets + " fov=" + (cam ? cam.fieldOfView.ToString("F3") : "-") + " jitter=" + jx.ToString("F3") + "," + jy.ToString("F3")
                      + " init=" + init + " api=" + Native.Api() + " unityIface=" + Native.UnityIface()
                      + " create=0x" + c.ToString("X") + "(" + Native.Dlss_ResultString(c) + ") eval=0x" + e.ToString("X") + "(" + Native.Dlss_ResultString(e) + ")"
                      + " feature=" + alive + " lastError=" + Native.Dlss_LastError() + " sharpen=" + Native.SharpenerName(Native.Dlss_Sharpener())
@@ -177,7 +179,7 @@ namespace Renderforge
                      + " depthMode=" + (cam ? cam.depthTextureMode.ToString() : "-") + " aa=" + (layer ? layer.antialiasingMode.ToString() : "-")
                      + " colorSpace=" + QualitySettings.activeColorSpace + " reversedZ=" + SystemInfo.usesReversedZBuffer
                      + " path=" + (cam ? cam.actualRenderingPath.ToString() : "-")
-                     + " present=" + (present ? (present.enabled ? "on" : "off") : "none") + " broken=" + broken + " fail=" + lastFail
+                     + " present=" + (present ? (present.enabled ? "on" : "off") : "none") + " mvCopy=" + copyAttached + " broken=" + broken + " fail=" + lastFail
                      + " " + Native.Timings();
             }
         }
@@ -267,7 +269,8 @@ namespace Renderforge
                     // Bound camera deactivated (CameraManager swapped to another one): a present camera left on would
                     // blit a stale outRT over whatever renders now. Release; Idle re-creates on the rebound camera.
                     if (!cam.isActiveAndEnabled || !needsPipeline || wantMode != liveMode || !SameSizeClass(liveView, wantView)
-                        || Screen.width != outW || Screen.height != outH || liveMvJittered != WantMvJittered || liveSrgbViews != WantSrgbViews || liveColorDesc != WantColorDesc || liveHalfColor != WantHalfColor)
+                        || Screen.width != outW || Screen.height != outH || liveMvJittered != WantMvJittered || liveSrgbViews != WantSrgbViews || liveColorDesc != WantColorDesc || liveHalfColor != WantHalfColor
+                        || (wantsFeature && livePreset != WantPreset))   // NGX reads the preset only at creation: re-create
                     {
                         BeginRelease();
                         break;
@@ -389,11 +392,13 @@ namespace Renderforge
                           | (liveMvJittered ? Native.DLSS_F_MV_JITTERED : 0)
                           | (liveSrgbViews ? Native.DLSS_F_SRGB_VIEWS : 0)
                           | (liveHalfColor ? Native.DLSS_F_HDR : 0);
+                livePreset = WantPreset;
+                Native.SetDlssPreset(livePreset);   // latched by the SetCreateParams below
                 Native.Dlss_SetCreateParams((uint)renderW, (uint)renderH, (uint)outW, (uint)outH, quality, flags);
                 GL.IssuePluginEvent(evFn, Native.DLSS_EV_CREATE);
             }
             gen = Gen.Creating; genFrames = 0; frames = 0;
-            RenderforgeMod.Instance?.Logger.LogInfo("DLSS generation: mode=" + liveMode + " view=" + liveView + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " q=" + quality + " phases=" + phaseCount + " colorRT=" + colorRT.graphicsFormat + " sRGB=" + colorRT.sRGB + " colorDesc=" + liveColorDesc + " halfColor=" + liveHalfColor + " outRT=" + outRT.graphicsFormat);
+            RenderforgeMod.Instance?.Logger.LogInfo("DLSS generation: mode=" + liveMode + " view=" + liveView + " render=" + renderW + "x" + renderH + " out=" + outW + "x" + outH + " q=" + quality + " phases=" + phaseCount + " colorRT=" + colorRT.graphicsFormat + " sRGB=" + colorRT.sRGB + " colorDesc=" + liveColorDesc + " halfColor=" + liveHalfColor + " outRT=" + outRT.graphicsFormat + " preset=" + (wantsFeature ? livePreset : 0));
         }
 
         private static RenderTexture Make(string name, int w, int h, RenderTextureFormat fmt, bool uav, RenderTextureReadWrite rw = RenderTextureReadWrite.Default)
@@ -415,18 +420,33 @@ namespace Renderforge
         {
             if (!depthModeSaved) { savedDepthMode = cam.depthTextureMode; depthModeSaved = true; }
             if (layer != null && !aaSaved) { savedAA = layer.antialiasingMode; aaSaved = true; }
-            cam.AddCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy);
             cam.AddCommandBuffer(CameraEvent.AfterEverything, cbEval);
-            KeepCameraState();
+            KeepCameraState();   // also adds cbCopy when MV/depth are consumed
             present.enabled = true;
             lastPos = cam.transform.position; lastFov = cam.fieldOfView;
         }
+
+        /// <summary>Motion vectors + depth feed only a real upscaler feature, frame generation and the Depth / MotionVectors
+        /// debug views. A passthrough generation (upscaler Off, sharpen / LUT / grade on; the shim's passthrough Evaluate
+        /// never reads them, Device11.cpp / Device12.cpp) must not force Unity's MotionVectors pass, which re-draws every
+        /// skinned / moving renderer, nor copy the two textures every frame.</summary>
+        private bool NeedsMvDepth => !passthrough || FrameGen.Live || liveView == DebugView.Depth || liveView == DebugView.MotionVectors;
 
         /// <summary>Re-asserted every live frame: PPv2 or the game may touch these between frames.</summary>
         private void KeepCameraState()
         {
             cam.targetTexture = colorRT;
-            cam.depthTextureMode |= DepthTextureMode.Depth | DepthTextureMode.MotionVectors;
+            // Follows NeedsMvDepth live: frame generation can come up (or go) after the generation was created.
+            if (NeedsMvDepth)
+            {
+                cam.depthTextureMode |= DepthTextureMode.Depth | DepthTextureMode.MotionVectors;
+                if (!copyAttached) { cam.AddCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy); copyAttached = true; }
+            }
+            else if (copyAttached)
+            {
+                cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy); copyAttached = false;
+                if (depthModeSaved) cam.depthTextureMode = savedDepthMode;
+            }
             // SMAA off only under a real upscaler (it replaces the AA); a passthrough generation keeps vanilla AA.
             if (!passthrough && layer != null && layer.antialiasingMode != PostProcessLayer.Antialiasing.None) layer.antialiasingMode = PostProcessLayer.Antialiasing.None;
             present.depth = cam.depth + 1;
@@ -437,12 +457,13 @@ namespace Renderforge
             GeoMarkerOverlay.Restore();
             if (cam != null)
             {
-                if (cbCopy != null) cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy);
+                if (cbCopy != null && copyAttached) cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy);
                 if (cbEval != null) cam.RemoveCommandBuffer(CameraEvent.AfterEverything, cbEval);
                 if (cam.targetTexture == colorRT) cam.targetTexture = null;
                 if (depthModeSaved) { cam.depthTextureMode = savedDepthMode; depthModeSaved = false; }
                 cam.ResetProjectionMatrix();
             }
+            copyAttached = false;
             if (layer != null && aaSaved) { layer.antialiasingMode = savedAA; aaSaved = false; }
             if (present != null) present.enabled = false;
         }
@@ -550,7 +571,7 @@ namespace Renderforge
                         Mathf.Clamp(cfg.Saturation, 0, 200) / 100f, Mathf.Clamp(cfg.Vibrance, -100, 100) / 100f);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
-                if (FrameGen.Live && !FrameGen.HoldPrepare)
+                if (FrameGen.Live && !FrameGen.HoldPrepare && copyAttached)   // copyAttached: FG never gets MV/depth nobody rendered (the frame FG came up in a passthrough generation)
                 {
                     var v = cam.worldToCameraMatrix;
                     var pr = cam.nonJitteredProjectionMatrix;
@@ -592,6 +613,9 @@ namespace Renderforge
         private static bool WantSrgbViews => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && Diagnostics.D3D12SrgbViews;
         private static bool WantColorDesc => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && Diagnostics.D3D12ColorDesc;
         private static bool WantHalfColor => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12 && Diagnostics.D3D12HalfColor;
+        // FSR/XeSS have no NGX presets: 0 there, so a DLSS MODEL change never re-creates their features.
+        private static int WantPreset => Upscalers.Running == UpscalerKind.DLSS
+            ? DlssConfig.NgxPreset(RenderforgeMod.Instance?.Cfg?.DlssModel ?? DlssModel.Auto) : 0;
 
         /// <summary>Diagnostic: one texel of mvRT (the BuiltinRenderTextureType.MotionVectors copy the SDK is fed), render-res
         /// coordinates, y from the bottom (ReadPixels). RGHalf is not ReadPixels-readable, so Blit into an ARGBFloat temp first.
