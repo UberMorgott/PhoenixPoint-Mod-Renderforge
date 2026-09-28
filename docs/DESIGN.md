@@ -207,7 +207,13 @@ Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xe
      `proj[1,2] += 2·jy/renderH` (PPv2 `TemporalAntialiasing` sign convention);
      `useJitteredProjectionMatrixForTransparentRendering = false`;
      `depthTextureMode |= Depth | MotionVectors`; `targetTexture = colorRT` (render res).
+     History reset (1.6.4): a position jump > 50 units or a per-frame FOV change > 5 % (cut / zoom snap); the 1.6.3
+     `Mathf.Approximately` FOV test reset on every frame of a Cinemachine blend / `FrameModifier` lens animation.
   2. `CommandBuffer` at `CameraEvent.BeforeImageEffects` (depth/MV transients are alive there):
+     Only while MV/depth are consumed (1.6.4, `DlssDriver.NeedsMvDepth`): a real upscaler feature, live frame
+     generation, or the Depth / MotionVectors debug view. A passthrough generation (upscaler Off with sharpen / LUT /
+     grade / style) neither forces `Depth | MotionVectors` (the MV pass re-draws every skinned renderer) nor adds this
+     buffer; it follows FG coming up or going mid-generation. Status: `mvCopy=`.
      `CopyTexture(BuiltinRenderTextureType.MotionVectors → mvRT RGHalf)` (same size/format,
      no resample, no Y flip); depth: material-less `Blit(BuiltinRenderTextureType.Depth →
      depthRT RFloat)` point-sampled, no conversion (`DepthInverted` flag from
@@ -353,6 +359,11 @@ Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xe
   1813 textures set, 753 skipped, 9–15 ms per sweep; `build\shots\8-mip-{off,on}.png`: mean |luma
   gradient| over two rock regions 2.93 → 3.25, rock grain visible in the 4× crops
   `crop-8-mip-{off,on}.png`, HUD/overlay text identical (ScreenSpaceOverlay, sprites have no mips).
+  **1.6.4 sweep cache:** every texture is classified once per instance id (skip / normal / UI; `name`, `mipmapCount`
+  and the Sprite scan only on first sight). A sweep writes unseen textures, plus the normal or UI class only when its
+  bias differs from what it last wrote, so the level-start and +2 s re-sweeps stop rewriting every texture (the
+  9–15 ms hitch). `Resweep` (UI pin toggled) clears the cache; `Sprite_Create_Patch` marks the textures it pins as UI.
+  Log: `MipBias: bias=… applied to N textures (… new A, unchanged K, skipped S[, full]) in T ms`.
 - **Benchmark overlay** (`src\Overlay.cs`, `ShowOverlay=false`, `OverlayPosition=TopCenter` of
   `TopLeft|TopCenter|TopRight|BottomCenter`): one ScreenSpaceOverlay canvas, sortingOrder 30000,
   no GraphicRaycaster, `raycastTarget=false`, HUD font (first `Text` found) else Arial, size
@@ -456,10 +467,11 @@ player actually sees. Runs wherever the pass runs (tactical + geoscape); the HUD
     needs a monotonic brightness estimate, and it is 13 scalar pows per pixel instead of 39 (three per tap).
   - Each stage branches on its uniform (`levelsBlack != 0 || whiteDrop != 0`, `contrastDelta != 0`,
     `clarity != 0`) and the whole function early-outs when all four are zero: bit-exact bypass, no divergence.
-- **Config writes are coalesced.** `RenderforgeMod.SaveConfig()` only marks the config dirty; `ConfigSaver`
-  (a `HideAndDontSave` MonoBehaviour created on the first call) writes once in `LateUpdate` and on
-  `OnApplicationQuit`, `OnModDisabled` calls `FlushConfig()` first. A slider drag = one `SaveModConfig` per frame
-  at most, for every Renderforge slider (sharpness, LUT strength, style strength, pixel size, the four grade knobs).
+- **Config writes are debounced (1.6.4).** `RenderforgeMod.SaveConfig()` only marks the config dirty and stamps the
+  time; `ConfigSaver` (a `HideAndDontSave` MonoBehaviour created on the first call) writes in `LateUpdate` once no
+  change came for 0.5 s (`SaveModConfig` serialises every mod's config, so the 1.6.3 once-per-frame write hitched a
+  slider drag). `FlushConfig()` writes at once on `OnApplicationQuit`, `OnModDisabled` and `OnLevelEnd`. A slider drag
+  = one `SaveModConfig` (PPCLI: `RenderforgeMod.ConfigWrites` goes up by 1).
 - **Verified:** `build-native.ps1` green (the production HLSL compiles in the `--fake=2` post-only probe:
   `grade=32711` pixels differ from the copy); managed build 0/0; `qgate -All -Full` green. In-game per-knob
   screenshots and the 1440p frame-time delta are the acceptance step still owed (plan Track C).
@@ -590,10 +602,10 @@ stage, same early-out when all eight uniforms are zero.
   camera goes `Forward` with `cullingMask = 1 << 15` and `clearFlags = Depth` (the blit writes colour only, so the
   camera's own depth clear replaces a second command buffer), and a `Sync` MonoBehaviour copies GeoscapeCamera's pose,
   rect, fov, near/far and `projectionMatrix` in its `OnPreCull` - pose only. Every LAYER-OWNERSHIP change (mask
-  re-assert, rescan, horizon classification) runs in GeoscapeCamera's own pre-cull (`Camera.onPreCull` filtered to
+  re-assert, seam events, fallback re-walk, horizon classification) runs in GeoscapeCamera's own pre-cull (`Camera.onPreCull` filtered to
   it), BEFORE it culls, so both cameras draw one frame with one near/far split (done from the present camera's
   OnPreCull, after GeoscapeCamera rendered, a side change dropped or doubled a marker for a frame). Bit 15 is stripped
-  from EVERY enabled camera but the present one (`Camera.allCameras`, at activation and each rescan) and given back on
+  from EVERY enabled camera but the present one (`Camera.GetAllCameras`, at activation and every Live frame) and given back on
   release. `CanvasIcons.worldCamera` = that camera; site picking is untouched (physics raycast on `PickingCollider`,
   layer 20, `ProbeMarkerClick` verifies pixel parity through both cameras). Everything is restored in
   `DlssDriver.Detach` (release, level end, mode Off, provider switch) or the moment a gate closes: layers,
@@ -620,11 +632,19 @@ stage, same early-out when all eight uniforms are zero.
   site whose pivot is behind the globe back to its original layers (drawn by GeoscapeCamera again, depth-hidden as
   before), a quarter of the ~425 active sites per frame; a newly seen site is classified by the same test before it
   is layered, so a far-side site never gets a frame through the globe. No second hidden layer exists.
-- **New markers:** no Harmony seam - sites, highlight, addon, mission and diplomatic visuals spawn from several
-  places (`GeoSiteVisualsController.cs:410,561,601,627`, `AddSiteDetailsVisuals` :175, `GeoActorSpawner`), so a rescan
-  runs every 60 frames but does its work only when the geoscape hierarchy's `Transform.hierarchyCount` moved AND the
-  last walk is >= 1 s old (one number for the whole `Geoscape` tree: a change anywhere re-walks every near site, ~5 ms
-  ceiling). The same pass prunes destroyed keys from every map and strips bit 15 from cameras that appeared since.
+- **New markers (1.6.4, event-driven):** Harmony postfixes on `GeoSiteVisualsController` (bottom of
+  `src\GeoMarkerOverlay.cs`) mark ONE site dirty: `OnEnable` :167 (site spawned by `GeoActorSpawner` or re-activated -
+  the 1.6.3 rescan missed a site that toggled active without changing the hierarchy count), `AddSiteDetailsVisuals`
+  :175, `RefreshAnimations` :404 (highlight :410, only when `_highlight` went null → new), `RefreshMissionVisuals` :595
+  (diplomatic :601 / mission :627, only when either field holds a NEW object - a day tick refreshes every site at
+  once), `OnDestroy` (drop dead sites from the site lists). The dirty set is drained in GeoscapeCamera's pre-cull, so
+  the spawning frame already draws the object on the marker layer. Haven-zone addons (:514/:519) land in the pruned
+  containers; `RefreshSiteAddons` :542 has no caller. A seam whose method/field is gone skips itself (`Prepare`).
+  Fallback for spawners without a seam: every 2 s the geoscape `Transform.hierarchyCount` is read; a change queues
+  every near site for a re-walk, 8 sites per frame (no ~5 ms burst); a shrink also prunes destroyed keys from every
+  map; without the `OnEnable` seam the scene-wide `FindObjectsOfType` runs there too. Bit 15 is stripped from new
+  cameras every frame (`Tick`). The scene camera's name is read once per camera object. Status counters
+  (`GetMarkerOverlayStatus`): `hooked`, `fullScans` (1 per activation), `eventWalks`, `fallbackPasses`, `rewalkQueue`.
   The `SiteSpecialAddonContainer` / `SiteUniqueAddonContainer` subtrees (:50/:52) are excluded by direct reference.
 - **Known look difference:** the markers no longer pass through PPv2's HDR tonemapping/grade: whites reach 255
   (vanilla caps at 246), the unknown-site disk reads as a translucent grey instead of crushed black
