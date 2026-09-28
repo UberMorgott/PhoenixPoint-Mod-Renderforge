@@ -432,14 +432,17 @@ namespace Renderforge
         /// <summary>Motion vectors + depth feed only a real upscaler feature, frame generation and the Depth / MotionVectors
         /// debug views. A passthrough generation (upscaler Off, sharpen / LUT / grade on; the shim's passthrough Evaluate
         /// never reads them, Device11.cpp / Device12.cpp) must not force Unity's MotionVectors pass, which re-draws every
-        /// skinned / moving renderer, nor copy the two textures every frame.</summary>
-        private bool NeedsMvDepth => !passthrough || FrameGen.Live || liveView == DebugView.Depth || liveView == DebugView.MotionVectors;
+        /// skinned / moving renderer, nor copy the two textures every frame. Frame generation is NOT a reason: FG reads the
+        /// shim's owned twins, and the passthrough Evaluate never copies depth/MV into them (Device12.cpp Declare/RunPassthrough),
+        /// so forcing the pass fed FG unwritten twins. Without cbCopy the FG_PREPARE gate (copyAttached) skips the frame
+        /// and the FG host idles (Unity presents its own frames) until a real upscaler generation feeds it.</summary>
+        private bool NeedsMvDepth => !passthrough || liveView == DebugView.Depth || liveView == DebugView.MotionVectors;
 
         /// <summary>Re-asserted every live frame: PPv2 or the game may touch these between frames.</summary>
         private void KeepCameraState()
         {
             cam.targetTexture = colorRT;
-            // Follows NeedsMvDepth live: frame generation can come up (or go) after the generation was created.
+            // Follows NeedsMvDepth live: a Depth / MotionVectors debug view can be switched in on a live generation.
             if (NeedsMvDepth)
             {
                 cam.depthTextureMode |= DepthTextureMode.Depth | DepthTextureMode.MotionVectors;
@@ -578,7 +581,7 @@ namespace Renderforge
                         Mathf.Clamp(cfg.Saturation, 0, 200) / 100f, Mathf.Clamp(cfg.Vibrance, -100, 100) / 100f);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
-                if (FrameGen.Live && !FrameGen.HoldPrepare && copyAttached)   // copyAttached: FG never gets MV/depth nobody rendered (the frame FG came up in a passthrough generation)
+                if (FrameGen.Live && !FrameGen.HoldPrepare && copyAttached)   // copyAttached: FG never gets MV/depth nobody rendered or copied (a passthrough generation)
                 {
                     var v = cam.worldToCameraMatrix;
                     var pr = cam.nonJitteredProjectionMatrix;
