@@ -24,7 +24,8 @@ struct SharpenPass12
     ID3D12Device* device;
     IDevice* owner;                 // sharpener / sharpenDead / lastError live on the backend
     ID3D12RootSignature* rootSig;
-    ID3D12PipelineState* pso;
+    ID3D12PipelineState* psos[2][2];  // [hdr][grade], built on first use from precompiled bytecode, resident until Release()
+    ID3D12PipelineState* pso;         // the variant this frame runs (one of psos, not an extra reference)
     ID3D12DescriptorHeap* descHeap;
     UINT descSize;
     ID3D12Resource* cb;
@@ -33,7 +34,9 @@ struct SharpenPass12
     unsigned targetW, targetH;
     DXGI_FORMAT targetFmt;
     bool psoHdr;                    // the PSO was compiled with NIS_HDR_MODE linear (FP16 output, D3D12HalfColor)
-    bool psoGrade;                  // analytic RCAS + color-grade PSO instead of NIS/RCAS sharpen-only
+    bool psoGrade;                  // analytic RCAS + color-grade PSO instead of NIS sharpen-only
+    int psoKind;                    // DLSS_SHARPEN_* of `pso`: constant layout + thread-group footprint
+    bool shared;                    // rootSig + descHeap + cb are built (EnsureShared)
     ID3D12Resource* logged;         // RENDERFORGE_D3D12_DEBUG: output whose pass was already logged
 
     SharpenPass12() { Zero(); }
@@ -41,7 +44,7 @@ struct SharpenPass12
     void Zero()
     {
         device = NULL; owner = NULL;
-        rootSig = NULL; pso = NULL; descHeap = NULL; descSize = 0; cb = NULL; cbCpu = NULL;
+        rootSig = NULL; psos[0][0] = psos[0][1] = psos[1][0] = psos[1][1] = NULL; pso = NULL; psoKind = 0; shared = false; descHeap = NULL; descSize = 0; cb = NULL; cbCpu = NULL;
         target = NULL; targetW = targetH = 0; targetFmt = DXGI_FORMAT_UNKNOWN; psoHdr = false; psoGrade = false;
         logged = NULL;
     }
@@ -63,29 +66,10 @@ struct SharpenPass12
         cl->ResourceBarrier(1, &b);
     }
 
-    // hdr = the output format is FP16 (SharpenIsHdr): the PSO variant follows it. A flip (D3D12HalfColor toggled
-    // live) rebuilds only the PSO; the caller has waited on the ring. Everything else is created once.
-    bool Ensure(bool hdr, bool colorGrade)
+    // Root signature, descriptor heap and constant buffer: created once, shared by every PSO variant.
+    bool EnsureShared()
     {
-        if (pso && psoHdr == hdr && psoGrade == colorGrade) return true;
-        if (owner->sharpenDead || !device) return false;
-
-        int kind = 0;
-        ID3DBlob* blob = CompileSharpenBlob(&kind, hdr, colorGrade);
-        if (!blob) { Fail(); return false; }
-        if (pso) { pso->Release(); pso = NULL; }
-        if (rootSig) {
-            D3D12_COMPUTE_PIPELINE_STATE_DESC pd = {};
-            pd.pRootSignature = rootSig;
-            pd.CS.pShaderBytecode = blob->GetBufferPointer();
-            pd.CS.BytecodeLength = blob->GetBufferSize();
-            HRESULT hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
-            blob->Release();
-            if (FAILED(hr)) { Fail(); return false; }
-            psoHdr = hdr; psoGrade = colorGrade; owner->sharpener = kind;
-            return true;
-        }
-
+        if (shared) return true;
         D3D12_DESCRIPTOR_RANGE ranges[2] = {};
         ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         ranges[0].NumDescriptors = 1; ranges[0].BaseShaderRegister = 0;
@@ -120,33 +104,22 @@ struct SharpenPass12
         ID3DBlob* sig = NULL; ID3DBlob* err = NULL;
         HRESULT hr = D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &sig, &err);
         if (err) err->Release();
-        if (FAILED(hr) || !sig) { blob->Release(); Fail(); return false; }
+        if (FAILED(hr) || !sig) { Fail(); return false; }
         hr = device->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(), IID_PPV_ARGS(&rootSig));
         sig->Release();
-        if (FAILED(hr)) { blob->Release(); Fail(); return false; }
-
-        D3D12_COMPUTE_PIPELINE_STATE_DESC pd = {};
-        pd.pRootSignature = rootSig;
-        pd.CS.pShaderBytecode = blob->GetBufferPointer();
-        pd.CS.BytecodeLength = blob->GetBufferSize();
-        hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
-        blob->Release();
-        if (FAILED(hr)) { Fail(); return false; }
-        psoHdr = hdr; psoGrade = colorGrade;
+        if (FAILED(hr)) { rootSig = NULL; Fail(); return false; }
 
         D3D12_DESCRIPTOR_HEAP_DESC hd = {};
         hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         hd.NumDescriptors = 2 * D3D12Ring::kRing;
         hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         HRESULT hh = device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&descHeap));
-        // pso is already set above, so Ensure() would short-circuit on the next call and Run() would then
-        // dereference a null heap. Undo the PSO too, and say what the heap actually came back as: the debug
-        // layer's id=1315 ("GetGPUDescriptorHandleForHeapStart on a heap that is not SHADER_VISIBLE") is
-        // otherwise unattributable between this heap and the vendor SDKs' own heaps.
+        // Say what the heap actually came back as: the debug layer's id=1315 ("GetGPUDescriptorHandleForHeapStart on a
+        // heap that is not SHADER_VISIBLE") is otherwise unattributable between this heap and the vendor SDKs' own heaps.
+        // Fail() marks the pass dead, so a half-built shared set is never reused.
         if (FAILED(hh) || !descHeap) {
             RfDbg::Log("Sharpen: CreateDescriptorHeap failed hr=0x%08X", (unsigned)hh);
-            if (pso) { pso->Release(); pso = NULL; }
-            Fail(); return false;
+            descHeap = NULL; Fail(); return false;
         }
         D3D12_DESCRIPTOR_HEAP_DESC got = descHeap->GetDesc();
         RfDbg::Log("Sharpen: descHeap=%p num=%u flags=0x%X (1 = SHADER_VISIBLE)", (void*)descHeap, got.NumDescriptors, (unsigned)got.Flags);
@@ -160,10 +133,31 @@ struct SharpenPass12
         bd.Format = DXGI_FORMAT_UNKNOWN; bd.SampleDesc.Count = 1;
         bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd,
-                                                   D3D12_RESOURCE_STATE_GENERIC_READ, NULL, IID_PPV_ARGS(&cb)))) { Fail(); return false; }
+                                                   D3D12_RESOURCE_STATE_GENERIC_READ, NULL, IID_PPV_ARGS(&cb)))) { cb = NULL; Fail(); return false; }
         D3D12_RANGE noRead = { 0, 0 };
         if (FAILED(cb->Map(0, &noRead, (void**)&cbCpu)) || !cbCpu) { Fail(); return false; }
+        shared = true;
+        return true;
+    }
 
+    // hdr = the output format is FP16 (SharpenIsHdr). Selects the [hdr][grade] PSO, building it from the precompiled
+    // bytecode (Sharpen.cpp) the first time. PSOs are never released while the pass lives, so a switch needs no GPU
+    // wait: slots still in flight keep referencing the variant they recorded.
+    bool Ensure(bool hdr, bool colorGrade)
+    {
+        if (owner->sharpenDead || !device) return false;
+        if (!EnsureShared()) return false;
+        size_t n = 0; int kind = 0;
+        const void* code = SharpenBytecode(hdr, colorGrade, &n, &kind);
+        ID3D12PipelineState*& p = psos[hdr ? 1 : 0][colorGrade ? 1 : 0];
+        if (!p) {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC pd = {};
+            pd.pRootSignature = rootSig;
+            pd.CS.pShaderBytecode = code;
+            pd.CS.BytecodeLength = n;
+            if (FAILED(device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&p)))) { p = NULL; Fail(); return false; }
+        }
+        pso = p; psoHdr = hdr; psoGrade = colorGrade; psoKind = kind;
         owner->sharpener = kind;
         return true;
     }
@@ -179,15 +173,14 @@ struct SharpenPass12
         // and garbage at runtime, so this is the D3D12 twin of the D3D11 CreateUnorderedAccessView guard.
         if (!(od.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) { Fail(); return false; }
         unsigned w = (unsigned)od.Width, h = od.Height;
+        bool hdr = SharpenIsHdr(od.Format);
         bool sameTarget = target && targetW == w && targetH == h && targetFmt == od.Format;
-        if (sameTarget && pso
-            && psoHdr == SharpenIsHdr(od.Format) && psoGrade == colorGrade) return true;
+        if (sameTarget) return Ensure(hdr, colorGrade);   // a variant switch: resident PSOs, no GPU wait
 
-        // PSOs/resources referenced by prior ring slots must stay alive until their fences retire.
-        // A timeout leaves the old PSO/target alive; callers skip the post pass for this frame.
-        if ((target || pso) && !ring.WaitIdle()) return false;
-        if (!Ensure(SharpenIsHdr(od.Format), colorGrade)) return false;
-        if (sameTarget) return true;
+        // The target is referenced by prior ring slots and must stay alive until their fences retire.
+        // A timeout leaves the old target alive; callers skip the post pass for this frame.
+        if (target && !ring.WaitIdle()) return false;
+        if (!Ensure(hdr, colorGrade)) return false;
         if (target) { target->Release(); target = NULL; }
         D3D12_HEAP_PROPERTIES hp = {};
         hp.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -212,10 +205,10 @@ struct SharpenPass12
         if (logged != output) {
             logged = output;
             RfDbg::Log("Post: kind=%d sharpness=%.2f lut=%d strength=%.2f fmt=%d viewFmt=%d hdr=%d %ux%u slot=%d",
-                       owner->sharpener, sharpness, lutPreset, lutStrength, (int)targetFmt, (int)viewFmt, (int)psoHdr, w, h, slot);
+                       psoKind, sharpness, lutPreset, lutStrength, (int)targetFmt, (int)viewFmt, (int)psoHdr, w, h, slot);
         }
 
-        FillSharpenConstants(cbCpu + 256 * (size_t)slot, owner->sharpener, sharpness, w, h,
+        FillSharpenConstants(cbCpu + 256 * (size_t)slot, psoKind, sharpness, w, h,
                              lutPreset, lutStrength, psoHdr, style, colorVision, adjust);
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = descHeap->GetCPUDescriptorHandleForHeapStart();
@@ -246,7 +239,7 @@ struct SharpenPass12
         cl->SetComputeRootConstantBufferView(0, cb->GetGPUVirtualAddress() + 256 * (UINT64)slot);
         cl->SetComputeRootDescriptorTable(1, gpu);
         cl->SetComputeRootDescriptorTable(2, gpuUav);
-        unsigned g = SharpenGroupSize(owner->sharpener);
+        unsigned g = SharpenGroupSize(psoKind);
         cl->Dispatch((w + g - 1) / g, (h + g - 1) / g, 1);
 
         // target goes back to the state it was created in, so every list starts from the same known state.
@@ -287,7 +280,8 @@ struct SharpenPass12
         if (cb) { cb->Release(); cb = NULL; }
         if (target) { target->Release(); target = NULL; }
         if (descHeap) { descHeap->Release(); descHeap = NULL; }
-        if (pso) { pso->Release(); pso = NULL; }
+        for (int a = 0; a < 2; ++a) for (int b = 0; b < 2; ++b) if (psos[a][b]) { psos[a][b]->Release(); psos[a][b] = NULL; }
+        pso = NULL;
         if (rootSig) { rootSig->Release(); rootSig = NULL; }
         Zero();
     }

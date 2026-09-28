@@ -1,5 +1,5 @@
 // Sharpen.h - the post-DLSS sharpen compute shader, shared by the D3D11 and D3D12 backends.
-// NIS sharpen-only is preferred; AMD RCAS is the fallback when NIS fails to compile.
+// NIS sharpen-only, or the analytic RCAS + grade pass whenever a grade/style/colour-vision stage is active.
 #pragma once
 
 #include <d3dcommon.h>
@@ -8,10 +8,12 @@
 #include "ColorVision.h"
 #include "Grade.h"
 
-// Compiles the post shader. When colorGrade is false this is the original NIS/RCAS sharpen path; when true it is
-// one analytic RCAS + color-grade pass. Returns the DXBC blob (caller Release()s it) and writes
-// DLSS_SHARPEN_NIS or DLSS_SHARPEN_RCAS to *outKind. Returns NULL on failure (*outKind untouched).
-// hdr: the output is linear FP16 (D3D12HalfColor) -> NIS_HDR_MODE_LINEAR instead of the display-referred LDR variant.
+// The post shader's DXBC, compiled at BUILD time (SharpenHlsl.h -> rf_shadergen -> sharpen_dxbc.h); nothing is
+// compiled at runtime. colorGrade false = NIS sharpen-only (DLSS_SHARPEN_NIS); true = one analytic RCAS + color-grade
+// pass (DLSS_SHARPEN_RCAS, written to *outKind). hdr: the output is linear FP16 (D3D12HalfColor) -> the
+// NIS_HDR_MODE_LINEAR variant; the grade variant takes hdr from the cbuffer instead. Static storage, never NULL.
+const void* SharpenBytecode(bool hdr, bool colorGrade, size_t* size, int* outKind);
+// The same bytecode copied into a fresh ID3DBlob (caller Release()s it) - the probes' interface. NULL on OOM.
 ID3DBlob* CompileSharpenBlob(int* outKind, bool hdr = false, bool colorGrade = false);
 
 // Fills a 256-byte constant block for the compiled shader `kind`. w/h = output texture size.

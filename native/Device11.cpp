@@ -23,7 +23,8 @@ struct Device11 : IDevice
 
     // Sharpen pass (runs after NGX on the output UAV). Scratch = SRV copy of the output,
     // since an in-place read+write of the same texture is a hazard.
-    ID3D11ComputeShader* cs;
+    ID3D11ComputeShader* csVariant[2];   // [0] NIS sharpen-only, [1] analytic RCAS + grade; both stay resident once built
+    ID3D11ComputeShader* cs;             // the variant this frame runs (not an extra reference)
     ID3D11Buffer* cb;              // 256 B dynamic cbuffer (NISConfig is 256 B; RCAS uses 16 B)
     ID3D11SamplerState* sampler;   // linear clamp, NIS samples uv
     ID3D11Texture2D* scratch;
@@ -32,7 +33,6 @@ struct Device11 : IDevice
     ID3D11Resource* outUavRes;     // the resource outUav was built for
     unsigned scratchW, scratchH;
     DXGI_FORMAT scratchFmt;
-    bool csGrade;
 
     // DIAG bias-current-colour mask (FrameParams::biasMaskMode): R8_UNORM at render res, cleared to 0/1 every evaluate.
     ID3D11Texture2D* biasMask;
@@ -44,8 +44,8 @@ struct Device11 : IDevice
     {
         device = NULL; params = NULL; feature = NULL; ngxInitialized = 0; initCode = 0; needsDriver = 0;
         minDriverMajor = minDriverMinor = 0; dllDir[0] = 0;
-        cs = NULL; cb = NULL; sampler = NULL; scratch = NULL; scratchSrv = NULL; outUav = NULL; outUavRes = NULL;
-        scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN; csGrade = false;
+        csVariant[0] = csVariant[1] = NULL; cs = NULL; cb = NULL; sampler = NULL; scratch = NULL; scratchSrv = NULL; outUav = NULL; outUavRes = NULL;
+        scratchW = scratchH = 0; scratchFmt = DXGI_FORMAT_UNKNOWN;
         biasMask = NULL; biasMaskRtv = NULL; biasMaskW = biasMaskH = 0;
         lastCreate = (NVSDK_NGX_Result)0; lastEval = (NVSDK_NGX_Result)0; lastError = 0; sharpener = 0; sharpenDead = 0;
     }
@@ -92,15 +92,12 @@ struct Device11 : IDevice
 
     int EnsureSharpenShader(bool colorGrade)
     {
-        if (cs && csGrade == colorGrade) return 1;
-        if (cs) { cs->Release(); cs = NULL; }
-        int kind = 0;
-        ID3DBlob* blob = CompileSharpenBlob(&kind, false, colorGrade);
-        if (!blob) { SharpenFail(); return 0; }
-        HRESULT hr = device->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), NULL, &cs);
-        blob->Release();
-        if (FAILED(hr) || !cs) { SharpenFail(); return 0; }
-        csGrade = colorGrade;
+        // Precompiled bytecode (Sharpen.cpp); a toggle between the two variants never recreates or recompiles.
+        size_t n = 0; int kind = 0;
+        const void* code = SharpenBytecode(false, colorGrade, &n, &kind);
+        ID3D11ComputeShader*& v = csVariant[colorGrade ? 1 : 0];
+        if (!v && (FAILED(device->CreateComputeShader(code, n, NULL, &v)) || !v)) { v = NULL; SharpenFail(); return 0; }
+        cs = v;
         sharpener = kind;
         if (!cb) {
             D3D11_BUFFER_DESC bd = {};
@@ -343,7 +340,8 @@ struct Device11 : IDevice
     {
         if (!ReleaseFeature()) return false;
         if (cb) { cb->Release(); cb = NULL; }
-        if (cs) { cs->Release(); cs = NULL; }
+        for (int i = 0; i < 2; ++i) if (csVariant[i]) { csVariant[i]->Release(); csVariant[i] = NULL; }
+        cs = NULL;
         if (sampler) { sampler->Release(); sampler = NULL; }
         if (params) { NVSDK_NGX_D3D11_DestroyParameters(params); params = NULL; }
         if (ngxInitialized) { NVSDK_NGX_D3D11_Shutdown1(device); ngxInitialized = 0; }

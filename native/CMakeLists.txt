@@ -39,7 +39,7 @@ if(NOT EXISTS "${XESS_FG_LIB}" OR NOT EXISTS "${XELL_LIB}")
     message(FATAL_ERROR "libxess_fg.lib / libxell.lib not found under ${XESS_SDK}/lib")
 endif()
 
-# NVIDIA Streamline 2.12.0 (FgStreamline.cpp, DLSS-G / MFG): HEADERS ONLY. sl.interposer.dll is LoadLibraryW'd from the
+# NVIDIA Streamline 2.14.1 (FgStreamline.cpp, DLSS-G / MFG): HEADERS ONLY. sl.interposer.dll is LoadLibraryW'd from the
 # mod folder and every entry point GetProcAddress'd, so nothing is linked and the shim loads without the NVIDIA FG DLLs.
 set(SL_SDK "${CMAKE_SOURCE_DIR}/../../refs/Streamline" CACHE PATH "NVIDIA Streamline SDK root")
 get_filename_component(SL_SDK "${SL_SDK}" ABSOLUTE)
@@ -47,12 +47,27 @@ if(NOT EXISTS "${SL_SDK}/include/sl_dlss_g.h")
     message(FATAL_ERROR "Streamline headers not found at ${SL_SDK}/include (SL_SDK=${SL_SDK})")
 endif()
 
-# NIS_Scaler.h (NVIDIA Image Scaling SDK, MIT, vendored in nis/) is HLSL compiled at runtime: embed it as a byte array.
+# NIS_Scaler.h (NVIDIA Image Scaling SDK, MIT, vendored in nis/) is HLSL: embed it as a byte array for rf_shadergen.
 set(NIS_HLSL "${CMAKE_CURRENT_SOURCE_DIR}/nis/NIS_Scaler.h")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NIS_HLSL}")
 file(READ "${NIS_HLSL}" NIS_HEX HEX)
 string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," NIS_BYTES "${NIS_HEX}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nis_scaler_hlsl.h" "// generated from nis/NIS_Scaler.h\nstatic const unsigned char kNisScalerHlsl[] = {${NIS_BYTES}0x00};\n")
+
+# Post-pass shaders are compiled at BUILD time, never on Unity's render thread: rf_shadergen runs the same
+# D3DCompile(cs_5_0, O3) over SharpenHlsl.h + NIS_Scaler.h and writes the DXBC as byte arrays (sharpen_dxbc.h).
+set(SHARPEN_DXBC "${CMAKE_CURRENT_BINARY_DIR}/sharpen_dxbc.h")
+add_executable(rf_shadergen shadergen/rf_shadergen.cpp SharpenHlsl.h SceneStyle.h Grade.h)
+target_include_directories(rf_shadergen PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(rf_shadergen PRIVATE d3dcompiler)
+target_compile_definitions(rf_shadergen PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+add_custom_command(OUTPUT "${SHARPEN_DXBC}"
+    COMMAND rf_shadergen "${SHARPEN_DXBC}"
+    DEPENDS rf_shadergen "${CMAKE_CURRENT_SOURCE_DIR}/SharpenHlsl.h" "${CMAKE_CURRENT_SOURCE_DIR}/SceneStyle.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Grade.h" "${NIS_HLSL}"
+    COMMENT "rf_shadergen: precompiling post-pass shaders"
+    VERBATIM)
+add_custom_target(sharpen_dxbc DEPENDS "${SHARPEN_DXBC}")
 
 add_library(RenderforgeNative SHARED
     RenderforgeNative.cpp
@@ -91,6 +106,7 @@ target_link_libraries(RenderforgeNative PRIVATE "${NGX_LIB}" "${XESS_LIB}" "${XE
 target_link_options(RenderforgeNative PRIVATE "/DELAYLOAD:libxess.dll" "/DELAYLOAD:libxess_fg.dll" "/DELAYLOAD:libxell.dll")
 # _WINDOWS is what ffx_api_loader.h:38 tests to compile ffxLoadFunctions; without it every pointer stays NULL.
 target_compile_definitions(RenderforgeNative PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WINDOWS DLSSNATIVE_EXPORTS)
+add_dependencies(RenderforgeNative sharpen_dxbc)
 
 add_executable(dlss_probe probe/dlss_probe.cpp)
 target_include_directories(dlss_probe PRIVATE "${FFX_API_INC}" "${FFX_API_INC}/dx12" "${FFX_UPSCALE_INC}" "${XESS_SDK}/inc")
@@ -104,16 +120,19 @@ add_executable(lut_probe EXCLUDE_FROM_ALL probe/lut_probe.cpp Sharpen.cpp)
 target_include_directories(lut_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(lut_probe PRIVATE d3d11 d3dcompiler)
 target_compile_definitions(lut_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+add_dependencies(lut_probe sharpen_dxbc)
 
 add_executable(scene_style_probe EXCLUDE_FROM_ALL probe/scene_style_probe.cpp Sharpen.cpp)
 target_include_directories(scene_style_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(scene_style_probe PRIVATE d3d11 d3dcompiler)
 target_compile_definitions(scene_style_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+add_dependencies(scene_style_probe sharpen_dxbc)
 
 add_executable(colour_vision_probe EXCLUDE_FROM_ALL probe/colour_vision_probe.cpp Sharpen.cpp)
 target_include_directories(colour_vision_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(colour_vision_probe PRIVATE d3d11 d3dcompiler)
 target_compile_definitions(colour_vision_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+add_dependencies(colour_vision_probe sharpen_dxbc)
 
 # Actual host/ring source with vendor/window seams mocked; real WARP resource and fence ownership.
 add_executable(retirement_probe EXCLUDE_FROM_ALL probe/retirement_probe.cpp)

@@ -69,7 +69,7 @@ DLSS_API void __cdecl Dlss_SetCreateParams(unsigned w, unsigned h, unsigned outW
 // Dlss_SetFrame and pass the same pointer as the `data` of DLSS_EV_EVALUATE (AndData callback).
 DLSS_API void* __cdecl Dlss_GetFrameSlot(void);
 // Main thread. Fills `slot` (from Dlss_GetFrameSlot). All resources = ID3D11Resource*.
-// sharpness 0..1 = our sharpen compute pass on `output` after NGX (NIS sharpen-only, RCAS if NIS fails to compile; 0 = skipped);
+// sharpness 0..1 = our sharpen compute pass on `output` after NGX (NIS sharpen-only, precompiled at build time; 0 = skipped);
 // NGX's own InSharpness is deprecated and stays 0. A failed setup sets Dlss_LastError() = DLSS_ERR_SHARPEN and disables the
 // pass; the DLSS frame is unaffected. lutPreset = DLSS_LUT_*, lutStrength = 0..1; invalid values disable/clamp.
 DLSS_API void __cdecl Dlss_SetFrame(void* slot, void* color, void* depth, void* mv, void* output,
