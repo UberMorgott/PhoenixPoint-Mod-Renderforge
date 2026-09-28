@@ -50,13 +50,21 @@ namespace Renderforge
         private static bool active;
 
         /// <summary>Local point -> nearest whole screen pixel -> local. False when the transform does not round-trip
-        /// (singular matrix) - the caller keeps the unsnapped value.</summary>
+        /// (singular matrix) - the caller keeps the unsnapped value.
+        /// Both matrices are read once per call (two icalls instead of three Transform*Point per point); the round trip still
+        /// runs through the forward matrix, so a singular inverse can only ever produce a verified snap or none.</summary>
         internal static bool SnapPoint(Transform t, Vector2 local, out Vector2 snapped)
         {
-            var w = t.TransformPoint(local);
+            Matrix4x4 l2w = t.localToWorldMatrix, w2l = t.worldToLocalMatrix;
+            return SnapPoint(ref l2w, ref w2l, local, out snapped);
+        }
+
+        private static bool SnapPoint(ref Matrix4x4 l2w, ref Matrix4x4 w2l, Vector2 local, out Vector2 snapped)
+        {
+            var w = l2w.MultiplyPoint3x4(local);
             w.x = Mathf.Round(w.x); w.y = Mathf.Round(w.y);
-            var l = t.InverseTransformPoint(w);
-            var back = t.TransformPoint(l);
+            var l = w2l.MultiplyPoint3x4(w);
+            var back = l2w.MultiplyPoint3x4(l);
             snapped = new Vector2(l.x, l.y);
             return Mathf.Abs(back.x - w.x) < 0.01f && Mathf.Abs(back.y - w.y) < 0.01f;
         }
@@ -65,17 +73,27 @@ namespace Renderforge
         {
             Vector2 a, b;
             snapped = r;
-            if (!SnapPoint(t, r.min, out a) || !SnapPoint(t, r.max, out b)) return false;
+            Matrix4x4 l2w = t.localToWorldMatrix, w2l = t.worldToLocalMatrix;
+            if (!SnapPoint(ref l2w, ref w2l, r.min, out a) || !SnapPoint(ref l2w, ref w2l, r.max, out b)) return false;
             snapped = Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y), Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
             return snapped.width > 0f && snapped.height > 0f;
         }
+
+        // canvas -> "root canvas is ScreenSpaceOverlay", valid for one frame (rootCanvas walks the hierarchy natively; a
+        // layout pass asks it for every graphic of the same canvas). pixelPerfect / scaleFactor stay live reads.
+        private static readonly System.Collections.Generic.Dictionary<Canvas, bool> overlayRoot = new System.Collections.Generic.Dictionary<Canvas, bool>();
+        private static int overlayFrame = -1;
 
         internal static Canvas SnapCanvas(Graphic g)
         {
             if (!active) return null;
             var canvas = g.canvas;
-            if (!canvas || canvas.pixelPerfect || canvas.scaleFactor == 0f || canvas.rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay) return null;
-            return canvas;
+            if (!canvas || canvas.pixelPerfect || canvas.scaleFactor == 0f) return null;
+            int f = Time.frameCount;
+            if (f != overlayFrame) { overlayRoot.Clear(); overlayFrame = f; }
+            bool overlay;
+            if (!overlayRoot.TryGetValue(canvas, out overlay)) overlayRoot[canvas] = overlay = canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay;
+            return overlay ? canvas : null;
         }
 
         internal static void Apply(bool on)
