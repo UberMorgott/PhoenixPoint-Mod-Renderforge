@@ -9,7 +9,7 @@ $cmake = 'C:\Program Files\CMake\bin\cmake.exe'
 
 if (-not (Test-Path $cmake)) { throw "cmake not found at $cmake" }
 # Shipped DLSS runtime = the SDK's rel nvngx_dlss.dll slot, overwritten with the newest NVIDIA-signed build
-# (310.7.129, DLSS Swapper manifest CDN, 2026-09-02). Signature is verified so a tampered/packed DLL never ships.
+# (currently the SDK's own 310.9.1 build, DLSS SDK v310.9.1, 2026-09-28). Signature is verified so a tampered/packed DLL never ships.
 $ngxDll = Join-Path $sdk 'lib\Windows_x86_64\rel\nvngx_dlss.dll'
 if (-not (Test-Path $ngxDll)) { throw "nvngx_dlss.dll not found at $ngxDll" }
 $sig = Get-AuthenticodeSignature $ngxDll
@@ -47,8 +47,8 @@ foreach ($dll in $xessFgDll, $xellDll) {
     Write-Host ("{0} {1} from {2}" -f (Split-Path $dll -Leaf), (Get-Item $dll).VersionInfo.FileVersion, $dll)
 }
 
-# NVIDIA Streamline 2.12.0 (FgStreamline.cpp: DLSS-G / MFG, Reflex, PCL), all NVIDIA-signed, loaded at runtime only.
-# nvngx_dlssg.dll: the SDK's bin\x64 copy is stale; ship the NVIDIA-signed 310.9.0 build from latest-dll\.
+# NVIDIA Streamline 2.14.1 (FgStreamline.cpp: DLSS-G / MFG, Reflex, PCL), all NVIDIA-signed, loaded at runtime only.
+# nvngx_dlssg.dll: the SDK's bin\x64 copy can lag; ship the newest NVIDIA-signed build from latest-dll\ (310.9.1 = SL 2.14.1 bin\x64 copy).
 $slSdk = Join-Path $root '..\refs\Streamline'
 $slDlls = @('sl.interposer.dll', 'sl.common.dll', 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll') | ForEach-Object { Join-Path $slSdk "bin\x64\$_" }
 $slDlls += Join-Path $slSdk 'latest-dll\nvngx_dlssg.dll'
@@ -59,7 +59,7 @@ foreach ($dll in $slDlls) {
     Write-Host ("{0} {1} from {2}" -f (Split-Path $dll -Leaf), (Get-Item $dll).VersionInfo.FileVersion, $dll)
 }
 $dlssgVer = (Get-Item $slDlls[-1]).VersionInfo.FileVersion -replace '[ ,]+', '.'
-if ($dlssgVer -notlike '310.9.*') { Write-Warning "nvngx_dlssg.dll is $dlssgVer, expected a 310.9.* build (refs\Streamline\latest-dll, 310.9.0 verified) - shipping it anyway" }
+if ($dlssgVer -notlike '310.9.*') { Write-Warning "nvngx_dlssg.dll is $dlssgVer, expected a 310.9.* build (refs\Streamline\latest-dll, 310.9.1 verified) - shipping it anyway" }
 
 New-Item -ItemType Directory -Force $buildDir, $outDir | Out-Null
 

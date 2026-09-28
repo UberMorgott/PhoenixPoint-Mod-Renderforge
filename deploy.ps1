@@ -43,7 +43,7 @@ $xessDll     = Join-Path $root 'build\out\libxess.dll'
 # Intel XeSS-FG + XeLL runtimes: frame generation on the child HWND (FgXess.cpp), both delay-loaded by the shim.
 $xessFgDll   = Join-Path $root 'build\out\libxess_fg.dll'
 $xellDll     = Join-Path $root 'build\out\libxell.dll'
-# NVIDIA Streamline 2.12 (DLSS-G / MFG + Reflex + PCL, FgStreamline.cpp): interposer + plugins + the DLSS-G NGX model.
+# NVIDIA Streamline 2.14.1 (DLSS-G / MFG + Reflex + PCL, FgStreamline.cpp): interposer + plugins + the DLSS-G NGX model.
 $slDlls      = @('sl.interposer.dll', 'sl.common.dll', 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll', 'nvngx_dlssg.dll') | ForEach-Object { Join-Path $root "build\out\$_" }
 foreach ($f in @($nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) + $slDlls) { if (-not (Test-Path $f)) { throw "missing $f - run build-native.ps1" } }
 

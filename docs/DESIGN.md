@@ -112,7 +112,7 @@ frustum FSR/XeSS need (copied into every frame slot; NGX ignores it).
 
 | Provider | id | API | Backend | SDK | Quality modes | Sharpening |
 |---|---|---|---|---|---|---|
-| DLSS SR / DLAA | 0 | D3D11 + D3D12 | `Device11`, `Device12` (NGX) | DLSS 3.10.7, `nvngx_dlss.dll` 310.7.129 | DLAA, Quality, Balanced, Performance, Ultra Performance | the shim's own NIS pass (RCAS fallback) |
+| DLSS SR / DLAA | 0 | D3D11 + D3D12 | `Device11`, `Device12` (NGX) | DLSS SDK 310.9.1, `nvngx_dlss.dll` 310.9.1 | DLAA, Quality, Balanced, Performance, Ultra Performance | the shim's own NIS pass (RCAS fallback) |
 | FSR | 1 | D3D12 only | `Fsr12` (ffx-api) | FidelityFX SDK 2.3, `amd_fidelityfx_{loader,upscaler}_dx12.dll` | Native AA, Quality, Balanced, Performance, Ultra Performance | FSR's built-in RCAS (`enableSharpening`) |
 | XeSS SR | 2 | D3D12 only | `Xess12` (`libxess.dll`) | XeSS SDK 3.0.2, `libxess.dll` 2.0.2.68 | Native AA (1.0x), Ultra Quality Plus (1.3x), Ultra Quality (1.5x), Quality (1.7x), Balanced (2.0x), Performance (2.3x), Ultra Performance (3.0x) | the shim's own NIS pass (XeSS has no sharpness) |
 
@@ -308,19 +308,23 @@ Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xe
   - Our pass: NVIDIA **NIS** (NVIDIA Image Scaling SDK 1.0.3, MIT, `LICENSE-NIS.txt` shipped) in
     **sharpen-only** mode — what the DLSS programming guide recommends in place of the removed NGX
     sharpening. `native\nis\NIS_Scaler.h` (HLSL) is vendored and embedded by CMake as a byte array
-    (`nis_scaler_hlsl.h`); at runtime the shim prepends the `NIS_Main.hlsl` bindings
-    (`NIS_SCALER 0`, `NIS_HDR_MODE 0`, cbuffer `b0`, `samplerLinearClamp s0`, `in_texture t0`,
-    `out_texture u0`) and an `NVSharpen` entry, compiles `cs_5_0` with `D3DCompile`
-    (`d3dcompiler_47.dll`), cached. Block/group = `NISOptimizer(isUpscaling=false, NVIDIA_Generic)`
+    (`nis_scaler_hlsl.h`); the build-time tool `native\shadergen\rf_shadergen.cpp` prepends the
+    `NIS_Main.hlsl` bindings (`NIS_SCALER 0`, `NIS_HDR_MODE 0|1`, cbuffer `b0`, `samplerLinearClamp s0`,
+    `in_texture t0`, `out_texture u0`) and an `NVSharpen` entry and compiles `cs_5_0` with `D3DCompile`
+    (O3). 1.6.4: every post-pass variant (NIS LDR, NIS HDR-linear, analytic grade; HLSL in
+    `native\SharpenHlsl.h`) is compiled at BUILD time into `sharpen_dxbc.h` - nothing compiles on the
+    render thread, and D3D11 shaders / D3D12 PSOs stay resident per variant, so a LUT/style/colour-vision/
+    grade toggle switches without a recompile or a GPU wait (was a 100+ ms hitch). Block/group = `NISOptimizer(isUpscaling=false, NVIDIA_Generic)`
     from `native\nis\NIS_Config.h`: 32×32 px per block, 128 threads → dispatch ⌈w/32⌉×⌈h/32⌉.
     Constants = `NISConfig` filled by `NVSharpenUpdateConfig(cfg, s, 0,0,w,h, w,h, 0,0)`
     (256 B, aligned), slider/100 passed straight in (NIS' own 0..1 slider). Runs inside event 2
     right after a successful `NGX_D3D11_EVALUATE_DLSS_EXT`, in place on the output UAV, reading an
     SRV scratch copy (`CopyResource(scratch, output)`; in-place read+write is a hazard). Views are
     dropped on event 3 (before the driver frees RTs).
-  - Fallback: AMD FidelityFX **RCAS** (`kRcasHlsl`, from the public formula, epsilon-guarded, denoise
-    on; mapping `con = exp2(-2·(1−s))`) only if the NIS source fails to compile on this machine.
-    `Dlss_Sharpener()` → 1 NIS / 2 RCAS / −1 failed, shown as `sharpen=` in `DlssDriver.Status`.
+  - AMD FidelityFX **RCAS** (from the public formula, epsilon-guarded, denoise on; mapping
+    `con = exp2(-2·(1−s))`) lives only inside the analytic grade shader now; the standalone RCAS fallback
+    for "NIS fails to compile" was dropped in 1.6.4 (a compile failure now fails the build).
+    `Dlss_Sharpener()` → 1 NIS / 2 RCAS(grade) / −1 failed, shown as `sharpen=` in `DlssDriver.Status`.
     A failed setup sets `Dlss_LastError() = DLSS_ERR_SHARPEN` (−3) and disables the pass, never the
     DLSS frame. ABI otherwise unchanged: the existing `sharpness` arg of `Dlss_SetFrame` feeds it;
     s=0 skips the pass. Probe evaluates with 0.5 and asserts `lastError == 0` AND sharpener == NIS.
@@ -780,9 +784,10 @@ NVIDIA-only. Exit 3 of the ordinary probe now also covers a `DLSS_OK_POST_ONLY` 
 |---|---|---|---|
 | AMD FidelityFX SDK | v2.3.0 / 2026-06-24 | `refs\FidelityFX-SDK\` (shallow clone; release zip is samples-only) | `Kits\FidelityFX\signedbin\amd_fidelityfx_loader_dx12.dll` 2.3.0.2740; `amd_fidelityfx_upscaler_dx12.dll` 4.1.1.2740 (27 MB, FSR 4.1.1 + 3.1.5 fallback); `amd_fidelityfx_framegeneration_dx12.dll` 4.0.1.2740 (38 MB). Headers `Kits\FidelityFX\api\include\`, licence `docs\license.md` — **integrated in Phase 3** (upscaling only; frame generation stays Phase 5) |
 | Intel XeSS SDK | v3.0.2 / 2026-07-24 | `refs\XeSS-sdk\` | `bin\libxess.dll` 2.0.2.68 (74 MB, D3D12 cross-vendor); `bin\libxess_fg.dll` 1.3.1.78 (22 MB); `bin\libxell.dll` 1.3.2.10. `inc\`, `LICENSE.txt` — **SR integrated in Phase 4** (`libxess.dll` only; `libxess_dx11.dll` is Intel-Arc-only and not shipped, FG stays Phase 5) |
-| NVIDIA Streamline | v2.12.0 / 2026-06-23 | `refs\Streamline\` | `bin\x64\sl.interposer.dll`, `sl.common.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, `sl.dlss.dll` — all 2.12.0.0. **SDK's `nvngx_dlssg.dll` is 310.7.0 = STALE**; ship `refs\Streamline\latest-dll\nvngx_dlssg.dll` 310.7.129.0 (7.5 MB, NVIDIA-signed, from the TechPowerUp FG DLL DB). `include\`, `license.txt` |
+| NVIDIA Streamline | v2.14.1 / 2026-09-08 (release zip `streamline-sdk-v2.14.1.zip`, refreshed 2026-09-28) | `refs\Streamline\` | `bin\x64\sl.interposer.dll`, `sl.common.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, `sl.dlss.dll` — all 2.14.1.0. SDK's `bin\x64\nvngx_dlssg.dll` is 310.9.1.0 (= DLSS SDK 310.9.1 copy, same hash); `latest-dll\nvngx_dlssg.dll` holds that build and is what ships. Headers vs 2.12.0: `sl::Resource` `reserved` u32 split into `internalFlags`+`reserved` u16 (same size), new buffer/feature consts only — ABI-compatible. `include\`, `license.txt` |
+| NVIDIA DLSS SDK | v310.9.1 / 2026-09-08 (git clone, refreshed 2026-09-28) | `refs\DLSS-sdk\` | `lib\Windows_x86_64\rel\nvngx_dlss.dll`, `nvngx_dlssd.dll`, `nvngx_dlssg.dll` — all 310.9.1.0. `nvsdk_ngx_helpers.h` split into `*_d3d.h` / `*_cuda.h` (still included by it); native builds unchanged |
 
-`refs\DLSS-sdk` `nvngx_dlss.dll` 310.7.129.0 is still the newest SR DLL. Rule (same trap twice
+`refs\DLSS-sdk` `nvngx_dlss.dll` 310.9.1.0 is the newest SR DLL (2026-09-28). Rule (same trap twice
 now): after any SDK update, compare every `nvngx_*.dll` FileVersion against the TechPowerUp DLL
 databases and ship the newest NVIDIA-signed build, never the SDK copy blindly.
 
@@ -857,7 +862,7 @@ databases and ship the newest NVIDIA-signed build, never the SDK copy blindly.
 Three providers behind one seam (`native\Fg.h` `IFgProvider`): `FgFsr.cpp` (FidelityFX FG, analytical
 3.1.6 pinned via `ffxOverrideVersion`, FG-swapchain 3.1.7, 2x), `FgXess.cpp` (XeSS-FG 1.3.1 + mandatory
 XeLL 1.3.2, `InitFromSwapChainDesc`, `BACKBUFFER_HUDLESS`, 2x on non-Intel), `FgStreamline.cpp` (DLSS-G/MFG
-via Streamline 2.12 manual hooking, `nvngx_dlssg.dll` 310.7.129, Reflex `eLowLatency` + 6 PCL markers,
+via Streamline 2.14.1 manual hooking, `nvngx_dlssg.dll` 310.9.1, Reflex `eLowLatency` + 6 PCL markers,
 proxy device/queue/factory, per-frame token FIFO, CPU-wait copy fence, 2x-4x on RTX 50). Auto picks
 DLSS-G on NVIDIA, FSR-FG elsewhere; `RenderforgeMod.SetFgProvider` forces one for testing.
 
@@ -879,7 +884,7 @@ DLSS-G on NVIDIA, FSR-FG elsewhere; `RenderforgeMod.SetFgProvider` forces one fo
 |---|---|---|---|---|---|
 | FSR-FG | FG-swapchain 3.1.7 / model 3.1.6 | SDK proxy on child HWND (manual dispatch fallback for composition) | none | 2x | Paced by SDK's present thread |
 | XeSS-FG | `libxess_fg.dll` 1.3.1 + `libxell.dll` 1.3.2 | `InitFromSwapChainDesc` on child, `pApplicationSwapChain=NULL` | XeLL mandatory, 6 markers | 2x off Intel Arc | `maxSupportedInterpolations=1` on non-Intel |
-| DLSS-G | Streamline 2.12 + `nvngx_dlssg.dll` 310.7.129 | proxy factory `CreateSwapChainForHwnd` on child + proxy device queue | Reflex `eLowLatency` + 6 PCL markers | 2x-4x on RTX 50 (`numFramesToGenerateMax=5`) | NVIDIA focus gate: unfocused -> real only, no error |
+| DLSS-G | Streamline 2.14.1 + `nvngx_dlssg.dll` 310.9.1 | proxy factory `CreateSwapChainForHwnd` on child + proxy device queue | Reflex `eLowLatency` + 6 PCL markers | 2x-4x on RTX 50 (`numFramesToGenerateMax=5`) | NVIDIA focus gate: unfocused -> real only, no error |
 
 ### Per-frame sequence
 
@@ -946,7 +951,7 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
   overlay cannot work without the prefix.)
 - Pack contents: **Core** = `Renderforge.dll`, `RenderforgeNative.dll`, `rf-exposure-d3d12.bundle`,
   `meta.json`, `README.md`, `LICENSE`, `LICENSE-NIS.txt`. **NVIDIA** = `nvngx_dlss.dll`, `nvngx_dlssg.dll`,
-  `sl.{interposer,common,dlss,dlss_g,reflex,pcl}.dll` 2.12.0 + `LICENSE-NVIDIA.txt`. **AMD** =
+  `sl.{interposer,common,dlss,dlss_g,reflex,pcl}.dll` 2.14.1 + `LICENSE-NVIDIA.txt`. **AMD** =
   `amd_fidelityfx_{loader,upscaler,framegeneration}_dx12.dll` + `LICENSE-AMD.txt`. **Intel** = `libxess.dll`,
   `libxess_fg.dll`, `libxell.dll` + `LICENSE-INTEL.txt`. **Full** = the union. Every runtime is always packed —
   the `-WithFrameGen` opt-in was removed after a bare run produced a 122 MB Full zip without FG (1.5.1 prep).
@@ -957,7 +962,7 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
   / `Advanced Micro Devices` / `Intel Corporation`, status must be `Valid`; anything else fails the
   build. NVIDIA reports FileVersion with commas (`310,7,129,0`), so all comparisons normalise
   `-replace '[ ,]', '.'`.
-- Stale-DLL guard: `$NewestKnownNgx` pins `nvngx_dlss.dll` and `nvngx_dlssg.dll` at `310.7.129.0`;
+- Stale-DLL guard: `$NewestKnownNgx` pins `nvngx_dlss.dll` and `nvngx_dlssg.dll` at `310.9.1.0`;
   a mismatch is a WARNING telling the operator to check the TechPowerUp DLL databases. Warning, not
   error — a newer DLL is legitimate, it just has to be a deliberate choice.
 - Missing vendor DLLs are a supported state at runtime: `Availability.Reason` returns

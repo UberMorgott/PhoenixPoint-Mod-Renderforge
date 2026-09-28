@@ -36,8 +36,8 @@ $stage  = Join-Path $relDir 'stage'
 # --- Newest NVIDIA NGX runtimes we know of. Update together with refs\ after checking the
 # --- TechPowerUp DLL databases; a mismatch is a WARNING, never a hard failure.
 $NewestKnownNgx = @{
-    'nvngx_dlss.dll'   = '310.9.0.0'
-    'nvngx_dlssg.dll'  = '310.9.0.0'
+    'nvngx_dlss.dll'   = '310.9.1.0'
+    'nvngx_dlssg.dll'  = '310.9.1.0'
 }
 
 function Get-NormalVersion([string] $path) {
