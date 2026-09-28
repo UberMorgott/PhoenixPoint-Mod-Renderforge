@@ -223,7 +223,7 @@ namespace Renderforge
 
         /// <summary>Release before the level's camera goes away (also a passthrough generation kept alive by sharpen/LUT/grade);
         /// the next OnLevelStart re-attaches and its Apply lifts the suspension.</summary>
-        public override void OnLevelEnd(Level level) { DlssDriver.Instance?.Suspend(); }
+        public override void OnLevelEnd(Level level) { FlushConfig(); DlssDriver.Instance?.Suspend(); }   // flush: a debounced write must not straddle the level switch
 
         public override void OnConfigChanged()
         {
@@ -287,12 +287,14 @@ namespace Renderforge
         }
 
         /// <summary>ModManager.SaveModConfig (ModManager.cs:120): the same path the mod-manager screen uses (UIStateModManagment.cs:137).
-        /// Coalesced: every slider row calls this from onValueChanged, i.e. once per frame while dragging, so the write
-        /// is deferred to the end of the frame (ConfigSaver.LateUpdate) - one disk write per frame at most, shared by
-        /// all seven sliders. FlushConfig writes now: OnModDisabled and the ticker's OnApplicationQuit.</summary>
+        /// Debounced: every slider row calls this from onValueChanged, i.e. once per frame while dragging, and the game's
+        /// SaveModConfig serialises EVERY mod's config - so the write waits until no change came for SaveDebounce seconds
+        /// (ConfigSaver.LateUpdate): one disk write per drag. FlushConfig writes now: OnModDisabled, OnLevelEnd and the
+        /// ticker's OnApplicationQuit.</summary>
         public static void SaveConfig()
         {
             configDirty = true;
+            lastConfigChange = Time.unscaledTime;
             if (saver != null) return;
             var go = new GameObject("RenderforgeConfigSaver") { hideFlags = HideFlags.HideAndDontSave };
             UnityEngine.Object.DontDestroyOnLoad(go);
@@ -303,11 +305,22 @@ namespace Renderforge
         {
             if (!configDirty) return;
             configDirty = false;
+            ConfigWrites++;
             try { ModManager.GetInstance().SaveModConfig(); }
             catch (Exception ex) { Instance?.Logger.LogError("Renderforge config save failed: " + ex.Message); }
         }
 
+        /// <summary>ConfigSaver.LateUpdate: write once the last change is SaveDebounce old.</summary>
+        internal static void FlushConfigIfIdle()
+        {
+            if (configDirty && Time.unscaledTime - lastConfigChange >= SaveDebounce) FlushConfig();
+        }
+
+        /// <summary>SaveModConfig calls this session (PPCLI: a slider drag must add 1, not one per frame).</summary>
+        public static int ConfigWrites { get; private set; }
+        private const float SaveDebounce = 0.5f;   // s wall time after the last change
         private static bool configDirty;
+        private static float lastConfigChange;
         private static ConfigSaver saver;
 
         // ---- hotkey handlers (also the PPCLI keypress substitute: {"op":"invoke","type":"Renderforge.RenderforgeMod","assembly":"Renderforge","member":"Toggle"})
@@ -693,11 +706,11 @@ namespace Renderforge
         }
     }
 
-    /// <summary>End-of-frame ticker for RenderforgeMod.SaveConfig: one SaveModConfig per dirty frame, and a flush on quit
-    /// so a config changed mid-drag is never lost. Created on the first SaveConfig, destroyed by OnModDisabled.</summary>
+    /// <summary>End-of-frame ticker for RenderforgeMod.SaveConfig: one SaveModConfig once the changes stop (debounce), and a
+    /// flush on quit so a config changed mid-drag is never lost. Created on the first SaveConfig, destroyed by OnModDisabled.</summary>
     internal sealed class ConfigSaver : MonoBehaviour
     {
-        private void LateUpdate() => RenderforgeMod.FlushConfig();
+        private void LateUpdate() => RenderforgeMod.FlushConfigIfIdle();
         private void OnApplicationQuit() => RenderforgeMod.FlushConfig();
     }
 }
