@@ -47,6 +47,7 @@ namespace Renderforge
         private bool resetNext;
         private Vector3 lastPos;
         private float lastFov;
+        private const float FovCutFraction = 0.05f;   // history reset on a per-frame FOV change above 5 % (zoom snap / cut)
         private bool suspended;             // level end: no generation until the next Apply (OnLevelStart)
         private bool copyAttached;          // cbCopy on the camera + Depth|MotionVectors forced (see NeedsMvDepth)
 
@@ -533,8 +534,11 @@ namespace Renderforge
 
                 int reset = resetNext || Diagnostics.ForceReset ? 1 : 0;   // ForceReset: NGX InReset / FSR reset / XeSS resetHistory every frame
                 Vector3 pos = cam.transform.position;
-                if ((pos - lastPos).sqrMagnitude > 50f * 50f || !Mathf.Approximately(cam.fieldOfView, lastFov)) reset = 1;
-                lastPos = pos; lastFov = cam.fieldOfView; resetNext = false;
+                // Camera cut = position jump or a relative FOV jump above FovCutFraction. Cinemachine blends and
+                // FrameModifier nudge the FOV every frame; resetting on each (Mathf.Approximately) shimmered the whole blend.
+                float fov = cam.fieldOfView;
+                if ((pos - lastPos).sqrMagnitude > 50f * 50f || Mathf.Abs(fov - lastFov) > FovCutFraction * Mathf.Max(lastFov, 1f)) reset = 1;
+                lastPos = pos; lastFov = fov; resetNext = false;
                 if (reset != 0) resets++;
 
                 // Signs (live-verified 2026-09-01, DLAA 1280x720): NGX gets (-jx, -jy). Unity's view space is right-handed
