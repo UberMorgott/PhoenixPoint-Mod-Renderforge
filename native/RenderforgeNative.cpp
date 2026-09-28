@@ -93,7 +93,8 @@ static struct {
     int providerCode;                   // what the backend's Init() really returned (retained under POST_ONLY)
     float nearZ, farZ, fovY;            // Dlss_SetCamera cache, copied into every slot
     int biasMaskMode;                   // Dlss_SetBiasMaskMode cache (DIAG), copied into every slot
-} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0, 0.1f, 1000.0f, 1.0471976f, 0 };
+    unsigned dlssPreset;                // Dlss_SetDlssPreset cache, copied into S.create by Dlss_SetCreateParams
+} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0, 0.1f, 1000.0f, 1.0471976f, 0, 0u };
 
 static bool ShutdownBackend(void)
 {
@@ -128,14 +129,25 @@ int RfFakeInitCode()
     return cached;
 }
 
-// Render preset hints: K (transformer) for DLAA/Q/B, M for Perf, L for UltraPerf (header defaults per mode).
-void SetPresetHints(NVSDK_NGX_Parameter* params)
+// Presets the SDK 310.9 header still lists as usable (nvsdk_ngx_defs.h:70-88; guide 3.12: A-D removed in 310.6,
+// E/F = CNN, deprecated but present; G-I/N/O revert to default). Anything else maps to 0 = our per-mode defaults.
+static bool ValidDlssPreset(unsigned p)
 {
-    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, NVSDK_NGX_DLSS_Hint_Render_Preset_K);
-    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, NVSDK_NGX_DLSS_Hint_Render_Preset_K);
-    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, NVSDK_NGX_DLSS_Hint_Render_Preset_K);
-    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance, NVSDK_NGX_DLSS_Hint_Render_Preset_M);
-    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, NVSDK_NGX_DLSS_Hint_Render_Preset_L);
+    return p == NVSDK_NGX_DLSS_Hint_Render_Preset_E || p == NVSDK_NGX_DLSS_Hint_Render_Preset_F
+        || (p >= NVSDK_NGX_DLSS_Hint_Render_Preset_J && p <= NVSDK_NGX_DLSS_Hint_Render_Preset_M);
+}
+
+// Render preset hints. preset 0: K (transformer) for DLAA/Q/B, M for Perf, L for UltraPerf (header defaults per
+// mode). Otherwise the chosen preset for every mode (Dlss_SetDlssPreset). Read by NGX at feature creation only.
+void SetPresetHints(NVSDK_NGX_Parameter* params, unsigned preset)
+{
+    const bool pin = ValidDlssPreset(preset);
+    const unsigned qb = pin ? preset : (unsigned)NVSDK_NGX_DLSS_Hint_Render_Preset_K;
+    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, qb);
+    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, qb);
+    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, qb);
+    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance, pin ? preset : (unsigned)NVSDK_NGX_DLSS_Hint_Render_Preset_M);
+    NVSDK_NGX_Parameter_SetUI(params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, pin ? preset : (unsigned)NVSDK_NGX_DLSS_Hint_Render_Preset_L);
 }
 
 // ---------------------------------------------------------------- exports
@@ -185,6 +197,7 @@ void __cdecl Dlss_SetCreateParams(unsigned w, unsigned h, unsigned outW, unsigne
     S.create.w = w; S.create.h = h; S.create.outW = outW; S.create.outH = outH;
     S.create.quality = quality;
     S.create.rawFlags = flags;
+    S.create.preset = S.dlssPreset;
     int f = 0;
     // DLSS_F_HDR deliberately NOT mapped to NVSDK_NGX_DLSS_Feature_Flags_IsHDR: the FP16 colour (D3D12HalfColor) holds
     // linear LDR values - exactly what D3D11 feeds NGX via the hardware-decoded sRGB SRV with IsHDR=0 (proven stable).
@@ -326,6 +339,13 @@ void __cdecl Dlss_SetCamera(float nearZ, float farZ, float fovYRadians)
     if (farZ > 0.0f) S.farZ = farZ;
     if (fovYRadians > 0.0f) S.fovY = fovYRadians;
 }
+
+void __cdecl Dlss_SetDlssPreset(int ngxPreset)
+{
+    S.dlssPreset = ValidDlssPreset((unsigned)ngxPreset) ? (unsigned)ngxPreset : 0u;
+}
+
+int __cdecl Dlss_DlssPreset(void) { return (int)S.create.preset; }
 
 void __cdecl Dlss_SetBiasMaskMode(int mode)
 {

@@ -40,6 +40,12 @@ namespace Renderforge
     /// Texture.SetGlobalAnisotropicFilteringLimits(16, 16); the restore is the snapshot + limits (-1, -1).</summary>
     public enum AnisotropicMode { Vanilla, Force16 }
 
+    /// <summary>DLSS SR model (NGX render preset). Auto = the shim's per-mode defaults: K for DLAA/Quality/Balanced,
+    /// M for Performance, L for Ultra Performance. Any other value pins that preset for EVERY mode. Only presets the
+    /// SDK 310.9 header still lists: J/K/L/M transformer, E/F CNN (deprecated by NVIDIA, about half the GPU cost of K).
+    /// Ordinals are persisted in ModConfig.json; append only. The NGX value is DlssConfig.NgxPreset.</summary>
+    public enum DlssModel { Auto, K, J, M, L, E, F }
+
     /// <summary>Public fields = the in-game mod settings UI + ModConfig.json (ModConfig.GetConfigFields).
     /// [ConfigField] = the English label; GetConfigFields routes label + description through Loc, so the embedded
     /// strings.csv translates them like every other string and the Ru dictionary stays the fallback.</summary>
@@ -49,7 +55,7 @@ namespace Renderforge
         // call that is building Mods -> Renderforge, where duplicate normal Graphics/Screen rows are hidden.
         private static readonly HashSet<string> HiddenFromModSettings = new HashSet<string>
         {
-            nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(FrameGen),
+            nameof(Mode), nameof(Sharpness), nameof(Renderer), nameof(Upscaler), nameof(DlssModel), nameof(FrameGen),
             nameof(LimitFrameRate), nameof(FrameRateLimit), nameof(Lut), nameof(LutStrength),
             nameof(SceneStyle), nameof(SceneStyleStrength), nameof(PixelSize), nameof(CrispFonts), nameof(PixelPerfectUi),
             nameof(Vignette), nameof(ShadowResolution), nameof(Anisotropic), nameof(LodBias),
@@ -121,6 +127,8 @@ namespace Renderforge
         public RendererMode Renderer = RendererMode.Auto;
         [ConfigField("Upscaler", "Auto picks by GPU: NVIDIA → DLSS, Intel → XeSS, otherwise FSR (XeSS if the AMD DLLs are missing). DLSS needs an NVIDIA RTX GPU; FSR/XeSS need DirectX 12. Switches live.")]
         public UpscalerKind Upscaler = UpscalerKind.Auto;
+        [ConfigField("DLSS model", "Auto = K (transformer) for DLAA/Quality/Balanced, M for Performance, L for Ultra Performance. K/J = transformer, best quality; M/L = newer transformer, sharper with less ghosting, L the most expensive; E/F = older CNN model, about half the GPU cost of K (deprecated by NVIDIA). DLSS only. Switches live.")]
+        public DlssModel DlssModel = DlssModel.Auto;
         [ConfigField("Frame generation", "Off / 2x / 3x / 4x. DirectX 12 with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU.")]
         public FrameGenMode FrameGen = FrameGenMode.Off;
         [ConfigField("Vignette", "Vanilla keeps the game's own vignette; Off removes the darkened frame edges. Also in Options → Graphics.")]
@@ -162,6 +170,7 @@ namespace Renderforge
             { nameof(FrameRateLimit), new[] { "Макс. итоговых FPS", "30 … 300 с учётом сгенерированных кадров; действует при включённом ограничении" } },
             { nameof(Renderer), new[] { "Рендерер", "Авто = DirectX 11. DirectX 12 — экспериментальный. Смена требует перезапуска." } },
             { nameof(Upscaler), new[] { "Апскейлер", "Авто выбирает по видеокарте: NVIDIA → DLSS, Intel → XeSS, иначе FSR (XeSS, если нет DLL AMD). DLSS требует видеокарту NVIDIA RTX; FSR/XeSS требуют DirectX 12. Переключается без перезапуска." } },
+            { nameof(DlssModel), new[] { "Модель DLSS", "Авто = K (трансформер) для DLAA/Quality/Balanced, M для Performance, L для Ultra Performance. K/J — трансформер, лучшее качество; M/L — новый трансформер, резче и меньше шлейфов, L самая тяжёлая; E/F — старая CNN-модель, примерно вдвое дешевле K по GPU (NVIDIA пометила устаревшей). Только DLSS. Переключается без перезапуска." } },
             { nameof(FrameGen), new[] { "Генерация кадров", "Выкл / 2x / 3x / 4x. Только DirectX 12 при включённом апскейлере; 3x и 4x — DLSS-G на видеокарте RTX 50." } },
             { nameof(Vignette), new[] { "Виньетка", "Только тактические миссии. «Как в игре» сохраняет виньетку миссии; «Выкл» убирает затемнение по краям кадра. Также в Настройки → Графика." } },
             { nameof(ShadowResolution), new[] { "Разрешение теней", "«Как в игре» — значение выбранного пресета; «Очень высокое» увеличивает размер карты теней. Также в Настройки → Графика." } },
@@ -210,6 +219,21 @@ namespace Renderforge
                 }
             }
             catch (Exception ex) { table = null; log("strings.csv parse failed - EN/RU fallback: " + ex.Message); }
+        }
+
+        /// <summary>NVSDK_NGX_DLSS_Hint_Render_Preset value for Dlss_SetDlssPreset; 0 = the shim's per-mode defaults.</summary>
+        internal static int NgxPreset(DlssModel m)
+        {
+            switch (m)
+            {
+                case DlssModel.E: return 5;
+                case DlssModel.F: return 6;
+                case DlssModel.J: return 10;
+                case DlssModel.K: return 11;
+                case DlssModel.L: return 12;
+                case DlssModel.M: return 13;
+                default: return 0;
+            }
         }
 
         public override List<ModConfigField> GetConfigFields()

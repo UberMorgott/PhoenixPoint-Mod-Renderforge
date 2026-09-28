@@ -46,6 +46,7 @@ struct CreateParams
     int quality;      // DLSS_Q_*
     int ngxFlags;     // already translated to NVSDK_NGX_DLSS_Feature_Flags
     int rawFlags;     // the untranslated DLSS_F_* bitmask, for providers that map them differently (FSR, XeSS)
+    unsigned preset;  // NGX render preset for EVERY quality mode (Dlss_SetDlssPreset); 0 = the per-mode defaults in SetPresetHints
     bool SrgbViews() const { return (rawFlags & DLSS_F_SRGB_VIEWS) != 0; }   // D3D12Owned.h Typed(): colour-in twin sRGB
 };
 
@@ -104,7 +105,7 @@ IDevice* MakeXess12(void* nativeResource);
 
 // Shared translation helpers (defined in RenderforgeNative.cpp).
 NVSDK_NGX_PerfQuality_Value ToNgxQuality(int quality);
-void SetPresetHints(NVSDK_NGX_Parameter* params);
+void SetPresetHints(NVSDK_NGX_Parameter* params, unsigned preset);
 
 // DEV ONLY. RENDERFORGE_FAKE_INIT injects an NGX failure with the device already acquired - the post-only path
 // without a non-NVIDIA GPU. It never short-circuits the handler it is testing, and it never CALLS the NGX entry

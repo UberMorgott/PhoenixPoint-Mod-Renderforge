@@ -310,6 +310,27 @@ namespace Renderforge
             catch (Exception) { }
         }
 
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void Dlss_SetDlssPreset(int ngxPreset);
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int Dlss_DlssPreset();
+
+        /// <summary>NGX render preset (NVSDK_NGX_DLSS_Hint_Render_Preset value, 0 = per-mode defaults) for the NEXT
+        /// Dlss_SetCreateParams; NGX reads it only at feature creation. Behind a try: an older shim lacks the export.</summary>
+        public static void SetDlssPreset(int ngxPreset)
+        {
+            try { Dlss_SetDlssPreset(ngxPreset); }
+            catch (Exception) { }
+        }
+
+        /// <summary>The preset the shim latched into the last create (0 = defaults), -1 when the export is missing.</summary>
+        public static int DlssPreset()
+        {
+            try { return Dlss_DlssPreset(); }
+            catch (Exception) { return -1; }
+        }
+
         /// <summary>Dlss_SetCamera behind a try; called every frame, so it must never throw into the render loop.</summary>
         public static void SetCamera(float nearZ, float farZ, float fovYRadians)
         {

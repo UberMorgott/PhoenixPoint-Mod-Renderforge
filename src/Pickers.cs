@@ -8,7 +8,7 @@ namespace Renderforge
 {
     /// <summary>The Renderforge rows in Options -> Graphics, all clones of the panel's own TextureQualityPicker
     /// (UIModuleGraphicsOptionsPanel.cs:25) placed directly under it, in this order:
-    /// RENDERER, UPSCALER, FRAME GENERATION. GraphicsPanel then places its DLSS quality picker + sharpness
+    /// RENDERER, UPSCALER, DLSS MODEL, FRAME GENERATION. GraphicsPanel then places its DLSS quality picker + sharpness
     /// slider after the row this returns, so the order is decided in ONE place.
     /// RENDERER is deferred like the panel's own settings (HasChanges lights Apply, Apply commits + asks);
     /// UPSCALER switches the provider live (RenderforgeMod.SetUpscaler), and an unavailable entry just stays
@@ -18,12 +18,13 @@ namespace Renderforge
         internal const string RendererName = "RenderforgeRenderer";
         internal const string UpscalerName = "RenderforgeUpscaler";
         internal const string FrameGenName = "RenderforgeFrameGen";
+        internal const string ModelName = "RenderforgeDlssModel";
 
         private static bool loggedError;
-        private static ArrowPickerController renderer, upscaler, frameGen;
+        private static ArrowPickerController renderer, upscaler, model, frameGen;
         private static RendererMode pendingRenderer;
         private static bool rendererTouched;   // the user moved the RENDERER row since the panel opened
-        private static int pendingUpscaler, pendingFrameGen;
+        private static int pendingUpscaler, pendingModel, pendingFrameGen;
         private static Action onChanged;
 
         private static string[] RendererLabels
@@ -35,6 +36,12 @@ namespace Renderforge
         private static string[] UpscalerLabels
         {
             get { return new[] { DlssConfig.Loc("Off", "Выкл"), DlssConfig.Loc("Auto", "Авто"), "DLSS", "FSR", "XeSS" }; }
+        }
+
+        // Index == DlssModel (declared Auto, K, J, M, L, E, F).
+        private static string[] ModelLabels
+        {
+            get { return new[] { DlssConfig.Loc("Auto", "Авто"), "K", "J", "M", "L", "E (CNN)", "F (CNN)" }; }
         }
 
         private static string[] FrameGenLabels
@@ -64,8 +71,13 @@ namespace Renderforge
             upscaler.Init(UpscalerLabels.Length, pendingUpscaler, OnUpscaler);
             ShowUpscaler();
 
+            pendingModel = Mathf.Clamp((int)cfg.DlssModel, 0, ModelLabels.Length - 1);
+            model = Row(src, ModelName, DlssConfig.Loc("DLSS model", "Модель DLSS"), upscaler.transform.GetSiblingIndex() + 1);
+            model.Init(ModelLabels.Length, pendingModel, OnModel);
+            ShowModel();
+
             pendingFrameGen = (int)cfg.FrameGen;
-            frameGen = Row(src, FrameGenName, DlssConfig.Loc("Frame generation", "Генерация кадров"), upscaler.transform.GetSiblingIndex() + 1);
+            frameGen = Row(src, FrameGenName, DlssConfig.Loc("Frame generation", "Генерация кадров"), model.transform.GetSiblingIndex() + 1);
             frameGen.Init(FrameGenLabels.Length, pendingFrameGen, OnFrameGen);
             ShowFrameGen();
 
@@ -84,7 +96,7 @@ namespace Renderforge
         /// <summary>Drop the scene references on mod disable; the next panel Init rebuilds them.</summary>
         internal static void Clear()
         {
-            renderer = upscaler = frameGen = null;
+            renderer = upscaler = model = frameGen = null;
             onChanged = null;
             LutPanel.Clear();
             ColorVisionPanel.Clear();
@@ -95,7 +107,7 @@ namespace Renderforge
 
         internal static void Hide(Transform content)
         {
-            foreach (string n in new[] { RendererName, UpscalerName, FrameGenName })
+            foreach (string n in new[] { RendererName, UpscalerName, ModelName, FrameGenName })
             {
                 var t = content.Find(n);
                 if (t != null) t.gameObject.SetActive(false);
@@ -160,6 +172,20 @@ namespace Renderforge
                 "DLSS требует видеокарту NVIDIA RTX; FSR и XeSS требуют DirectX 12. Переключается без перезапуска."));
         }
 
+        /// <summary>Greyed with this tooltip while the running upscaler is not DLSS: the choice is still saved and applies
+        /// the next time DLSS runs (FSR/XeSS have no NGX presets).</summary>
+        private static void ShowModel()
+        {
+            if (model == null) return;
+            bool dlss = Upscalers.Running == UpscalerKind.DLSS;
+            GraphicsPanel.SetRaw(model.CurrentItem, model.CurrentItemText, ModelLabels[pendingModel]);
+            GraphicsPanel.Grey(model.CurrentItem.gameObject, !dlss);
+            GraphicsPanel.Tip(model.CentralButton.gameObject, dlss
+                ? DlssConfig.Loc("Auto = K for DLAA/Quality/Balanced, M for Performance, L for Ultra Performance. K/J: transformer, best quality. M/L: newer transformer, sharper with less ghosting, L the most expensive. E/F: older CNN model, about half the GPU cost of K (deprecated by NVIDIA). Switches live.",
+                                 "Авто = K для DLAA/Quality/Balanced, M для Performance, L для Ultra Performance. K/J: трансформер, лучшее качество. M/L: новый трансформер, резче и меньше шлейфов, L самая тяжёлая. E/F: старая CNN-модель, примерно вдвое дешевле K по GPU (NVIDIA пометила устаревшей). Переключается без перезапуска.")
+                : DlssConfig.Loc("DLSS only: applies when the DLSS upscaler runs.", "Только для DLSS: применится, когда работает апскейлер DLSS."));
+        }
+
         private static readonly int[] FrameGenCaps = { 0, Native.FG_CAP_2X, Native.FG_CAP_3X, Native.FG_CAP_4X };
 
         /// <summary>Null = selectable. Otherwise the row stays VISIBLE, greyed, with this as the tooltip - never hidden,
@@ -206,9 +232,21 @@ namespace Renderforge
                 if (RenderforgeMod.Instance == null) return;
                 RenderforgeMod.SetUpscaler(UpscalerAt(index).ToString());   // live switch (or refused with the row's reason) + save
                 ShowUpscaler();
+                ShowModel();                   // greyed unless DLSS runs
                 GraphicsPanel.SyncQuality();   // the quality row's labels depend on the provider
             }
             catch (Exception ex) { Log("upscaler picker change failed", ex); }
+        }
+
+        private static void OnModel(int index)
+        {
+            try
+            {
+                pendingModel = index;
+                if (RenderforgeMod.Instance != null) RenderforgeMod.SetDlssModel(((DlssModel)index).ToString());   // saved; the driver re-creates DLSS on it
+                ShowModel();
+            }
+            catch (Exception ex) { Log("DLSS model picker change failed", ex); }
         }
 
         private static void OnFrameGen(int index)

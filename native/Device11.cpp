@@ -251,7 +251,7 @@ struct Device11 : IDevice
         if (!params || !device) { lastCreate = NVSDK_NGX_Result_FAIL_NotInitialized; return; }
         if (feature) { NVSDK_NGX_D3D11_ReleaseFeature(feature); feature = NULL; }
         if (!cp.w || !cp.outW) { lastCreate = NVSDK_NGX_Result_FAIL_InvalidParameter; return; }
-        SetPresetHints(params);
+        SetPresetHints(params, cp.preset);
 
         NVSDK_NGX_DLSS_Create_Params dcp = {};
         dcp.Feature.InWidth = cp.w;

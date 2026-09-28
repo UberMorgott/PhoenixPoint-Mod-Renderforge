@@ -143,6 +143,13 @@ DLSS_API void __cdecl Dlss_SetCamera(float nearZ, float farZ, float fovYRadians)
 // NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask on every evaluate: 0 = not bound (production), 1 = bound
 // and cleared to 0, 2 = bound and cleared to 1 (= "prefer current frame" everywhere). Tests whether the DLL honours it.
 DLSS_API void __cdecl Dlss_SetBiasMaskMode(int mode);
+// Main thread, BEFORE Dlss_SetCreateParams (NGX reads render-preset hints only at feature creation, so a change needs
+// a new feature). ngxPreset = an NVSDK_NGX_DLSS_Hint_Render_Preset value applied to EVERY quality mode:
+// 5 E / 6 F (CNN, deprecated), 10 J / 11 K / 12 L / 13 M (transformer). 0 or anything else = the shim's per-mode
+// defaults (K for DLAA/Quality/Balanced, M for Performance, L for Ultra Performance). NGX providers only.
+DLSS_API void __cdecl Dlss_SetDlssPreset(int ngxPreset);
+// The preset latched into the last Dlss_SetCreateParams (what the next/current NGX feature was created with); 0 = defaults.
+DLSS_API int __cdecl Dlss_DlssPreset(void);
 
 // Render event id for the frame-generation prepare/tag pass (records into the shim's own command list,
 // submitted through IUnityGraphicsD3D12v5::ExecuteCommandList exactly like DLSS_EV_EVALUATE).
