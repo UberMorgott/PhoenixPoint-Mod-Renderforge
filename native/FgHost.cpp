@@ -80,7 +80,8 @@ struct Host
     // a vendor Present without its per-frame inputs/markers wedges DLSS-G's pacer (measured: "Pacer flush has timed
     // out", "Couldn't lock the mutex on sync present", eFailReflexNotDetectedAtRuntime). The hook forwards Unity's
     // Present untouched, and the child window is hidden so Unity's own chain shows through instead of a stale frame.
-    int                   prepared;     // FgHostPrepare ran with inputs since the last OnPresent
+    int                   prepared;     // FgHostPrepare recorded AND submitted this frame's inputs since the last OnPresent
+    int                   prepFails;    // failed prepares this chain, for the capped FgLog
     long long             idle;         // consecutive presents skipped for lack of a prepared frame
     int                   hidden;       // the child window is hidden because of idle
     char                  status[512];
@@ -246,7 +247,7 @@ struct ProviderNone : IFgProvider
     unsigned Caps() const { return FG_CAP_2X; }        // reported, never used: NONE generates nothing
     const char* Name() const { return "none"; }
     int Create(const FgSetup& s, IDXGISwapChain4** out) { return FgHostCreateChildSwapChain(s, out); }
-    void Prepare(ID3D12GraphicsCommandList*, const FgFrame&) {}
+    bool Prepare(ID3D12GraphicsCommandList*, const FgFrame&) { return true; }
     int  Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT) { return 0; }
     void SetEnabled(bool) {}
     bool Destroy(bool) { return true; }
@@ -377,7 +378,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.lastError = FG_OK;
     H.reason = NULL;
     H.lastPresentHr = 0;
-    H.prepared = 0; H.idle = 0; H.hidden = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
+    H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
     {
         Locked lk;
         c.prov = p;                                        // publish: the render thread may pin from here on
@@ -427,8 +428,13 @@ void FgHostPrepare(void)
     // shim-owned twins (COMMON at rest), never the Unity RTs - declaring those as NON_PIXEL_SHADER_RESOURCE made
     // Unity transition them under the upscaler's own barriers (debug layer id=527 on every frame).
     if (H.cur.hudless && H.cur.depth && H.cur.mv) {
-        H.prepared = 1;
+        // The frame counts as prepared only once the provider's tags/constants are recorded AND the list reached the
+        // queue: a failed Begin/Prepare/End leaves prepared = 0, so the next Present takes the idle path (Unity presents
+        // its own frame) instead of feeding the generator the previous frame's data. An earlier unconsumed success is
+        // dropped too - it is older than this frame.
+        int ok = 1;
         if (H.c.prov->Id() != FG_PROVIDER_NONE) {
+            ok = 0;
             ID3D12GraphicsCommandList* l = H.c.prep.Begin();
             if (l) {
                 // FP16 out (D3D12HalfColor): encode it into the 8-bit twin FIRST, on this list, so the provider's tags
@@ -436,10 +442,15 @@ void FgHostPrepare(void)
                 const OwnedSet12* o = FgOwned12();
                 if (o && o->out && o->outFmt != H.c.backFmt && H.c.hud.Ensure(H.device, H.c.prep, o->outW, o->outH, H.c.backFmt))
                     H.c.hud.Run(l, o->out, o->outFmt, H.c.prep.ringIdx);
-                H.c.prov->Prepare(l, H.cur);
-                H.c.prep.End(0);
-            }
+                bool prepared = H.c.prov->Prepare(l, H.cur);
+                bool submitted = H.c.prep.End(0);   // always End: an open list would wedge the ring's next Begin
+                ok = prepared && submitted;
+                if (prepared && !submitted) H.c.prov->DropPrepared();   // no Present will consume it (DLSS-G token)
+                if (!ok && H.prepFails++ < 8)
+                    FgLog("host: prepare failed (provider=%d submit=%d) - frame not prepared", prepared ? 1 : 0, submitted ? 1 : 0);
+            } else if (H.prepFails++ < 8) FgLog("host: prep list Begin failed (code %d) - frame not prepared", H.c.prep.failCode);
         }
+        H.prepared = ok;
     }
     Unpin(NULL);
 }

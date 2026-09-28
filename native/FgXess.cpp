@@ -180,10 +180,10 @@ struct ProviderXess : IFgProvider
     }
 
     // Render thread, DLSS_EV_FG_PREPARE: XeLL sleep + the pre-present markers, then tag this frame's inputs.
-    void Prepare(ID3D12GraphicsCommandList*, const FgFrame& f)
+    bool Prepare(ID3D12GraphicsCommandList*, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
-        if (!fg || !o || !o->depth || !o->mv || !o->out) return;
+        if (!fg || !o || !o->depth || !o->mv || !o->out) return false;
         // FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16 out (D3D12HalfColor) - always back-buffer
         // format. No match = tag depth/mv/constants anyway (XeSS-FG interpolates from the back buffer; hudless is optional).
         DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
@@ -213,6 +213,9 @@ struct ProviderXess : IFgProvider
         c.frameRenderTime = f.dtMs;
         xefg_swapchain_result_t r = xefgSwapChainTagFrameConstants(fg, presentId, &c);
         if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (warned < 8) { ++warned; FgLog("xess: tag constants %d", (int)r); } }
+        // Still prepared: presentId advanced and XeLL's SIMULATION/RENDERSUBMIT_START markers are out, so this frame's
+        // Present must follow to close them (a constants failure was warn-only before too).
+        return true;
     }
 
     // Render thread, just before the host copies the real frame into the proxy and presents it: the present id

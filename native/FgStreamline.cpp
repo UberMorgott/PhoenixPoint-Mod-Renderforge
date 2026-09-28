@@ -352,10 +352,10 @@ struct ProviderStreamline : IFgProvider
     }
 
     // Render thread, DLSS_EV_FG_PREPARE (after the upscaler list wrote the owned twins, same Unity queue order).
-    void Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
+    bool Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
-        if (!proxy || !o || !o->depth || !o->mv || !o->out) return;
+        if (!proxy || !o || !o->depth || !o->mv || !o->out) return false;
         IssueOptions(o->w, o->h);
         // The hud-less in the back buffer's format (FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16
         // out). Without one the frame still gets its token, constants and depth/mv tags - a skipped hudless is a quality
@@ -370,7 +370,7 @@ struct ProviderStreamline : IFgProvider
         ++frames;
         ++g_sl.frameIdx;
         sl::FrameToken* t = NULL;
-        if (g_sl.newFrame(t, &g_sl.frameIdx) != sl::Result::eOk || !t) { if (warned < 8) { ++warned; FgLog("sl: slGetNewFrameToken failed"); } return; }
+        if (g_sl.newFrame(t, &g_sl.frameIdx) != sl::Result::eOk || !t) { if (warned < 8) { ++warned; FgLog("sl: slGetNewFrameToken failed"); } return false; }
         fifo[tail++ % kTokens] = t;
         // Unity's simulation is not reachable from the shim: SIMULATION_* bracket this event (Reflex.md:179-207, PCL.md:118-155).
         g_sl.reflexSleep(*t);
@@ -425,7 +425,12 @@ struct ProviderStreamline : IFgProvider
         };
         r = g_sl.setTag(*t, vp, tags, hud ? 3 : 2, list);
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetTagForFrame %d", (int)r); }
+        // Constants/tag failures stay warn-only: the token is in the FIFO and only a Present pops it (BeforePresent).
+        return true;
     }
+
+    // The host could not submit the prep list: no Present will pop this frame's token, so take it back out.
+    void DropPrepared() { if (tail != head) --tail; }
 
     // Render thread, Present hook: nothing to do here - the options went out in Prepare (IssueOptions), the markers
     // come after the copy, in BeforePresent.

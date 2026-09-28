@@ -84,7 +84,12 @@ struct IFgProvider
     // Render thread, inside the DLSS_EV_FG_PREPARE render event, on a recording DIRECT command list that goes
     // through Unity's ExecuteCommandList with NO state declarations: providers read the shim-owned twins
     // (FgOwned12(), all resting in COMMON), never the Unity RTs in `f`.
-    virtual void     Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f) = 0;
+    // False = nothing usable was recorded for this frame (no context/twins, a failed SDK prepare): the host then leaves
+    // the frame unprepared and the next Present takes the idle path instead of generating from stale inputs.
+    virtual bool     Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f) = 0;
+    // Render thread: Prepare returned true but the host could not submit its list, so no Present will consume this
+    // frame. Undo per-frame bookkeeping that expects one (DLSS-G's token FIFO). Default no-op.
+    virtual void     DropPrepared() {}
     // Render thread, inside the Present hook, BEFORE the host copies the real frame into `shadow`.
     // `unityBackBuffer` is Unity's finished frame (state PRESENT). The provider generates its in-between
     // frame(s), presents them on `shadow` itself (same sync/flags the host will use) and returns how many it

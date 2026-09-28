@@ -197,10 +197,10 @@ struct ProviderFsr : IFgProvider
     }
 
     // Configure (once per frame, frameID must step by exactly 1) + the prepare pass, on the host's prep list.
-    void Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
+    bool Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
-        if (!fgCtx || !o || !o->depth || !o->mv || !o->out) return;
+        if (!fgCtx || !o || !o->depth || !o->mv || !o->out) return false;
 
         ffxConfigureDescFrameGeneration cfg = {};
         cfg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
@@ -221,7 +221,7 @@ struct ProviderFsr : IFgProvider
             cfg.HUDLessColor = ffxApiGetResourceDX12(hud, FFX_API_RESOURCE_STATE_COMMON);
         else if (!hudlessWarned) { hudlessWarned = 1; FgLog("fsr: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
         lastRc = (int)fn->Configure(&fgCtx, &cfg.header);
-        if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: configure %d", lastRc); return; }
+        if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: configure %d", lastRc); return false; }
 
         ffxDispatchDescFrameGenerationPrepareV2 pr = {};
         pr.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2;
@@ -245,8 +245,9 @@ struct ProviderFsr : IFgProvider
         memcpy(pr.cameraRight, f.camRight, sizeof(pr.cameraRight));
         memcpy(pr.cameraForward, f.camFwd, sizeof(pr.cameraForward));
         lastRc = (int)fn->Dispatch(&fgCtx, &pr.header);
-        if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: prepare %d", lastRc); return; }
+        if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: prepare %d", lastRc); return false; }
         preparedId = f.frameId;
+        return true;
     }
 
     // The proxy generates inside its own Present (OnGenerate): nothing to do here.
