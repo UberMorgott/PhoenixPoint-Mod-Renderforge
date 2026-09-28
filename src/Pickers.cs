@@ -177,7 +177,11 @@ namespace Renderforge
         private static void ShowModel()
         {
             if (model == null) return;
-            bool dlss = Upscalers.Running == UpscalerKind.DLSS;
+            // A live provider switch lands a few frames later (DlssDriver Idle -> ReinitNative): show the provider it lands
+            // on, not the one still running. Same test RenderforgeMod.ApplyUpscaler uses to start the switch.
+            UpscalerKind target = Upscalers.Resolve(Upscalers.Wanted);
+            bool switching = target != UpscalerKind.Off && target != Upscalers.Running && Availability.Reason(Upscalers.FeatureOf(target)) == null;
+            bool dlss = (switching ? target : Upscalers.Running) == UpscalerKind.DLSS;
             GraphicsPanel.SetRaw(model.CurrentItem, model.CurrentItemText, ModelLabels[pendingModel]);
             GraphicsPanel.Grey(model.CurrentItem.gameObject, !dlss);
             GraphicsPanel.Tip(model.CentralButton.gameObject, dlss
