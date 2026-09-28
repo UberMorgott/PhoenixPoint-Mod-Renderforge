@@ -46,6 +46,7 @@ namespace Renderforge
         private bool resetNext;
         private Vector3 lastPos;
         private float lastFov;
+        private bool suspended;             // level end: no generation until the next Apply (OnLevelStart)
 
         private bool depthModeSaved;
         private DepthTextureMode savedDepthMode;
@@ -136,8 +137,19 @@ namespace Renderforge
 
         private UpscalerKind switchTo = UpscalerKind.Off;   // Off = no switch pending
 
+        /// <summary>Level end: the level's camera is about to die. Release now even when a passthrough generation (upscaler
+        /// Off, sharpen/LUT/grade on) would otherwise stay wanted - with wantMode == liveMode == Off, Apply(Off) alone kept
+        /// it Live on the dying camera. Cleared by the next Apply (OnLevelStart -> AttachAndApply).</summary>
+        public void Suspend()
+        {
+            suspended = true;
+            wantMode = RenderforgeMode.Off;
+            if (gen == Gen.Live || gen == Gen.Creating) BeginRelease();
+        }
+
         public void Apply(RenderforgeMode mode, DebugView view)
         {
+            suspended = false;
             // Post-only: there is no upscaler to ask for a mode. Every generation is a passthrough one.
             wantMode = RenderforgeMod.PostOnly ? RenderforgeMode.Off : mode;
             wantView = view;
@@ -205,8 +217,8 @@ namespace Renderforge
             var cfg = RenderforgeMod.Instance?.Cfg;
             bool lutActive = cfg != null && cfg.Lut != LutPreset.Off && cfg.LutStrength > 0;
             // Sharpness is its own reason to run: with the upscaler Off the NIS pass is the only thing on the frame.
-            bool needsPipeline = wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg)
-                || ColorVisionPanel.Active(cfg) || GradePanel.Active(cfg) || (cfg != null && cfg.Sharpness > 0);
+            bool needsPipeline = !suspended && (wantMode != RenderforgeMode.Off || lutActive || SceneStylePanel.Active(cfg)
+                || ColorVisionPanel.Active(cfg) || GradePanel.Active(cfg) || (cfg != null && cfg.Sharpness > 0));
             switch (gen)
             {
                 case Gen.Idle:

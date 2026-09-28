@@ -221,8 +221,9 @@ namespace Renderforge
 
         public override void OnLevelStart(Level level) { GeoMarkerOverlay.ResetFailure(); AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); }   // Reapply covers a level that starts with the generation still live
 
-        /// <summary>Release before the level's camera goes away; the next OnLevelStart re-attaches.</summary>
-        public override void OnLevelEnd(Level level) { DlssDriver.Instance?.Apply(RenderforgeMode.Off, Diagnostics.View); }
+        /// <summary>Release before the level's camera goes away (also a passthrough generation kept alive by sharpen/LUT/grade);
+        /// the next OnLevelStart re-attaches and its Apply lifts the suspension.</summary>
+        public override void OnLevelEnd(Level level) { DlssDriver.Instance?.Suspend(); }
 
         public override void OnConfigChanged()
         {
