@@ -30,6 +30,7 @@ namespace Renderforge
         private static readonly Dictionary<int, Kind> seen = new Dictionary<int, Kind>();
         // Values every classified Normal / Ui texture carries right now (NaN = nothing written yet).
         private static float writtenBias = float.NaN, writtenUi = float.NaN;
+        private static int lastSpriteCount = -1;   // Sprite count at the last sweep (-1 = none yet)
 
         /// <summary>Idempotent: sweeps only when the effective bias changes.</summary>
         public static void Apply(float bias)
@@ -65,8 +66,13 @@ namespace Renderforge
                 float uiBias = UiPin ? Mathf.Min(0f, Mathf.Log(UiScale(), 2f)) : 0f;
                 CurrentUiBias = Mathf.Min(bias, uiBias);
                 bool rewriteNormal = !(bias == writtenBias), rewriteUi = !(CurrentUiBias == writtenUi);   // NaN-safe
-                HashSet<Texture2D> ui = null;   // built only when an unseen texture needs classifying
-                int n = 0, nUi = 0, skipped = 0, added = 0, kept = 0;
+                // A texture classified Normal can get its Sprite later (serialized / asset-bundle sprites never pass
+                // Sprite_Create_Patch): when the Sprite count changed since the last sweep, re-test cached Normals.
+                var sprites = Resources.FindObjectsOfTypeAll<Sprite>();
+                bool spritesChanged = sprites.Length != lastSpriteCount;
+                lastSpriteCount = sprites.Length;
+                HashSet<Texture2D> ui = null;   // built only when an unseen texture needs classifying, or sprites changed
+                int n = 0, nUi = 0, skipped = 0, added = 0, kept = 0, promoted = 0;
                 foreach (var t in all)
                 {
                     if (ReferenceEquals(t, null)) continue;
@@ -74,6 +80,11 @@ namespace Renderforge
                     Kind k;
                     if (seen.TryGetValue(id, out k))
                     {
+                        if (k == Kind.Normal && spritesChanged)
+                        {
+                            if (ui == null) ui = UiTextures(sprites);
+                            if (ui.Contains(t)) { seen[id] = k = Kind.Ui; t.mipMapBias = CurrentUiBias; n++; nUi++; promoted++; continue; }
+                        }
                         if (k == Kind.Skip) skipped++;
                         else if (k == Kind.Normal && rewriteNormal) { t.mipMapBias = bias; n++; }
                         else if (k == Kind.Ui && rewriteUi) { t.mipMapBias = CurrentUiBias; n++; nUi++; }
@@ -81,7 +92,7 @@ namespace Renderforge
                         continue;
                     }
                     if (t == null || t.mipmapCount <= 1 || Skip(t.name)) { seen[id] = Kind.Skip; skipped++; continue; }
-                    if (ui == null) ui = UiTextures();
+                    if (ui == null) ui = UiTextures(sprites);
                     k = ui.Contains(t) ? Kind.Ui : Kind.Normal;
                     seen[id] = k;
                     t.mipMapBias = k == Kind.Ui ? CurrentUiBias : bias; n++; added++;
@@ -89,15 +100,26 @@ namespace Renderforge
                 }
                 writtenBias = bias; writtenUi = CurrentUiBias;
                 current = bias;
-                log?.LogInfo("MipBias: bias=" + bias.ToString("F3") + " applied to " + n + " textures (ui=" + CurrentUiBias.ToString("F3") + " on " + nUi + " sprite textures, new " + added + ", unchanged " + kept + ", skipped " + skipped + (full ? ", full" : "") + ") in " + sw.ElapsedMilliseconds + " ms");
+                // More cached ids than live textures = ids of textures a level unloaded: drop them (the level-start sweep).
+                int pruned = 0;
+                if (seen.Count > all.Length)
+                {
+                    var live = new HashSet<int>();
+                    foreach (var t in all) if (!ReferenceEquals(t, null)) live.Add(t.GetInstanceID());
+                    var dead = new List<int>();
+                    foreach (var id in seen.Keys) if (!live.Contains(id)) dead.Add(id);
+                    foreach (var id in dead) seen.Remove(id);
+                    pruned = dead.Count;
+                }
+                log?.LogInfo("MipBias: bias=" + bias.ToString("F3") + " applied to " + n + " textures (ui=" + CurrentUiBias.ToString("F3") + " on " + nUi + " sprite textures, new " + added + ", promoted " + promoted + ", unchanged " + kept + ", skipped " + skipped + ", pruned " + pruned + (full ? ", full" : "") + ") in " + sw.ElapsedMilliseconds + " ms");
             }
             catch (Exception ex) { log?.LogError("MipBias sweep threw: " + ex.Message); }
         }
 
-        private static HashSet<Texture2D> UiTextures()
+        private static HashSet<Texture2D> UiTextures(Sprite[] sprites)
         {
             var set = new HashSet<Texture2D>();
-            foreach (var s in Resources.FindObjectsOfTypeAll<Sprite>())
+            foreach (var s in sprites)
             {
                 if (s == null) continue;
                 var t = s.texture;
