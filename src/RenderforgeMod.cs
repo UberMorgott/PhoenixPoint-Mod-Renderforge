@@ -76,7 +76,7 @@ namespace Renderforge
             }
             try
             {
-                if (Available) DlssDriver.Create();
+                if (Available) DlssDriver.Create().Resume();   // a re-enable in a running level: lift a leftover suspension
                 ((Harmony)HarmonyInstance).PatchAll(typeof(RenderforgeMod).Assembly);
                 patched = true;
                 if (Cfg.CrispFonts) Logger.LogInfo("crisp fonts was removed in 1.5.0; the setting is ignored");
@@ -219,10 +219,10 @@ namespace Renderforge
             Instance = null;
         }
 
-        public override void OnLevelStart(Level level) { GeoMarkerOverlay.ResetFailure(); AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); }   // Reapply covers a level that starts with the generation still live
+        public override void OnLevelStart(Level level) { GeoMarkerOverlay.ResetFailure(); DlssDriver.Instance?.Resume(); AttachAndApply(); MipBias.Reapply(); D3D12Fix.Apply(); QualityKnobs.ApplyAll(); }   // Reapply covers a level that starts with the generation still live
 
         /// <summary>Release before the level's camera goes away (also a passthrough generation kept alive by sharpen/LUT/grade);
-        /// the next OnLevelStart re-attaches and its Apply lifts the suspension.</summary>
+        /// the next OnLevelStart lifts the suspension (Resume) and re-attaches.</summary>
         public override void OnLevelEnd(Level level) { FlushConfig(); DlssDriver.Instance?.Suspend(); }   // flush: a debounced write must not straddle the level switch
 
         public override void OnConfigChanged()
@@ -366,8 +366,9 @@ namespace Renderforge
             if (d == null) return;
             if (Cfg.Mode != RenderforgeMode.Off) lastOn = Cfg.Mode;
             var cam = GameUtl.GameComponent<CameraManager>()?.Camera;
-            if (cam == null) return;          // main menu without CameraManager: wait for the next level
-            d.Attach(cam);
+            // No camera yet (main menu without CameraManager, or it binds later): still record the mode, so the late
+            // Attach (SetOverrideCamera postfix) finds it - Suspend left wantMode Off. Idle waits for a camera anyway.
+            if (cam != null) d.Attach(cam);
             d.Apply(Cfg.Mode, Diagnostics.View);
         }
 

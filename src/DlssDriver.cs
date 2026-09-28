@@ -48,7 +48,7 @@ namespace Renderforge
         private Vector3 lastPos;
         private float lastFov;
         private const float FovCutFraction = 0.05f;   // history reset on a per-frame FOV change above 5 % (zoom snap / cut)
-        private bool suspended;             // level end: no generation until the next Apply (OnLevelStart)
+        private bool suspended;             // level end: no generation until Resume (OnLevelStart / OnModEnabled)
         private bool copyAttached;          // cbCopy on the camera + Depth|MotionVectors forced (see NeedsMvDepth)
 
         private bool depthModeSaved;
@@ -142,7 +142,8 @@ namespace Renderforge
 
         /// <summary>Level end: the level's camera is about to die. Release now even when a passthrough generation (upscaler
         /// Off, sharpen/LUT/grade on) would otherwise stay wanted - with wantMode == liveMode == Off, Apply(Off) alone kept
-        /// it Live on the dying camera. Cleared by the next Apply (OnLevelStart -> AttachAndApply).</summary>
+        /// it Live on the dying camera. Lifted ONLY by Resume (OnLevelStart / OnModEnabled): an Apply in between (config
+        /// change, provider-switch Idle branch, hotkey) must not bring generation back on the dying camera.</summary>
         public void Suspend()
         {
             suspended = true;
@@ -150,9 +151,10 @@ namespace Renderforge
             if (gen == Gen.Live || gen == Gen.Creating) BeginRelease();
         }
 
+        public void Resume() { suspended = false; }
+
         public void Apply(RenderforgeMode mode, DebugView view)
         {
-            suspended = false;
             // Post-only: there is no upscaler to ask for a mode. Every generation is a passthrough one.
             wantMode = RenderforgeMod.PostOnly ? RenderforgeMode.Off : mode;
             wantView = view;
