@@ -10,7 +10,10 @@ namespace Renderforge
     /// Vanilla assets ship with 0 (sampled + logged before the first sweep), so "restore" = write 0 back.
     /// UI pin (PixelPerfectUi): textures behind any Sprite get `min(bias, log2(canvasScale))` instead, so the minified
     /// UI (scale 0.667 at 1440p under a 4K reference) samples mip 0 - a runtime atlas without SpriteAtlas padding
-    /// otherwise bleeds its neighbour through mip 1 as a 1 px edge line (docs\research\icon-bleed-2026-09-08.md).</summary>
+    /// otherwise bleeds its neighbour through mip 1 as a 1 px edge line (docs\research\icon-bleed-2026-09-08.md).
+    /// Each texture is classified once per instance id (skip / normal / UI, the name read only then); a sweep writes only
+    /// textures it has not seen and the classes whose bias changed, so the level-start / +2 s re-sweeps stop re-touching
+    /// the ~2.5k textures that already carry the right value (the 9-15 ms hitch).</summary>
     public static class MipBias
     {
         /// <summary>PPCLI switch: {"op":"invoke","type":"Renderforge.MipBias","assembly":"Renderforge","member":"SetEnabled","args":[false]}.</summary>
@@ -23,26 +26,34 @@ namespace Renderforge
         private static bool sampled;
         private static readonly string[] skipNames = { "lut", "noise", "dither", "ramp", "gradient" };
 
+        private enum Kind : byte { Skip, Normal, Ui }
+        private static readonly Dictionary<int, Kind> seen = new Dictionary<int, Kind>();
+        // Values every classified Normal / Ui texture carries right now (NaN = nothing written yet).
+        private static float writtenBias = float.NaN, writtenUi = float.NaN;
+
         /// <summary>Idempotent: sweeps only when the effective bias changes.</summary>
         public static void Apply(float bias)
         {
             wanted = bias;
             float eff = Enabled ? wanted : 0f;
             if (Mathf.Approximately(eff, current)) return;
-            Sweep(eff);
+            Sweep(eff, false);
         }
 
         /// <summary>Same bias again, for textures loaded after the last sweep (level start). No-op at 0 unless the UI pin is on.</summary>
-        public static void Reapply() { if (current != 0f || UiPin) Sweep(current); }
+        public static void Reapply() { if (current != 0f || UiPin) Sweep(current, false); }
 
-        /// <summary>Unconditional sweep: the UI pin toggled while the DLSS bias did not.</summary>
-        public static void Resweep() => Sweep(Enabled ? wanted : 0f);
+        /// <summary>Unconditional full sweep, every texture re-classified: the UI pin toggled while the DLSS bias did not.</summary>
+        public static void Resweep() => Sweep(Enabled ? wanted : 0f, true);
 
         public static void Reset() => Apply(0f);
 
         public static string SetEnabled(bool on) { Enabled = on; Apply(wanted); return "mipbias enabled=" + Enabled + " current=" + current.ToString("F3"); }
 
-        private static void Sweep(float bias)
+        /// <summary>Sprite_Create_Patch pinned this texture: it is a UI texture from now on (a later bias change keeps the pin).</summary>
+        internal static void MarkUi(Texture2D t) { if (!ReferenceEquals(t, null)) seen[t.GetInstanceID()] = Kind.Ui; }
+
+        private static void Sweep(float bias, bool full)
         {
             var log = RenderforgeMod.Instance?.Logger;
             try
@@ -50,19 +61,35 @@ namespace Renderforge
                 var sw = Stopwatch.StartNew();
                 var all = Resources.FindObjectsOfTypeAll<Texture2D>();
                 if (!sampled) { sampled = true; log?.LogInfo("MipBias: originals max|bias|=" + SampleMax(all).ToString("F3") + " over " + Math.Min(20, all.Length) + " sampled"); }
-                var ui = UiTextures();
+                if (full) { seen.Clear(); writtenBias = writtenUi = float.NaN; }
                 float uiBias = UiPin ? Mathf.Min(0f, Mathf.Log(UiScale(), 2f)) : 0f;
                 CurrentUiBias = Mathf.Min(bias, uiBias);
-                int n = 0, nUi = 0, skipped = 0;
+                bool rewriteNormal = !(bias == writtenBias), rewriteUi = !(CurrentUiBias == writtenUi);   // NaN-safe
+                HashSet<Texture2D> ui = null;   // built only when an unseen texture needs classifying
+                int n = 0, nUi = 0, skipped = 0, added = 0, kept = 0;
                 foreach (var t in all)
                 {
-                    if (t == null || t.mipmapCount <= 1 || Skip(t.name)) { skipped++; continue; }
-                    bool isUi = ui.Contains(t);
-                    t.mipMapBias = isUi ? CurrentUiBias : bias; n++;
-                    if (isUi) nUi++;
+                    if (ReferenceEquals(t, null)) continue;
+                    int id = t.GetInstanceID();
+                    Kind k;
+                    if (seen.TryGetValue(id, out k))
+                    {
+                        if (k == Kind.Skip) skipped++;
+                        else if (k == Kind.Normal && rewriteNormal) { t.mipMapBias = bias; n++; }
+                        else if (k == Kind.Ui && rewriteUi) { t.mipMapBias = CurrentUiBias; n++; nUi++; }
+                        else kept++;
+                        continue;
+                    }
+                    if (t == null || t.mipmapCount <= 1 || Skip(t.name)) { seen[id] = Kind.Skip; skipped++; continue; }
+                    if (ui == null) ui = UiTextures();
+                    k = ui.Contains(t) ? Kind.Ui : Kind.Normal;
+                    seen[id] = k;
+                    t.mipMapBias = k == Kind.Ui ? CurrentUiBias : bias; n++; added++;
+                    if (k == Kind.Ui) nUi++;
                 }
+                writtenBias = bias; writtenUi = CurrentUiBias;
                 current = bias;
-                log?.LogInfo("MipBias: bias=" + bias.ToString("F3") + " applied to " + n + " textures (ui=" + CurrentUiBias.ToString("F3") + " on " + nUi + " sprite textures, skipped " + skipped + ") in " + sw.ElapsedMilliseconds + " ms");
+                log?.LogInfo("MipBias: bias=" + bias.ToString("F3") + " applied to " + n + " textures (ui=" + CurrentUiBias.ToString("F3") + " on " + nUi + " sprite textures, new " + added + ", unchanged " + kept + ", skipped " + skipped + (full ? ", full" : "") + ") in " + sw.ElapsedMilliseconds + " ms");
             }
             catch (Exception ex) { log?.LogError("MipBias sweep threw: " + ex.Message); }
         }
@@ -95,12 +122,12 @@ namespace Renderforge
 
         private static float SampleMax(Texture2D[] all)
         {
-            float max = 0f; int seen = 0;
+            float max = 0f; int seenCount = 0;
             foreach (var t in all)
             {
                 if (t == null || t.mipmapCount <= 1) continue;
                 max = Mathf.Max(max, Mathf.Abs(t.mipMapBias));
-                if (++seen >= 20) break;
+                if (++seenCount >= 20) break;
             }
             return max;
         }

@@ -56,7 +56,11 @@ namespace Renderforge
         {
             try
             {
-                if (MipBias.UiPin && __0 != null && __0.mipmapCount > 1 && !MipBias.Skip(__0.name)) __0.mipMapBias = Mathf.Min(__0.mipMapBias, MipBias.CurrentUiBias);
+                if (MipBias.UiPin && __0 != null && __0.mipmapCount > 1 && !MipBias.Skip(__0.name))
+                {
+                    __0.mipMapBias = Mathf.Min(__0.mipMapBias, MipBias.CurrentUiBias);
+                    MipBias.MarkUi(__0);   // the sweep cache must not rewrite it with the scene bias later
+                }
             }
             catch (Exception) { }
         }
