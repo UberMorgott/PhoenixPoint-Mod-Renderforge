@@ -27,6 +27,9 @@ namespace Renderforge
         /// <summary>GeoMarkerOverlay camera pose: -1 = by API (production: the previous frame's pose on D3D12, where the
         /// upscaled picture is one frame behind the scene), 0 = this frame's, 1 = the previous frame's.</summary>
         internal static int MarkerPoseDelay { get; set; }
+        /// <summary>GeoMarkerOverlay lighting of the marker layer (A-B lever, bits; production = 7): 1 = the lights of Default
+        /// light it, 2 = the directional ones per pixel while the present camera renders, 4 = with their shadows.</summary>
+        internal static int MarkerLights { get; set; }
         /// <summary>MotionVectorFilter on/off (A-B lever for the geoscape softness; production = on).</summary>
         internal static bool MvFilter { get; set; }
         /// <summary>Depth copy source (A-B lever): 0 = by rendering path (production), 1 = force BuiltinRenderTextureType.Depth,
@@ -69,6 +72,7 @@ namespace Renderforge
             MarkerOverlay = true;
             MarkerCraft = true;
             MarkerPoseDelay = -1;
+            MarkerLights = 7;
             View = DebugView.None;
             MvJittered = false;
             D3D12SrgbViews = false;

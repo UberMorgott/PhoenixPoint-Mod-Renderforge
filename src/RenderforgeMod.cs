@@ -582,7 +582,8 @@ namespace Renderforge
                  + " fgMultiplier=" + FrameGen.OutputMultiplier + " flowing=" + FrameGen.Flowing
                  + " baseFps=" + Mathf.RoundToInt(1f / Mathf.Max(Time.smoothDeltaTime, 1e-5f))
                  + " presentedFps=" + (FrameGen.Live ? Native.Fg_PresentedFps() : 0) + " frame=" + Time.frameCount
-                 + " dupPreCull=" + FrameGen.DupPreCull + " dupFeeds=" + FrameGen.DupFeeds;
+                 + " dupPreCull=" + FrameGen.DupPreCull + " dupFeeds=" + FrameGen.DupFeeds
+                 + " hudless=" + (FrameGen.Live ? Native.Fg_Hudless() : -1);
         }
 
         /// <summary>PPCLI diagnostic: {"member":"FrameStats","args":[true]} starts the base-frame sampler, [false] stops it and
@@ -753,6 +754,10 @@ namespace Renderforge
             return "markerOverlay=" + on + " " + GeoMarkerOverlay.Status();
         }
 
+        /// <summary>{"member":"ProbeMarkerReparent"} - a renderer parented under a near-side aircraft and then under a far-side one
+        /// (what the vehicle selection quads do): its layer after each step.</summary>
+        public static string ProbeMarkerReparent() => GeoMarkerOverlay.ProbeReparent();
+
         /// <summary>{"member":"ProbeCraftClick"} - every shown near-side aircraft projected through the present camera, picked back through GeoscapeCamera.</summary>
         public static string ProbeCraftClick() => GeoMarkerOverlay.ProbeCraftClick();
 
@@ -765,6 +770,17 @@ namespace Renderforge
             var d = DlssDriver.Instance;
             if (d != null && d.IsLive) GeoMarkerOverlay.Tick(d.SceneCamera, d.Passthrough);
             return "aircraft=" + aircraft + " poseDelay=" + poseDelay + " " + GeoMarkerOverlay.Status();
+        }
+
+        /// <summary>{"member":"SetMarkerOverlayLights","args":[7]} - A/B lever, bits: 1 = marker layer lit by the lights of Default,
+        /// 2 = directional lights per pixel on the present camera, 4 = with shadows. Re-arms the overlay. Runtime-only.</summary>
+        public static string SetMarkerOverlayLights(int mask)
+        {
+            GeoMarkerOverlay.Restore();
+            Diagnostics.MarkerLights = mask;
+            var d = DlssDriver.Instance;
+            if (d != null && d.IsLive) GeoMarkerOverlay.Tick(d.SceneCamera, d.Passthrough);
+            return "lights=" + mask + " " + GeoMarkerOverlay.Status();
         }
 
         /// <summary>{"member":"DumpScreen","args":["C:\\Temp\\s.png"]} - the backbuffer at the end of this frame + a .txt sidecar (frame, base marker screen pos).</summary>
