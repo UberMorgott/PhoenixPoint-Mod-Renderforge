@@ -114,16 +114,18 @@ namespace Renderforge
         /// The game's own pause is authoritative too: a geoscape cutscene (UIStateGeoCutscene.cs:62) sets
         /// CameraManager.PauseObjectRendering, whose CullEverythingController zeroes GeoscapeCamera's mask for the whole video;
         /// the overlay stays released until the pause lifts (re-arming on the mask alone flapped every other frame, 1.6.2).
-        /// ponytail: D3D11 only, no frame generation, no colour vision - the markers bypass the shim's post pass, so
-        /// daltonisation would stop covering the colour-coded icons, FG's interpolated frames would lack them, and the
-        /// D3D12 sRGB blend of this pass is untested. Every other combination keeps the vanilla path unchanged.</summary>
+        /// ponytail: no frame generation, no colour vision - the markers bypass the shim's post pass, so daltonisation
+        /// would stop covering the colour-coded icons and FG's interpolated frames would lack them. Every other
+        /// combination keeps the vanilla path unchanged. D3D12 runs the same pass as D3D11 (measured 2026-10-12, DLSS /
+        /// FSR / XeSS Performance: the present camera's backbuffer write encodes and blends like D3D11 - same texel
+        /// colours, same label-gradient blend - and site picking is unchanged).</summary>
         private static string Blocker(Camera sceneCam, bool passthrough)
         {
             if (!Diagnostics.MarkerOverlay) return "disabled";
             if (disabledByFailure) return "disabled after a failure (until the next level)";
             if (!IsGeoCam(sceneCam)) return "not the geoscape camera";
             if (passthrough) return "passthrough generation";
-            if (!Availability.IsD3D11) return "API " + Availability.ApiName + " (marker pass only verified on D3D11)";
+            if (!Availability.IsD3D11 && !Availability.IsD3D12) return "API " + Availability.ApiName + " (marker pass only verified on D3D11 and D3D12)";
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (FrameGen.Live || (cfg != null && cfg.FrameGen != FrameGenMode.Off)) return "frame generation on (interpolated frames would lack the markers)";
             if (cfg != null && cfg.ColorVision != ColorVisionMode.None) return "colour vision " + cfg.ColorVision + " (markers would bypass the daltonisation pass)";

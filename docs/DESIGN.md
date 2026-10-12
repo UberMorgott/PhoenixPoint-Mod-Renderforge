@@ -615,10 +615,17 @@ stage, same early-out when all eight uniforms are zero.
   An exception anywhere in the overlay logs once, restores, and sets `Diagnostics.MarkerOverlay = false` for the
   session - the upscaler never goes down for a marker walk.
 - **Gates** (`GeoMarkerOverlay.Blocker`, checked every Live frame, closing one releases at once): scene camera is
-  `GeoscapeCamera`, generation not passthrough, **D3D11 only**, **frame generation Off** (config and live), and
+  `GeoscapeCamera`, generation not passthrough, **D3D11 or D3D12**, **frame generation Off** (config and live), and
   **`Cfg.ColorVision == None`** - the markers bypass the shim's post pass, so daltonisation would stop covering the
-  colour-coded icons, FG's interpolated frames would lack them, and the D3D12 sRGB blend of this pass is untested;
-  every other combination keeps the vanilla path unchanged. Plus the curtain / mask gates below. Each "not armed"
+  colour-coded icons and FG's interpolated frames would lack them; every other combination keeps the vanilla path
+  unchanged. **D3D12 (un-gated 2026-10-12):** the pass needed no change - on the production FP16 path
+  (`D3D12HalfColor`, outRT `R16G16B16A16_SFloat`) the present camera's backbuffer write encodes and blends exactly
+  like D3D11. Measured on Instance3, 2560x1440, Performance 1280x720, same camera pose on both APIs: badge orange
+  `255,152,0` on both (vanilla path `216,116,0` / `224,126,0`), semi-transparent label gradient `82,79,94` on both,
+  `ProbeMarkerClick` `sameSite=True`, armed under DLSS / FSR / XeSS, restore + re-arm across a campaign restart,
+  0 Renderforge errors. Before that D3D12 logged `not armed - API D3D12` and the site icons / % labels were
+  reconstructed from render resolution (blurry at 4K Performance). Still on the vanilla path on both APIs: aircraft
+  (`GeoVehicle` 3D models, not under a `GeoSiteVisualsController`) and everything while frame generation is on. Plus the curtain / mask gates below. Each "not armed"
   reason is logged once.
 - **A third screen camera does not work here** (measured, `marker-cam\results.md`): a separate marker camera after
   DlssPresent (any clearFlags, any depth) leaves the present blit out of the buffer the HUD and end-of-frame
