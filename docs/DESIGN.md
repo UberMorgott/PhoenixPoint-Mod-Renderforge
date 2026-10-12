@@ -1493,7 +1493,7 @@ Present, so the Present hook runs on it: `host: first prepare tid` ≠ `first ho
 - **Counters:** `Fg_Status` `quiesce=served/refused pendingEnable=`; log lines `host: quiescent point #n served …`,
   `host: quiescent point refused …`, `host: enabled=N deferred …`, `xess: XeLL sleep mode: low latency on, frame cap …`,
   `xess: frame generation on (behind the XeLL sleep mode)`.
-- **Status:** built and probed without the game (`retirement_probe`, WARP; 385 checks with review 3); in-game
+- **Status:** built and probed without the game (`retirement_probe`, WARP; 397 checks with review 4); in-game
   regression pending - scenarios in the session's `regression-checklist.md`.
 
 ### SDK results decide state (2026-10-12, review 3)
@@ -1511,9 +1511,9 @@ managed change was needed.
 | `xefgSwapChainSetEnabled(1)` | `fgOn` (Prepare accepts frames on it) | `fgOn` stays 0, no frame tagged | same; 8 in a row → `dead` | `EnableFg` `:364` |
 | `xefgSwapChainSetEnabled(0)` | `fgOn` | stays 1 (true to the SDK); Prepare also wants `enabled`, host gate closed | – | `SetEnabled` `:576` |
 | XeSS tags / constants | – (per frame) | frame presented, SDK skips its interpolation | 120 frames in a row → `dead` | `:524` |
-| `slReflexSetOptions` | `g_sl.reflexMode/Us` | unchanged; `reflexBad` while a low-latency request stands refused → Prepare feeds nothing, `SetFrameLimit` returns false | retry every 30 calls (was: every frame) | `ReflexApply` `native\FgStreamline.cpp:150` |
-| `slDLSSGSetOptions` (Prepare) | `isOn`, `sentW/H` | unchanged; Prepare returns false - no token / constants / tags for a DLSS-G that is off or sized for other inputs | retry every 30 prepares (was: every frame, frame tagged anyway) | `IssueOptions` `:419`, `:540` |
-| `slSetConstants` / `slSetTagForFrame` | – (per frame) | warn, frame presented | 120 frames in a row → `dead` | `:635` |
+| `slReflexSetOptions` | `g_sl.reflex.mode/us` (`FgReflexLatch`) | unchanged; `reflex.bad` while a low-latency request stands refused → Prepare feeds nothing, `SetFrameLimit` returns false | that request retried every 30 asks (was: every frame); another request at once | `ReflexApply` `native\FgStreamline.cpp:155`, `native\FgLatch.h:24` |
+| `slDLSSGSetOptions` (Prepare) | `isOn`, `sentW/H` | unchanged; Prepare returns false - no token / constants / tags for a DLSS-G that is off or sized for other inputs | that request (mode + size) retried every 30 prepares (was: every frame, frame tagged anyway); another request at once | `IssueOptions` `:420`, `:425` |
+| `slSetConstants` / `slSetTagForFrame` | – (per frame) | warn, frame presented | 120 frames in a row → `dead` | `:639` |
 | `ffxConfigure` / prepare dispatch | none kept (the wish travels in each Configure) | Prepare returns false, `preparedId` unchanged | watchdog | `native\FgFsr.cpp:256` |
 | `CreateFence` (present-queue handoff) | `c.xfence` | chain published detached, destroyed by the ordinary path (was: DLSS-G copies on Unity's queue) | – | `native\FgHost.cpp:666` |
 
@@ -1522,16 +1522,33 @@ managed change was needed.
   `SetUiCompositionState`, `xellDestroyContext`, FSR pre-destroy `Configure` / wait results are logged, capped.
 - XeSS-FG warnings are positive codes (`XEFG_SWAPCHAIN_RESULT_WARNING_*`): the call took effect (`XefgOk`).
 - `dead` is per chain (`Zero()` clears it): a rebuilt chain tries again; the watchdog is what makes it per session.
-- **Test lever** `RENDERFORGE_FG_TEST_SDK_FAIL=<call>[,<count>]` (`FgTestSdkFail`, `native\FgHost.cpp:787`, read
-  once in `FgHostInit`): `xell_mode`, `xefg_enable`, `sl_options`, `sl_reflex`, `fsr_configure`. The named call is
-  NOT made and an error is reported in its place; `<count>` = the first N calls, omitted = every call. Unset = one
-  branch per call site. Log: `host: TEST forced SDK failure #n: <call>`.
+- **Every refusal state has its way out (review 4, 2026-10-12).** A "refused" flag, a back-off and an "in a row"
+  counter describe ONE request; they end with (a) an accepted call, (b) a request for what the SDK already
+  accepted - no call is made, the accepted state is the wanted one, (c) the chain's destroy / recreate. The bug
+  this rule comes from: cap 120 working → 144 refused once → back to 120 returned "in effect" from the cache and
+  left `reflexBad` up - Prepare fed nothing, `Starved` dropped a healthy DLSS-G for the session.
+  - Reflex (`FgReflexLatch::Apply`, `native\FgLatch.h:24`, invariant in its header): `bad` set by a refused or
+    backed-off low-latency ask; cleared by any accepted call, by an ask for the accepted mode + cap, and by
+    `NewChain` (`FgStreamline.cpp:375`, Create). The back-off is keyed to the refused request and survives an
+    accepted other one (eOff between two low-latency asks does not turn it into a per-frame retry).
+  - DLSS-G options: `optSkip` is keyed to the refused mode + size (`failOn/failW/failH`) - a size switched back,
+    or "on" after `Idle`, is issued at once; an accepted call zeroes it; `Zero()` per chain.
+  - XeLL: `modeFails` also ends when the wanted cap is the applied one (`FgXess.cpp:361`), `enableFails` when
+    the "on" request is withdrawn (`SetEnabled(false)`, `:584`) - spread-out refusals no longer add up to
+    `dead`. `inputFails` (both providers) already restarted on every good frame.
+- **Test lever** `RENDERFORGE_FG_TEST_SDK_FAIL=<call>[,<count>][,skip=<n>]` (`FgTestSdkFail`,
+  `native\FgHost.cpp:792`, read once in `FgHostInit`): `xell_mode`, `xefg_enable`, `sl_options`, `sl_reflex`,
+  `sl_reflex@<frameLimitUs>` (only the Reflex requests for that cap: `sl_reflex@6944` = 144 fps),
+  `fsr_configure`. The named call is NOT made and an error is reported in its place; `<count>` = that many
+  calls, omitted = every call; `skip=<n>` = the first n matching calls go through first (a mid-run failure).
+  Unset = one branch per call site. Log: `host: TEST forced SDK failure #n: <call>`.
 - Log lines: `xess: xellSetSleepMode(...) REFUSED rc (n of 8 in a row)`, `xess: xefgSwapChainSetEnabled(1) REFUSED`,
   `xess: ... kept failing ... provider FAILED for this chain`, `sl: slReflexSetOptions(...) REFUSED`,
   `sl: slDLSSGSetOptions(n) REFUSED rc ... frames are not prepared`. `Fg_Latency` (XeSS): `wantUs= fgOn= dead=
   sdkFails=mode/enable/input markFails=`.
-- Probe: the host's half only (`Quiescent` false → not served, request kept, back-off, retried). The provider
-  halves need the vendor DLLs: in-game, with the lever.
+- Probe: the host's half (`Quiescent` false → not served, request kept, back-off, retried) and the Reflex latch
+  with the lever as the SDK (`retirement_probe.cpp:308`: 120 → 144 refused → 120 feeds again, keyed back-off,
+  eOff in between, new chain, `skip=`). The other provider halves need the vendor DLLs: in-game, with the lever.
 
 ### FG chain epoch (2026-10-12, review 3)
 
