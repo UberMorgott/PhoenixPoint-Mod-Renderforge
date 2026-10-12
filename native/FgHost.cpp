@@ -163,10 +163,13 @@ bool CopyBackBuffer(Chain& c, ID3D12Resource* src, ID3D12Resource* dst)
     return true;
 }
 
+bool CapturePendingRetire();
+
 // Main thread, no lock held. GPU objects of a chain whose provider is already gone (or never came up).
 bool ReleaseGpu(Chain& c)
 {
     if ((!c.prep.WaitIdle(0) && !c.prep.Removed()) || (!c.copy.WaitIdle(0) && !c.copy.Removed())) return false;
+    CapturePendingRetire();     // a late capture list holds its own references on the twins: still in flight = it keeps them
     c.prep.Release();
     c.twins.Release();
     c.copy.Release();
@@ -324,6 +327,37 @@ Capture g_cap;
 
 struct CapItem { const char* name; ID3D12Resource* res; ID3D12Resource* buf; D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp; UINT rows; UINT64 rowBytes; };
 
+// A capture whose readback list reached the queue and did not retire in time.
+// INVARIANT: everything of OURS that list touches stays alive until its fence has completed (a removed device
+// completes it): the allocator, the list, the readback buffers, the wait event its fence still holds registered, and
+// a reference on every twin it reads (items 0..2) - the twins are released by FgTwins::Ensure / ReleaseGpu on the
+// prep and copy rings' fences, which know nothing of this list. Unity's back buffer is deliberately NOT referenced:
+// an outstanding reference makes Unity's own ResizeBuffers fail, and the swapchain keeps the buffer until Unity
+// resizes or destroys the chain, which Unity does behind a flush of this very queue (our list is ahead of it).
+// Pinned presenting thread (CaptureWrite) and the main thread with nobody pinned (ReleaseGpu) only.
+struct CapPending
+{
+    bool live;
+    ID3D12CommandAllocator* alloc; ID3D12GraphicsCommandList* cl; ID3D12Fence* fence; HANDLE ev;
+    ID3D12Resource* buf[4]; ID3D12Resource* src[3];
+};
+CapPending g_capPending;
+
+// True = no capture list is in flight (any more).
+bool CapturePendingRetire()
+{
+    CapPending& p = g_capPending;
+    if (!p.live) return true;
+    if (p.fence->GetCompletedValue() < 1) return false;
+    for (int i = 0; i < 4; ++i) SafeRelease(p.buf[i]);
+    for (int i = 0; i < 3; ++i) SafeRelease(p.src[i]);
+    SafeRelease(p.cl); SafeRelease(p.alloc); SafeRelease(p.fence);
+    if (p.ev) CloseHandle(p.ev);
+    p = CapPending();
+    FgLog("host: capture: the late readback list has retired - its objects are released");
+    return true;
+}
+
 // Render thread, Present hook, Unity's frame fully submitted. Every resource rests in COMMON (= PRESENT for the back
 // buffer); one throwaway list on Unity's queue copies them into readback buffers, waits, and writes tight rows in
 // MEMORY order (row 0 first) - the order every FG SDK indexes them in. Rare and slow on purpose (a diagnostic).
@@ -334,6 +368,7 @@ bool CaptureWrite(ID3D12Resource* backBuffer)
     CapItem items[4] = { { "depth", FgDepth12(), NULL, {}, 0, 0 }, { "mv", FgMv12(), NULL, {}, 0, 0 },
                          { "hud", FgHudless12(&hudFmt), NULL, {}, 0, 0 }, { "bb", backBuffer, NULL, {}, 0, 0 } };
     if (!o || !H.device || !H.queue) return false;
+    if (!CapturePendingRetire()) { FgLog("host: capture: refused - an earlier readback list is still in flight"); return false; }
     ID3D12CommandAllocator* alloc = NULL; ID3D12GraphicsCommandList* cl = NULL; ID3D12Fence* fence = NULL;
     bool ok = SUCCEEDED(H.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc))) &&
               SUCCEEDED(H.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, NULL, IID_PPV_ARGS(&cl))) &&
@@ -357,23 +392,30 @@ bool CaptureWrite(ID3D12Resource* backBuffer)
         OwnedSet12::Barrier(cl, it.res, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
     }
     bool inFlight = false;      // the list reached the queue and nothing proves it retired
+    HANDLE ev = NULL;
     if (ok) {
-        HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
+        ev = CreateEventW(NULL, FALSE, FALSE, NULL);
         ID3D12CommandList* lists[1] = { cl };
         ok = ev && SUCCEEDED(cl->Close());
         if (ok) {
             H.queue->ExecuteCommandLists(1, lists);
-            ok = SUCCEEDED(H.queue->Signal(fence, 1)) && SUCCEEDED(fence->SetEventOnCompletion(1, ev)) && WaitForSingleObject(ev, 5000) == WAIT_OBJECT_0;
-            inFlight = !ok && fence->GetCompletedValue() < 1 && SUCCEEDED(H.device->GetDeviceRemovedReason());
+            // The fence's own value decides, never the wait result alone (a failed Signal leaves it at 0 for good).
+            if (SUCCEEDED(H.queue->Signal(fence, 1)) && SUCCEEDED(fence->SetEventOnCompletion(1, ev))) WaitForSingleObject(ev, 5000);
+            ok = fence->GetCompletedValue() >= 1 && SUCCEEDED(H.device->GetDeviceRemovedReason());
+            inFlight = fence->GetCompletedValue() < 1;
         }
-        if (ev) CloseHandle(ev);
     }
     if (inFlight) {
-        // The queue may still execute the list: its allocator and the readback buffers it writes must outlive it.
-        // Leaked on purpose (a diagnostic that timed out, once) - freeing them here is a GPU use-after-free.
-        FgLog("host: capture: the readback list did not retire within 5 s - its allocator and buffers are left alive");
+        // The queue may still execute the list: park everything it touches (CapPending) until its fence completes -
+        // the next capture or the chain's teardown releases it. Freeing any of it here is a GPU use-after-free.
+        CapPending& p = g_capPending;
+        p.live = true; p.alloc = alloc; p.cl = cl; p.fence = fence; p.ev = ev;
+        for (int i = 0; i < 4; ++i) p.buf[i] = items[i].buf;
+        for (int i = 0; i < 3; ++i) { p.src[i] = items[i].res; if (p.src[i]) p.src[i]->AddRef(); }
+        FgLog("host: capture: the readback list did not retire within 5 s - its allocator, buffers and source twins are kept until it does");
         return false;
     }
+    if (ev) CloseHandle(ev);
     for (int i = 0; ok && i < 4; ++i) {
         CapItem& it = items[i];
         if (!it.buf) { FgCaptureNote("%s=none", it.name); continue; }
