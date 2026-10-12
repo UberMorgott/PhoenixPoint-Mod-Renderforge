@@ -712,6 +712,20 @@ stage, same early-out when all eight uniforms are zero.
   With the range ring in view (start pose, D3D11 DLAA) 99.8 % of the frame moved, max 0.32 px. Frame generation
   (D3D12, FSR Quality + DLSS-G x2 live): 83.1 % → 0. XeSS and FSR do not run on D3D11. Low "diff" beside a low
   Laplacian (D3D12 filter off) is a stable blur, not a stable picture.
+- **Frame rate of these numbers:** per-frame vectors scale with 1/fps. The table was taken under the NVIDIA driver's
+  240 fps cap (fps not recorded then; ~235 inferred from the re-run's px/s). Re-run uncapped, caps read live:
+  `Application.targetFrameRate=-1`, `QualitySettings.vSyncCount=0`, `Cfg.LimitFrameRate=False`, `runInBackground=True`,
+  window unfocused. Filter off, largest vector, fps-independent (render-res px/s; source spin Core 0.7°/s, range
+  ring 3°/s); filter on = 0 moving texels in every row:
+
+  | API | Pose | DLAA 2560x1440 | Quality 1707x960 | Performance 1280x720 |
+  |---|---|---|---|---|
+  | D3D11 | start (range ring in view) | 73.7 px/s at 378 fps | 51.4 at 398 | 37.8 at 393 |
+  | D3D11 | day side (Core only) | 22.6 px/s at 390 fps | 14.8 at 401 | 11.6 at 401 |
+  | D3D12 | start (range ring in view) | 87.3 px/s at 304 fps | 55.5 at 351 | 36.7 at 367 |
+  | D3D12 | day side (Core only) | 35.8 px/s at 306 fps | 29.3 at 362 | 22.7 at 366 |
+
+  The Laplacian / diff columns above were NOT re-taken uncapped.
 - **Motion kept:** camera orbit feeds the pure camera field (100 % of texels, up to 2.5 px, back to exactly 0 once
   settled; dots and coastline hold in a mid-orbit dump where the unfiltered one smears). A travelling aircraft keeps
   its object motion (`Model`, Standard q=2000, neither family: a 41x41 px island of 0.02-0.05 px at geoscape time
