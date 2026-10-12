@@ -374,7 +374,7 @@ namespace Renderforge
 
         private void AttachAndApply()
         {
-            Overlay.Apply(Cfg);               // before the driver check: under D3D12 there is no driver at all
+            Overlay.Apply(Cfg);               // before the driver check: no driver exists while the shim is unavailable
             FrameGen.Apply(Cfg);              // also reached from OnConfigChanged through this method
             var d = DlssDriver.Instance;
             if (d == null) return;
