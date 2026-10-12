@@ -315,7 +315,7 @@ struct ProviderXess : IFgProvider
         return true;
     }
 
-    // Render thread, just before the host copies the real frame into the proxy and presents it: the present id
+    // Presenting thread, just before the host copies the real frame into the proxy and presents it: the present id
     // identifies this frame's tags (guide :1020-1022). The proxy generates inside its Present, so 0 here.
     int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT)
     {

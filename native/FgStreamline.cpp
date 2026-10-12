@@ -369,8 +369,10 @@ struct ProviderStreamline : IFgProvider
         }
     }
 
-    // Frame boundary, render thread = the presenting thread (DLSS_G.md:483-491: options take effect at the next Present;
-    // set them on the presenting thread), before this frame's token, constants and tags. The options carry the mvec/depth
+    // Frame boundary, render thread inside the prepare event (DLSS_G.md:483-491: options take effect at the next Present).
+    // The presenting thread is another one (Unity's D3D12 submission thread); the host's Pin serialises this event with
+    // the Present of the frame before it, so no Present runs while the options change. Issued before this frame's token,
+    // constants and tags. The options carry the mvec/depth
     // size (sl_dlss_g.h:89-91): a quality switch resizes the owned twins while the chain (outW/outH/backFmt) stays - re-issue
     // on a size change, or DLSS-G interpolates with stale dimensions (heat-haze shimmer at Quality/Performance, DLAA fine).
     // eWarnOutOfVRAM (39, sl_result.h:74) = options applied, DXGI budget exhausted (commonInterface.cpp:556-565); treating it
@@ -399,7 +401,8 @@ struct ProviderStreamline : IFgProvider
     // window not in the foreground - rendered = presented = 120). So the ceiling goes in as it is, never divided.
     unsigned LimitUs() const { return limitFps ? 1000000u / limitFps : 0u; }
 
-    // Main thread. Reflex's own limiter is the only cap while frames flow (DLSS_G.md:769).
+    // Main thread. Reflex's own limiter is the only cap while frames flow (DLSS_G.md:769); while they do not, the cap
+    // is only remembered - FrameBegin(true) applies it together with eLowLatency.
     bool SetFrameLimit(unsigned presentedFps)
     {
         limitFps = presentedFps;
@@ -431,7 +434,8 @@ struct ProviderStreamline : IFgProvider
         if (t) g_sl.marker(sl::PCLMarker::eSimulationEnd, *t);
     }
 
-    // Render thread = the presenting thread. Nothing reaches the proxy until frames resume (menus without a camera,
+    // The presenting thread (Unity's D3D12 submission thread, inside the Present hook, chain pinned - so no Prepare runs
+    // on the render thread meanwhile). Nothing reaches the proxy until frames resume (menus without a camera,
     // loading): DLSS-G goes eOff (DLSS_G.md:29 "when the game is paused, loading, in menus"), and the next Prepare's
     // IssueOptions turns it back on; eRetainResourcesWhenOff keeps the toggle free of reallocation.
     void Idle()
@@ -579,11 +583,11 @@ struct ProviderStreamline : IFgProvider
     // this frame's prep list): drop them ALL, so the next Present pops exactly the token of the frame it presents.
     void DropPrepared() { head = tail; }
 
-    // Render thread, Present hook: nothing to do here - the options went out in Prepare (IssueOptions), the markers
+    // Presenting thread, Present hook: nothing to do here - the options went out in Prepare (IssueOptions), the markers
     // come after the copy, in BeforePresent.
     int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT) { return 0; }
 
-    // Render thread, the copy into the proxy's current back buffer is submitted, Present is next: pop THIS frame's token
+    // Presenting thread, the copy into the proxy's current back buffer is submitted, Present is next: pop THIS frame's token
     // and close its submit / open its present (sl_dlss_g: GetBuffer -> writes -> RENDERSUBMIT_END -> PRESENT_START -> Present).
     void BeforePresent()
     {

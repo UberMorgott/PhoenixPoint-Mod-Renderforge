@@ -1230,7 +1230,7 @@ The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer
 | chain live, frames **flowing**, XeSS-FG | XeLL | `xellSetSleepMode.minimumIntervalUs = 1e6 / limit`; XeLL halves the rendered rate itself; Unity `targetFrameRate = -1` |
 | chain live, frames flowing, DLSS-G | Reflex | `ReflexOptions::frameLimitUs = 1e6 / limit` (presented interval, see below); Unity `targetFrameRate = -1` |
 | chain live, frames flowing, FSR-FG | Unity | `targetFrameRate = floor(limit / multiplier)`; the FSR swapchain only spaces the presents |
-| chain live, **nothing fed** (main menu without a camera, loading, `HoldPrepare`) | Unity | `targetFrameRate = limit`, provider cap cleared, no SDK sleep |
+| chain live, **nothing fed** (main menu without a camera, loading, `HoldPrepare`) | Unity | `targetFrameRate = limit`; DLSS-G: Reflex `eOff`, no `frameLimitUs` (`slReflexSleep` + simulation markers still issued, they return at once); XeSS-FG: no XeLL frame at all |
 
 - **Flowing** (`FrameGen.Flowing`) = the driver issued a `DLSS_EV_FG_PREPARE` within the last 3 frames (`FrameGen.Fed`).
   Before this a live XeSS-FG chain with no prepare events had no pacer at all (`Fg_SetFrameLimit` answered 1, Unity's
@@ -1245,8 +1245,24 @@ The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer
   `PRESENT_START/END` with the same id. Sources: XeLL "at the beginning of each frame, before sampling user input …
   Only one call per frame" (`xell_developer_guide_english.md:294-298`); Reflex guide §3.4.2 / §3.5 (sleep at the start
   of the simulation thread's frame, `SIMULATION_START` after it), Streamline `ProgrammingGuideDLSS_G.md:25,951`
-  (frame index of the constants = the present markers'). No chain = no PlayerLoop systems (removed on teardown; a
-  watchdog in `FrameGen.Pump` puts them back if another mod replaced the PlayerLoop).
+  (frame index of the constants = the present markers'). No chain = no PlayerLoop systems (removed on teardown).
+- **Pacing watchdogs (`FrameGen`, review 2, 2026-10-12):**
+  - *PlayerLoop replaced by another mod* — `FrameStart` runs first in `Initialization`, before `PlayerUpdateTime`
+    advances `Time.frameCount`, so it records N − 1 in frame N; `Pump` sees a frame it did not open in that same frame
+    (`Time.frameCount - startFrame > 1`), re-inserts both systems and runs `FrameStart` late:
+    a fresh pace id, the fed / flowing state kept. No idle present, no stale pace id (test lever `ResetPlayerLoop()`).
+  - *A pacing system threw* (`PacingFailed`) — the chain could never be paced again (every prepare refused for lack
+    of a pace id), so FG goes off: flag only inside the system, the next `Pump` releases the chain, `Apply` keeps it
+    off, the picker shows `LastReason`; forcing a provider (`SetFgProvider`) re-arms.
+  - *Fed but nothing prepared* (`Starved`) — FLOWING is the managed feed; the shim's word is `Fg_PreparedCount`. 120
+    consecutive fed frames and 2 s without one prepared frame (twins that cannot be built, a refused option, a
+    provider prepare failing for good) → the provider is marked failed for the session like a failed init, the chain
+    is released (`Pump`), Auto moves on / the picker greys FG. Otherwise FSR-FG would sit at `floor(limit / 2)`
+    rendered frames with nothing generated (test lever `SetFgFailPrepare(true)`).
+- **One frame is fed once.** `DlssDriver.AfterPostProcessPreCull` feeds the chain on the first cull of the bound layer
+  in a `Time.frameCount` only (`FgCaps`: `dupPreCull`, `dupFeeds`); `FgHostPrepare` refuses a prepare event whose pace
+  id it already took BEFORE its pin and reset (`Fg_Status` `dup=`). A second event used to wait the full 100 ms pin
+  timeout for a Present that could not come, then discard the first prepare.
 - **Streamline frame tokens are not kept.** `slGetNewFrameToken(idx)` hands out one of 6 handles and a request for a
   different index rotates the ring (`source\core\sl.api\sl.cpp:1120`), so both threads carry the index and ask for
   its token where they use it. The first fed frame after an idle stretch has no id (the pacer starts with the next
@@ -1256,9 +1272,17 @@ The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer
   presented at 2x; `8333` → 60 / 120 (2x), 40 / 120 (3x), 30 / 120 (4x); `4166` → 120 / 240, 80 / 240, 60 / 240. With
   nothing generated (production plugin, window not in the foreground) `8333` → 120 / 120. So the limit goes in
   undivided for every multiplier. Docs: `sl_reflex.h:45-50` ("the driver would be aware"), `ProgrammingGuideDLSS_G.md:769`.
-- **Reflex only while a chain lives:** `eLowLatency` (+ cap) at `Create`, `eOff` + cap 0 at `Destroy`, cap 0 while
-  nothing flows — a cap left set would also throttle Unity's own presents (`nvapi.h:18331`: the interval applies even
-  without `NvAPI_D3D_Sleep`).
+- **Reflex low latency only while frames flow:** `Fg_FrameBegin(pace)` reaches the provider on EVERY frame of a live
+  chain. `pace = 1` → `eLowLatency` + `frameLimitUs`; `pace = 0` (nothing fed) → `eOff`, cap 0 — a cap left set would
+  also throttle Unity's own presents (`nvapi.h:18331`: the interval applies even without `NvAPI_D3D_Sleep`), and
+  low-latency mode is never left on without its sleep. `slReflexSleep` and `SIMULATION_START/END` go out in both
+  states (`ProgrammingGuideReflex.md:171,247`: "must always be called even when Reflex Low Latency mode is Off");
+  `slReflexSetOptions` only when mode or cap change. `Create` starts `eOff`, `Destroy` ends `eOff`. XeLL is left
+  alone while unfed (no `xellSleep`, no markers: its ids must be consecutive and each needs all six markers through
+  a Present); its sleep mode is only touched by the sleeping thread.
+- **XeLL calls are serialised** (`FgXess.cpp` `XellLock`): markers come from three threads (main, render, presenting)
+  and neither the XeLL guide nor `xell.h` states thread safety. One lock around every XeLL call except `xellSleep`,
+  which blocks for the pacing interval and is never called under it.
 - **DLSS-G `eOff` while idle:** after 30 presents without a prepared frame the host calls `IFgProvider::Idle` and
   DLSS-G goes `eOff` (`ProgrammingGuideDLSS_G.md:29`: paused / loading / menus); the next prepared frame re-issues
   `eOn`. `eRetainResourcesWhenOff` is set (`:593`). A resize detaches the chain, and `SetEnabled(false)` turns DLSS-G
@@ -1270,7 +1294,10 @@ The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer
   `host: first prepare tid` ≠ `first hooked present tid`). `FgHost.cpp` `Pin` serialises them: a prepare waits (≤ 100 ms)
   for the previous prepared frame's Present, a Present for a prepare in flight. Before, an overlapping prepare was
   refused or superseded the unpresented frame and the next Present went the idle way (FSR-FG tactical uncapped: 124 of
-  2901 prepares overlapped). Counters in `Fg_Status`: `prepare=ok/events presents= idled= waited=`.
+  2901 prepares overlapped). Counters in `Fg_Status`: `prepare=ok/events presents= idled= waited= maxWaitMs= stalls=
+  dup=` (`stalls` = pin timeouts, `maxWaitMs` = the longest prepare wait). A waiter is woken by `Unpin`, by a detach
+  (any thread), by `SetEnabled(0)` and by the pump, so it never sits out its timeout on a chain that went away;
+  `presentStalled` is cleared only by a Present of the chain's own app swapchain.
 - Diagnostics (PPCLI): `FrameStats(true|false)` (base-frame count, fps, p50 / p99 / max ms), `FgLatency()` (Reflex /
   XeLL frame reports), `SetFgMainPacing(false)` (A/B: sleep on the render thread inside `Prepare`, the old placement).
 

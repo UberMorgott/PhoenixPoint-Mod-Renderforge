@@ -77,8 +77,9 @@ struct Host
     unsigned              lastCaps;     // caps of the last provider Create tried, live or not
     FgFrame               slot;         // main thread writes, render thread copies; both under g_lock; resources retained
     FgFrame               cur;          // render-thread copy
-    int                   pinned;       // render thread is inside Prepare/OnPresent on H.c
-    // Render thread only. A Present with no frame prepared since the last one (menu screens without a rendering
+    int                   pinned;       // a thread is inside the chain: the render thread (Prepare) or the presenting thread (OnPresent)
+    // Pinned threads only (Prepare on the render thread, OnPresent on the presenting thread; Pin serialises the two).
+    // A Present with no frame prepared since the last one (menu screens without a rendering
     // camera, the options screen: Unity still presents, nothing runs the camera path) must not drive the provider:
     // a vendor Present without its per-frame inputs/markers wedges DLSS-G's pacer (measured: "Pacer flush has timed
     // out", "Couldn't lock the mutex on sync present", eFailReflexNotDetectedAtRuntime). The hook forwards Unity's
@@ -277,7 +278,7 @@ bool Pin(bool forPrepare)
     return true;
 }
 
-// Render thread. `tearWhy` != NULL = this thread found the chain dead: detach (the main thread destroys).
+// The pinning thread. `tearWhy` != NULL = this thread found the chain dead: detach (the main thread destroys).
 void Unpin(const char* tearWhy)
 {
     { Locked lk;
