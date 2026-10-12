@@ -65,16 +65,29 @@ Per-context knobs set once at create: `xessSetJitterScale(1,1)`, `xessSetExposur
   Vectors") — the same direction NGX and FSR want, so the driver's `(-renderW, -renderH)` scale (Unity's UV-space
   `current - previous`) goes straight into `xessSetVelocityScale`. **No extra sign flip.** Format `R16G16_FLOAT`
   = Unity `RGHalf`, exact match.
-- **Jitter**: range `[-0.5, 0.5]` in input pixels. The guide composites in row-vector form
-  `ProjectionMatrix[2][0] += Jx*2/InputWidth; [2][1] -= Jy*2/InputHeight`; the driver applies `proj[0,2] += 2*jx/W`,
-  `proj[1,2] += 2*jy/H` and stores NGX's `(-jx, -jy)`, so XeSS gets `jitterOffset = (-fp.jitterX, +fp.jitterY)` —
-  the same `(-X, +Y)` flip FSR needed. Compile-time constants `kJitterSignX = -1`, `kJitterSignY = +1` in
-  `Xess12.cpp`. **Measured 2026-09-02** (build `fd394fe`, ALN_PLT_Nest_48x48_A seed 12345, Ultra Performance
-  427x240 → 1280x720, 4 sign combos `-1,1 / 1,1 / -1,-1 / 1,-1`): all four indistinguishable on stills — path
-  dashes, health bars, unit diamonds, dashed cover outlines resolve equally cleanly, no doubling/serration.
-  Limitation: `start-mission` with same scene+seed lands a different camera/unit each launch, so a still-frame A/B
-  cannot separate the signs. Defaults `(-1, +1)` kept. To settle definitively: fixed camera pose or moving-camera
-  capture. Shots: `docs\shots\jitter-ab\xess-{-1_1,1_1,-1_-1,1_-1}.png`.
+- **Jitter**: range `[-0.5, 0.5]` in input pixels (`xess_d3d12.h:49-52`), `xessSetJitterScale(1, 1)`. XeSS takes the
+  SAME values as NGX: `jitterOffset = (+fp.jitterX, +fp.jitterY) = (-jx, -jy)`, constants `kJitterSignX = +1`,
+  `kJitterSignY = +1` in `Xess12.cpp`.
+  - Derivation (guide "Jitter", `xess_sr_developer_guide_english.md:273-281`): `ProjectionMatrix[2][0] += Jx*2/W;
+    [2][1] -= Jy*2/H` is D3D row-vector form with `w_clip = +z_view`, so the image moves by `(+Jx, +Jy)` texels,
+    y down ("the effective jitter is negated with respect to (Jx, Jy)"). The driver adds `+2*jx/W`, `+2*jy/H` to
+    Unity's GL-style `proj[0,2]`, `proj[1,2]`, where `w_clip = -z_view`: the image moves by `-jx` horizontally and by
+    `-jy` in the texture's own rows (Unity renders into a RenderTexture bottom-up on D3D). `Jx = -jx`, `Jy = -jy`.
+    The 2026-09-02 derivation of `(-X, +Y)` missed the `w_clip = -z_view` sign and the row order.
+  - **Measured 2026-10-12** (D3D12, 2560x1440 borderless, uncapped 330–390 fps, vsync off, geoscape day side, no
+    other game process): constant jitter `±0.45` px rendered and reported (`SetJitterConst`), Quality, sharpen 0 — a
+    correct sign leaves the output in place, a wrong one moves it by twice the input shift (input moved 0.93 /
+    0.89 render px). Old `(-1, +1)`: output moved **3.11 px in X**, 0.02 in Y. New `(+1, +1)`: 0.06 / 0.00 px. DLSS
+    as the control: 0.09 / 0.19 px.
+  - Convergence with the Halton sequence, high-pass correlation with a native (un-upscaled) frame, after the D3D12
+    frame-pairing fix (`DESIGN.md` "Scene depth, D3D12 frame pairing, jitter signs"): `(+1, +1)` 0.914 Quality /
+    0.935 Performance; X flipped 0.845 / 0.817; Y flipped 0.866 / 0.817. Coastlines at Performance: no combing.
+  - Why the 2026-09-02 stills and the later "shake" A/B could not settle it: until 2026-10-12 every D3D12 evaluate
+    carried the NEXT frame's jitter (pairing defect), and consecutive Halton values are anti-correlated, so a
+    fully flipped sign pair scored best (0.933 vs 0.829 for the correct one) while being wrong.
+  - Tactical `ALN_PLT_Nest_48x48_A` (Quality): correlation 0.918, Laplacian 2.14 → 2.64 at Sharpness 40.
+  - Motion vectors re-checked under a geoscape orbit (60 fps cap, 1.2 px/frame): output/input Laplacian 0.54 against
+    0.53 (DLSS) and 0.56 (FSR) on the same motion-vector feed — no XeSS-specific smear; scale unchanged.
   Env override `RENDERFORGE_XESS_JITTER_SIGN` = `"sx,sy"` (each in {-1,1}), read once at `Xess12::Init`, logged
   `XeSS: jitterSign=%d,%d`.
 - **Depth**: `R32_FLOAT`, render resolution, smaller = closer unless `INVERTED_DEPTH`.
@@ -143,4 +156,7 @@ two warnings → `Success`; `UNINITIALIZED`/`WRONG_CALL_ORDER` → `FAIL_NotInit
 `xessGetVersion 2.0.2`, `xessGetIntelXeFXVersion 0.0.0` (cross-vendor DP4a path), `xessIsOptimalDriver 0`,
 `Dlss_Init code=0 provider=2 version='2.0.2 DP4a'`, create (`xessD3D12Init`) with zero `ExecuteCommandList` calls,
 3 executes green, 3 submissions, NIS sharpen active, release → re-create green. **The Intel XMX path is implemented
-but UNVERIFIED — no Arc GPU available.** In-game jitter A/B: 2026-09-02, indistinguishable on stills, defaults kept (see §5).
+but UNVERIFIED — no Arc GPU available.** In-game jitter signs: measured 2026-10-12, `(+1, +1)` (see §5).
+`LDR_INPUT_COLOR` A/B the same day (flag dropped, FP16 linear treated as HDR): 0.925 / 0.933 against 0.914 / 0.935
+with the flag — no gain, the guide's LDR rule stays. Known limit: on fields of 1–2 px detail XeSS Quality resolves
+lower contrast than DLSS / FSR (Laplacian 2.80 against an aliased input of 3.20 at Sharpness 40).

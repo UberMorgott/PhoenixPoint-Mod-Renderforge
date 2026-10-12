@@ -32,13 +32,16 @@
 
 namespace {
 
-// Jitter axis signs handed to xessD3D12Execute, applied to the driver's (-jx, -jy) NGX-convention offsets.
-// Derived, NOT yet measured: the guide composites "ProjectionMatrix[2][0] += Jx*2/W; [2][1] -= Jy*2/H" (row-vector
-// form), our driver applies proj[0,2] += 2*jx/W and proj[1,2] += 2*jy/H, so Jx = jx = -fp.jitterX and
-// Jy = -jy = +fp.jitterY - the same (-X, +Y) flip FSR needed (Fsr12.cpp). The guide's own advice is to settle
-// the sign with a static-scene A/B ("Debugging Tips": try +1/-1 per axis); flip these constants if Ultra
-// Performance doubles thin edges in-game instead of resolving them.
-const float kJitterSignX = -1.0f;
+// Jitter axis signs handed to xessD3D12Execute, applied to the driver's (-jx, -jy) NGX-convention offsets: XeSS
+// takes the SAME values as NGX. Guide "Jitter" (xess_sr_developer_guide_english.md:273-281): "ProjectionMatrix[2][0]
+// += Jx*2/W; [2][1] -= Jy*2/H" in D3D row-vector form, where w_clip = +z_view, so the image moves by (+Jx, +Jy)
+// texels (y down). The driver adds +2*jx/W, +2*jy/H to Unity's GL-style proj[0,2], proj[1,2], where w_clip = -z_view:
+// the image moves by -jx horizontally, and by -jy in the texture's own rows (Unity renders into a RenderTexture
+// bottom-up on D3D). Hence Jx = -jx = fp.jitterX, Jy = -jy = fp.jitterY.
+// Measured 2026-10-12, D3D12 2560x1440 (docs\research\xess-d3d12-contract.md section 5): a constant jitter of +-0.45
+// px moved the Quality output by 3.11 px in X with the old (-1, +1) and by 0.06 / 0.00 px with (+1, +1); with the
+// Halton sequence (+1, +1) is the best of the four combinations against a native reference in Quality and Performance.
+const float kJitterSignX =  1.0f;
 const float kJitterSignY =  1.0f;
 
 // Static-scene A/B knob: env "sx,sy" with each in {-1,1} overrides the jitter axis signs; anything else keeps the defaults.
