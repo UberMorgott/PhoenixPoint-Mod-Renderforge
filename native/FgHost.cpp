@@ -355,6 +355,7 @@ bool CaptureWrite(ID3D12Resource* backBuffer)
         cl->CopyTextureRegion(&dst, 0, 0, 0, &src, NULL);
         OwnedSet12::Barrier(cl, it.res, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
     }
+    bool inFlight = false;      // the list reached the queue and nothing proves it retired
     if (ok) {
         HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
         ID3D12CommandList* lists[1] = { cl };
@@ -362,8 +363,15 @@ bool CaptureWrite(ID3D12Resource* backBuffer)
         if (ok) {
             H.queue->ExecuteCommandLists(1, lists);
             ok = SUCCEEDED(H.queue->Signal(fence, 1)) && SUCCEEDED(fence->SetEventOnCompletion(1, ev)) && WaitForSingleObject(ev, 5000) == WAIT_OBJECT_0;
+            inFlight = !ok && fence->GetCompletedValue() < 1 && SUCCEEDED(H.device->GetDeviceRemovedReason());
         }
         if (ev) CloseHandle(ev);
+    }
+    if (inFlight) {
+        // The queue may still execute the list: its allocator and the readback buffers it writes must outlive it.
+        // Leaked on purpose (a diagnostic that timed out, once) - freeing them here is a GPU use-after-free.
+        FgLog("host: capture: the readback list did not retire within 5 s - its allocator and buffers are left alive");
+        return false;
     }
     for (int i = 0; ok && i < 4; ++i) {
         CapItem& it = items[i];
