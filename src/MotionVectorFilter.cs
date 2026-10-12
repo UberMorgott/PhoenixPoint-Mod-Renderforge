@@ -161,7 +161,8 @@ namespace Renderforge
             void Count(string family, Renderer r)
             {
                 if (r == null) return;
-                string k = family + "/" + r.motionVectorGenerationMode;
+                // active = what is drawn now; inactive = pooled / hidden objects (they keep whatever mode they had when hidden)
+                string k = family + (r.enabled && r.gameObject.activeInHierarchy ? "/active/" : "/inactive/") + r.motionVectorGenerationMode;
                 modes.TryGetValue(k, out int c); modes[k] = c + 1;
             }
             foreach (var d in Resources.FindObjectsOfTypeAll<MaterialDecalComponent>())

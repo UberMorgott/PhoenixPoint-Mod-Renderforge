@@ -867,12 +867,14 @@ namespace Renderforge
         }
 
         /// <summary>The same check for aircraft: every shown near-side one is projected through M and picked through the
-        /// game's own path (GamePick; its PickingCollider keeps layer 20, WalkGuarded). Same counters, PASS = other == 0.</summary>
+        /// game's own path (GamePick; its PickingCollider keeps layer 20, WalkGuarded). Same counters and the same criterion
+        /// as ProbeClick: PASS = moved == 0 (the pick at the pixel drawn through M equals the pick at the pixel
+        /// GeoscapeCamera projects the aircraft to); other == 0 is the stricter, geometry-dependent figure.</summary>
         internal static string ProbeCraftClick()
         {
             if (M == null || !geo) return "inactive";
             var sb = new System.Text.StringBuilder();
-            int n = 0, same = 0, globeMiss = 0, none = 0, other = 0;
+            int n = 0, same = 0, globeMiss = 0, none = 0, other = 0, moved = 0;
             foreach (var k in loose)
             {
                 if (!k.V || !k.Root || !k.Near || !k.Root.gameObject.activeInHierarchy) continue;
@@ -881,6 +883,9 @@ namespace Renderforge
                 bool globeHit;
                 GeoVehicle got = GamePick<GeoVehicle>(sp, k.V.GeoLevel, out globeHit);
                 n++;
+                bool vanillaHit;
+                GeoVehicle vanilla = GamePick<GeoVehicle>(geo.WorldToScreenPoint(k.Root.position), k.V.GeoLevel, out vanillaHit);
+                if (vanilla != got || vanillaHit != globeHit) moved++;
                 if (!globeHit) { globeMiss++; continue; }
                 if (got == k.V) { same++; continue; }
                 if (!got) none++; else other++;
@@ -888,7 +893,7 @@ namespace Renderforge
                     sb.Append(" | ").Append(k.V.name).Append(" screen=").Append(sp.x.ToString("F1")).Append(',').Append(sp.y.ToString("F1"))
                       .Append(" layer=").Append(k.Root.gameObject.layer).Append(got ? " picks " + got.name : " picks nothing");
             }
-            return "n=" + n + " same=" + same + " globeMiss=" + globeMiss + " none=" + none + " other=" + other + " pass=" + (other == 0) + sb;
+            return "n=" + n + " same=" + same + " globeMiss=" + globeMiss + " none=" + none + " other=" + other + " moved=" + moved + " pass=" + (moved == 0) + sb;
         }
 
         /// <summary>Diagnostic: the real backbuffer at the end of this frame (PPCLI's screenshot re-renders the cameras itself and
