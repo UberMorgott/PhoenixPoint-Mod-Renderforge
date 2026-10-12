@@ -17,11 +17,16 @@
 // (D3D12Owned.h, COMMON at rest) are tagged eOnlyValidNow: SL copies them on the prep list (Unity-ordered, after the
 // upscaler wrote them) and the next frame's upscaler can rewrite them freely (sl_core_types.h:386-394, DLSS_G.md:288-293).
 //
-// Reflex is MANDATORY for DLSS-G (DLSS_G.md:674-681, sl_dlss_g.h:131-132 eFailReflexNotDetectedAtRuntime): one
-// slReflexSetOptions(eLowLatency) and, per frame with ONE frame token, slReflexSleep + the six PCL markers
-// (sl_pcl.h:60-67) around slSetConstants / slSetTagForFrame and the proxy Present. Frame index = our own +1 per
-// Prepare, process-wide (SL refuses constants set twice for one index; the host's single slot can repeat or skip
-// FgFrame.frameId, same reason as FgXess.cpp).
+// Reflex is MANDATORY for DLSS-G (DLSS_G.md:674-681, sl_dlss_g.h:131-132 eFailReflexNotDetectedAtRuntime):
+// slReflexSetOptions(eLowLatency [+ frameLimitUs]) while a chain lives and, per frame with ONE frame index,
+// slReflexSleep + the six PCL markers (sl_pcl.h:60-67) around slSetConstants / slSetTagForFrame and the proxy Present.
+// PACING (docs\DESIGN.md "FG pacing"): the sleep and SIMULATION_START run on the MAIN thread at the start of the frame
+// (FrameBegin, before Unity samples input - Reflex wants the sleep there), SIMULATION_END after LateUpdate (SimEnd),
+// RENDERSUBMIT_* / PRESENT_* on the render thread with the same index, which travels in FgFrame::paceId. The frame
+// rate cap is ReflexOptions::frameLimitUs (DLSS_G.md:769), nothing else. Frame index = our own process-wide counter,
+// +1 per paced frame (SL refuses constants set twice for one index). A token is only a view of one of SL's
+// MAX_FRAMES_IN_FLIGHT (6) handles and a request for another index rotates that ring (sl.cpp slGetNewFrameToken), so
+// no token pointer is ever kept: both threads carry the INDEX and ask for its token right where they use it.
 //
 // Loading: sl.interposer.dll is LoadLibraryW'd from the mod folder and every entry point GetProcAddress'd (nothing is
 // linked); the interposer loads sl.common/sl.dlss_g/sl.reflex/sl.pcl + nvngx_dlssg.dll from pathsToPlugins = the mod
@@ -89,8 +94,11 @@ struct SlCore
     ID3D12Device*               proxyDevice;   // slUpgradeInterface(device): the only legal CreateCommandQueue
     ID3D12Device*               device;        // the device Streamline is pinned to (compared, never dereferenced)
     int                         state;         // 0 not tried, 1 up, <0 failed (FG_ERR_* negated)
+    PFun_slReflexGetState*      reflexGetState;
     unsigned                    maxGen;        // DLSSGState::numFramesToGenerateMax once measured, 0 = not yet
-    unsigned                    frameIdx;      // process-wide: SL refuses constants/options set twice for one index
+    volatile LONG               frameIdx;      // process-wide: SL refuses constants/options set twice for one index
+    int                         reflexMode;    // last ReflexOptions issued (-1 = none yet)
+    unsigned                    reflexUs;
     char                        version[64];
 };
 SlCore g_sl;
@@ -112,6 +120,27 @@ template <class T> bool Feature(sl::Feature f, const char* name, T*& out)
 }
 
 unsigned CapsFor(unsigned maxGen) { return FG_CAP_2X | (maxGen >= 2 ? FG_CAP_3X : 0u) | (maxGen >= 3 ? FG_CAP_4X : 0u); }
+
+// The token of frame `idx`, valid for the calls that follow at once on this thread (header: no pointer is kept).
+sl::FrameToken* Tok(unsigned idx)
+{
+    sl::FrameToken* t = NULL;
+    uint32_t i = idx;
+    return g_sl.newFrame(t, &i) == sl::Result::eOk ? t : NULL;
+}
+
+// Reflex mode + frame cap, only when they change (Reflex.md:176-177; "the value is used each time you call
+// slReflexSetOptions", sl_reflex.h:49). Thread safe on SL's side (reflexEntry.cpp slSetData); called on the main thread.
+void ReflexApply(sl::ReflexMode mode, unsigned frameLimitUs)
+{
+    if (g_sl.reflexMode == (int)mode && g_sl.reflexUs == frameLimitUs) return;
+    sl::ReflexOptions ro{};
+    ro.mode = mode;
+    ro.frameLimitUs = frameLimitUs;
+    sl::Result r = g_sl.reflexSetOptions(ro);
+    FgLog("sl: Reflex mode %d frameLimitUs %u -> %d", (int)mode, frameLimitUs, (int)r);
+    if (r == sl::Result::eOk) { g_sl.reflexMode = (int)mode; g_sl.reflexUs = frameLimitUs; }
+}
 
 // Once per process. Returns FG_OK or the FG_ERR_* to hand back from Create.
 int SlUp(const FgSetup& s)
@@ -172,16 +201,15 @@ int SlUp(const FgSetup& s)
         !Feature(sl::kFeaturePCL, "slPCLSetMarker", g_sl.marker)) {
         g_sl.state = -FG_ERR_PROVIDER_FAILED; return FG_ERR_PROVIDER_FAILED;
     }
+    void* gs = NULL;                                // optional: latency statistics only
+    if (g_sl.featureFn(sl::kFeatureReflex, "slReflexGetState", gs) == sl::Result::eOk) g_sl.reflexGetState = (PFun_slReflexGetState*)gs;
     sl::FeatureVersion fv{};
     if (g_sl.featureVersion(sl::kFeatureDLSS_G, fv) == sl::Result::eOk)
         _snprintf_s(g_sl.version, sizeof(g_sl.version), _TRUNCATE, "SL %u.%u.%u NGX %u.%u.%u", fv.versionSL.major, fv.versionSL.minor, fv.versionSL.build, fv.versionNGX.major, fv.versionNGX.minor, fv.versionNGX.build);
     FgLog("sl: DLSS-G %s", g_sl.version);
 
-    // Reflex on, once (Reflex.md:153-177: required at least once; DLSS-G needs eLowLatency at runtime).
-    sl::ReflexOptions ro{};
-    ro.mode = sl::ReflexMode::eLowLatency;
-    r = g_sl.reflexSetOptions(ro);
-    if (r != sl::Result::eOk) FgLog("sl: slReflexSetOptions %d", (int)r);
+    // Reflex options are issued per chain (Create: eLowLatency, DLSS-G needs it at runtime; Destroy: eOff, no cap).
+    g_sl.reflexMode = -1;
 
     void* dev = s.device;
     r = g_sl.upgrade(&dev);                        // ManualHooking.md:195-203
@@ -206,16 +234,19 @@ struct ProviderStreamline : IFgProvider
     unsigned            failW, failH;  // last refused options size + result: logged once, retried every frame
     int                 failRc;
     unsigned            frames;        // Prepare calls on this chain
-    // Tokens awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent pops
-    // exactly one per Present so the PRESENT_START/END markers name the frame whose inputs were tagged (DLSS_G.md:933).
+    // Frame indices awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent
+    // pops exactly one per Present so the PRESENT_START/END markers name the frame whose inputs were tagged (DLSS_G.md:933).
     // A Present the host skipped (GetBuffer / copy failed) or a prepared frame superseded before its Present leaves its
-    // token behind: the host's next FgHostPrepare drops every unpresented token (DropPrepared), so at most one is queued.
-    // The full-ring guard below stays as a backstop (kTokens > SL's 3 in flight).
+    // index behind: the host's next FgHostPrepare drops every unpresented one (DropPrepared), so at most one is queued.
+    // The full-ring guard below stays as a backstop.
     static const unsigned kTokens = 4;
-    sl::FrameToken*     fifo[kTokens];
+    unsigned            fifo[kTokens];
     unsigned            head, tail;
-    sl::FrameToken*     token;         // the token of the frame being presented (popped in BeforePresent)
-    int                 marked;        // 1 = RENDERSUBMIT_END/PRESENT_START issued for `token`, 2 = PRESENT_END too
+    unsigned            cur;           // the index of the frame being presented (popped in BeforePresent), 0 = none
+    int                 marked;        // 1 = RENDERSUBMIT_END/PRESENT_START issued for `cur`, 2 = PRESENT_END too
+    int                 mainPacing;    // FgMainPacing() at Create: 1 = FrameBegin sleeps (main thread), 0 = Prepare does
+    unsigned            lastPrepared;  // render thread: the index of the last Prepare (one Prepare per index)
+    unsigned            limitFps;      // main thread: the presented-fps ceiling asked for (SetFrameLimit), 0 = none
     unsigned            lastStatus;
     long long           generated;
     int                 warned;
@@ -226,9 +257,9 @@ struct ProviderStreamline : IFgProvider
     void Zero()
     {
         proxy = NULL; proxyFactory = NULL; queue = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = buffers = 0;
-        framesToGen = 1; caps = 0; wantOn = isOn = 0; sentW = sentH = failW = failH = 0; failRc = 0; frames = 0; token = NULL; marked = 0; lastStatus = 0;
-        for (unsigned i = 0; i < kTokens; ++i) fifo[i] = NULL;
-        head = tail = 0;
+        framesToGen = 1; caps = 0; wantOn = isOn = 0; sentW = sentH = failW = failH = 0; failRc = 0; frames = 0; cur = 0; marked = 0; lastStatus = 0;
+        for (unsigned i = 0; i < kTokens; ++i) fifo[i] = 0;
+        head = tail = 0; mainPacing = 1; lastPrepared = 0; limitFps = 0;
         generated = 0; warned = 0; havePrev = 0;
     }
 
@@ -245,6 +276,7 @@ struct ProviderStreamline : IFgProvider
         if (rc != FG_OK) return rc;
         outW = s.desc.Width; outH = s.desc.Height; backFmt = s.desc.Format; buffers = s.desc.BufferCount;
         framesToGen = s.multiplier - 1;
+        mainPacing = FgMainPacing() ? 1 : 0;
         if (g_sl.maxGen) {                             // known from an earlier chain: refuse before building anything
             caps = CapsFor(g_sl.maxGen);
             if (framesToGen > g_sl.maxGen) return FG_ERR_UNSUPPORTED_MULTIPLIER;
@@ -299,6 +331,7 @@ struct ProviderStreamline : IFgProvider
         FgLog("sl: numFramesToGenerateMax=%u (rc %d, minWidthOrHeight %u, vsync %d) -> caps 0x%X", maxGen, (int)r, st.minWidthOrHeight, (int)st.bIsVsyncSupportAvailable, caps);
         if (framesToGen > maxGen) { FgLog("sl: %ux asked, %ux supported", s.multiplier, maxGen + 1); return Fail(FG_ERR_UNSUPPORTED_MULTIPLIER); }
 
+        ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
         *out = proxy;
         void* nat = NULL;
         g_sl.native(proxy, &nat);
@@ -352,6 +385,80 @@ struct ProviderStreamline : IFgProvider
         }
     }
 
+    // frameLimitUs is the interval between PRESENTED frames: the driver knows about frame generation and spaces the
+    // rendered frames multiplier times wider itself (measured 2026-10-12 with DLSS-G generating, docs\DESIGN.md "FG
+    // pacing": 8333 us -> 60 rendered / 120 presented at 2x, 40 / 120 at 3x; with nothing generated - DLSS-G off or the
+    // window not in the foreground - rendered = presented = 120). So the ceiling goes in as it is, never divided.
+    unsigned LimitUs() const { return limitFps ? 1000000u / limitFps : 0u; }
+
+    // Main thread. Reflex's own limiter is the only cap while frames flow (DLSS_G.md:769).
+    bool SetFrameLimit(unsigned presentedFps)
+    {
+        limitFps = presentedFps;
+        if (proxy) ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
+        return true;
+    }
+
+    // Main thread, start of the frame: a fresh index, the Reflex sleep, SIMULATION_START (Reflex guide: sleep at the
+    // start of the simulation thread's frame, before input; SIMULATION_START right after it).
+    unsigned FrameBegin()
+    {
+        if (!proxy || !mainPacing) return 0;
+        unsigned idx = (unsigned)InterlockedIncrement(&g_sl.frameIdx);
+        sl::FrameToken* t = Tok(idx);
+        if (!t) return 0;
+        g_sl.reflexSleep(*t);
+        g_sl.marker(sl::PCLMarker::eSimulationStart, *t);
+        return idx;
+    }
+
+    void SimEnd(unsigned idx)
+    {
+        sl::FrameToken* t = proxy && mainPacing && idx ? Tok(idx) : NULL;
+        if (t) g_sl.marker(sl::PCLMarker::eSimulationEnd, *t);
+    }
+
+    // Render thread = the presenting thread. Nothing reaches the proxy until frames resume (menus without a camera,
+    // loading): DLSS-G goes eOff (DLSS_G.md:29 "when the game is paused, loading, in menus"), and the next Prepare's
+    // IssueOptions turns it back on; eRetainResourcesWhenOff keeps the toggle free of reallocation.
+    void Idle()
+    {
+        if (!proxy || !isOn) return;
+        sl::DLSSGOptions o{};
+        Options(o, (unsigned)sl::DLSSGMode::eOff);
+        sl::ViewportHandle vp(0u);
+        sl::Result r = g_sl.fgSetOptions(vp, o);
+        if (r == sl::Result::eOk) isOn = 0;
+        FgLog("sl: DLSS-G eOff while no frames are prepared -> %d", (int)r);
+    }
+
+    // Main thread. Reflex's latency report over the frames it still holds (sl_reflex.h ReflexReport, microseconds).
+    void Stats(char* buf, int cap)
+    {
+        if (cap <= 0) return;
+        buf[0] = 0;
+        if (!g_sl.reflexGetState) return;
+        static sl::ReflexState st;                       // ~10 KB: not on the stack
+        st = sl::ReflexState();
+        sl::Result r = g_sl.reflexGetState(st);
+        if (r != sl::Result::eOk) { _snprintf_s(buf, cap, _TRUNCATE, "reflex: slReflexGetState %d", (int)r); return; }
+        unsigned n = 0;
+        double sim = 0, toPresent = 0, toGpuEnd = 0, gpu = 0;
+        for (int i = 0; i < sl::kReflexFrameReportCount; ++i) {
+            const sl::ReflexReport& e = st.frameReport[i];
+            if (!e.simStartTime || e.gpuRenderEndTime <= e.simStartTime || e.presentEndTime < e.simStartTime) continue;
+            ++n;
+            sim += (double)(e.simEndTime - e.simStartTime);
+            toPresent += (double)(e.presentEndTime - e.simStartTime);
+            toGpuEnd += (double)(e.gpuRenderEndTime - e.simStartTime);
+            gpu += (double)e.gpuActiveRenderTimeUs;
+        }
+        double k = n ? 1.0 / (1000.0 * n) : 0.0;
+        _snprintf_s(buf, cap, _TRUNCATE, "reflex: lowLatency=%d report=%d frames=%u simMs=%.2f simToPresentEndMs=%.2f simToGpuEndMs=%.2f gpuActiveMs=%.2f mode=%d frameLimitUs=%u pacing=%s",
+                    st.lowLatencyAvailable ? 1 : 0, st.latencyReportAvailable ? 1 : 0, n, sim * k, toPresent * k, toGpuEnd * k, gpu * k,
+                    g_sl.reflexMode, g_sl.reflexUs, mainPacing ? "main" : "render");
+    }
+
     // Render thread, DLSS_EV_FG_PREPARE (after the upscaler list wrote the owned twins, same Unity queue order).
     bool Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
     {
@@ -359,6 +466,10 @@ struct ProviderStreamline : IFgProvider
         ID3D12Resource* depth = FgDepth12();
         ID3D12Resource* mv = FgMv12();
         if (!proxy || !o || !depth || !mv) return false;
+        // Main-thread pacing: this frame's index was opened by FrameBegin. None = the frame was fed before the pacer
+        // started (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same
+        // index twice = a second prepare event inside one frame: one set of constants per index.
+        if (mainPacing && (!f.paceId || f.paceId == lastPrepared)) return false;
         IssueOptions(o->w, o->h);
         // The hud-less in the back buffer's format and row order (FgHudless12, the host's flipped copy). Without one the
         // frame still gets its token, constants and depth/mv tags - a skipped hudless is a quality loss, a skipped
@@ -371,14 +482,17 @@ struct ProviderStreamline : IFgProvider
         }
         if (tail - head >= kTokens) { if (warned < 8) { ++warned; FgLog("sl: %u frames prepared without a Present - dropping the oldest token", kTokens); } ++head; }
         ++frames;
-        ++g_sl.frameIdx;
-        sl::FrameToken* t = NULL;
-        if (g_sl.newFrame(t, &g_sl.frameIdx) != sl::Result::eOk || !t) { if (warned < 8) { ++warned; FgLog("sl: slGetNewFrameToken failed"); } return false; }
-        fifo[tail++ % kTokens] = t;
-        // Unity's simulation is not reachable from the shim: SIMULATION_* bracket this event (Reflex.md:179-207, PCL.md:118-155).
-        g_sl.reflexSleep(*t);
-        g_sl.marker(sl::PCLMarker::eSimulationStart, *t);
-        g_sl.marker(sl::PCLMarker::eSimulationEnd, *t);
+        const unsigned idx = mainPacing ? f.paceId : (unsigned)InterlockedIncrement(&g_sl.frameIdx);
+        sl::FrameToken* t = Tok(idx);
+        if (!t) { if (warned < 8) { ++warned; FgLog("sl: slGetNewFrameToken failed"); } return false; }
+        lastPrepared = idx;
+        fifo[tail++ % kTokens] = idx;
+        if (!mainPacing) {
+            // Render-thread pacing (diagnostic): the simulation is not reachable from here, SIMULATION_* bracket this event.
+            g_sl.reflexSleep(*t);
+            g_sl.marker(sl::PCLMarker::eSimulationStart, *t);
+            g_sl.marker(sl::PCLMarker::eSimulationEnd, *t);
+        }
         g_sl.marker(sl::PCLMarker::eRenderSubmitStart, *t);
 
         // sl_consts.h:183-185 row-major, jitter-free, v * M order (sl_matrix_helpers.h:206-214 chains them so). FgFrame is
@@ -424,7 +538,7 @@ struct ProviderStreamline : IFgProvider
             FgCaptureFloats("sl.cameraRight", &c.cameraRight.x, 3);
             FgCaptureFloats("sl.cameraFwd", &c.cameraFwd.x, 3);
             FgCaptureNote("sl.near=%.9g far=%.9g fov=%.9g aspect=%.9g depthInverted=%d reset=%d frameIdx=%u mode=%d", c.cameraNear, c.cameraFar, c.cameraFOV,
-                          c.cameraAspectRatio, (int)c.depthInverted, (int)c.reset, g_sl.frameIdx, isOn);
+                          c.cameraAspectRatio, (int)c.depthInverted, (int)c.reset, idx, isOn);
         }
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.setConstants(c, *t, vp);
@@ -461,18 +575,20 @@ struct ProviderStreamline : IFgProvider
     void BeforePresent()
     {
         if (!proxy) return;
-        token = NULL; marked = 0;
+        cur = 0; marked = 0;
         if (head == tail) { if (warned < 8) { ++warned; FgLog("sl: Present without a prepared frame - no markers"); } return; }
-        token = fifo[head++ % kTokens];
+        cur = fifo[head++ % kTokens];
+        sl::FrameToken* t = Tok(cur);
+        if (!t) { cur = 0; return; }
         marked = 1;
-        g_sl.marker(sl::PCLMarker::eRenderSubmitEnd, *token);
-        g_sl.marker(sl::PCLMarker::ePresentStart, *token);
+        g_sl.marker(sl::PCLMarker::eRenderSubmitEnd, *t);
+        g_sl.marker(sl::PCLMarker::ePresentStart, *t);
     }
 
     void AfterPresent(HRESULT)
     {
         if (!proxy) return;
-        if (token && marked == 1) { marked = 2; g_sl.marker(sl::PCLMarker::ePresentEnd, *token); }
+        if (cur && marked == 1) { marked = 2; sl::FrameToken* t = Tok(cur); if (t) g_sl.marker(sl::PCLMarker::ePresentEnd, *t); }
         sl::DLSSGState st{};
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.fgGetState(vp, st, NULL);                    // DLSS_G.md:753-783: frames since the last call
@@ -483,7 +599,7 @@ struct ProviderStreamline : IFgProvider
         if (frames <= 3 || frames % 300 == 0) {
             DXGI_FRAME_STATISTICS fs = {};
             HRESULT hr = proxy->GetFrameStatistics(&fs);
-            FgLog("sl: frame %u (token %u): presented=%u status=0x%X mode=%d dxgiPresentCount=%u (hr 0x%08X) generated=%lld", frames, token ? (unsigned)*token : 0u,
+            FgLog("sl: frame %u (token %u): presented=%u status=0x%X mode=%d dxgiPresentCount=%u (hr 0x%08X) generated=%lld", frames, cur,
                   st.numFramesActuallyPresented, (unsigned)st.status, isOn, fs.PresentCount, (unsigned)hr, generated);
         }
     }
@@ -515,6 +631,7 @@ struct ProviderStreamline : IFgProvider
     bool Destroy(bool force)
     {
         if (!Off() && !force) return false;
+        if (proxy && g_sl.state > 0) ReflexApply(sl::ReflexMode::eOff, 0);   // FG off: no Reflex sleep runs, no cap of ours stays behind
         proxy = NULL;
         if (queue) { queue->Release(); queue = NULL; }
         if (proxyFactory) { proxyFactory->Release(); proxyFactory = NULL; }

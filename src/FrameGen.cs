@@ -1,5 +1,7 @@
 using System;
 using UnityEngine;
+using UnityEngine.LowLevel;
+using UnityEngine.PlayerLoop;
 
 namespace Renderforge
 {
@@ -45,6 +47,100 @@ namespace Renderforge
                 case Native.FG_PROVIDER_DLSS: return "DLSS";
                 default: return "none";
             }
+        }
+
+        // ---------------------------------------------------------------- pacing (docs\DESIGN.md "FG pacing")
+        //
+        // While a chain is live two systems sit in Unity's PlayerLoop (UnityEngine.LowLevel.PlayerLoop, Unity 2019.3+):
+        //   FrameStart  first in Initialization - before PlayerUpdateTime samples the clock and long before
+        //               EarlyUpdate.UpdateInputManager reads input: the latency SDK's sleep (Reflex / XeLL want it at
+        //               the start of the frame, before input) + SIMULATION_START, through Fg_FrameBegin;
+        //   SimEnd      last in PreLateUpdate, i.e. after ScriptRunBehaviourLateUpdate: SIMULATION_END.
+        // The render-submit / present markers follow on the render thread with the id Fg_FrameBegin returned (the shim
+        // stamps it into the block Fg_SetFrame stores). No chain = no systems: nothing of this runs with FG off.
+        //
+        // FLOWING = the driver fed the chain a frame recently (DlssDriver calls Fed with every FG_PREPARE it issues). Only
+        // then does a provider generate and its pacer sleep; a live chain nothing is fed to (main menu, loading screen, a
+        // camera-less screen, HoldPrepare) is paced by Unity's own limiter at the full ceiling (RenderforgeMod.ApplyFrameRate).
+        private struct FrameStartSystem { }
+        private struct SimEndSystem { }
+        private const int IdleAfter = 3;       // frames without a fed one before the provider's pacer hands back to Unity
+        private static bool hooked, fedThisFrame, flowing, mainPacing = true;
+        private static int unfed = IdleAfter, startFrame = -1;
+        private static uint paceId;
+
+        /// <summary>Frames are reaching the live chain: the provider generates and (XeSS-FG, DLSS-G) owns the frame cap.</summary>
+        internal static bool Flowing => live && flowing;
+        internal static void Fed() { fedThisFrame = true; }
+
+        /// <summary>Diagnostic A/B: false = the latency SDK sleeps on the render thread. Rebuilds the chain (latched at Create).</summary>
+        internal static void SetMainPacing(bool on) { mainPacing = on; Stop(); Native.Fg_SetMainPacing(on ? 1 : 0); }
+
+        private static void FrameStart()
+        {
+            try
+            {
+                startFrame = Time.frameCount;
+                if (!live) { paceId = 0; return; }
+                unfed = fedThisFrame ? 0 : Math.Min(unfed + 1, IdleAfter);
+                fedThisFrame = false;
+                bool now = unfed < IdleAfter;
+                if (now != flowing) { flowing = now; RenderforgeMod.ApplyFrameRate(); }
+                paceId = Native.Fg_FrameBegin(flowing ? 1 : 0);
+            }
+            catch (Exception ex) { PacingFailed(ex); }
+        }
+
+        private static void SimEnd()
+        {
+            try { if (paceId != 0) Native.Fg_SimEnd(); }
+            catch (Exception ex) { PacingFailed(ex); }
+        }
+
+        private static void PacingFailed(Exception ex)
+        {
+            paceId = 0; flowing = false;
+            RenderforgeMod.Instance?.Logger.LogError("FG pacing off: " + ex);
+            try { Hook(false); RenderforgeMod.ApplyFrameRate(); } catch (Exception) { }
+        }
+
+        /// <summary>Insert / remove the two systems. Entries are matched by type NAME, so a reloaded mod assembly
+        /// removes what its previous incarnation left behind.</summary>
+        private static void Hook(bool on)
+        {
+            if (on == hooked) return;
+            hooked = on;
+            startFrame = Time.frameCount;
+            PlayerLoopSystem loop = PlayerLoop.GetCurrentPlayerLoop();
+            PlayerLoopSystem[] top = loop.subSystemList;
+            if (top == null) return;
+            for (int i = 0; i < top.Length; i++)
+            {
+                if (top[i].type == typeof(Initialization)) top[i].subSystemList = Edit(top[i].subSystemList, typeof(FrameStartSystem), on, true, FrameStart);
+                else if (top[i].type == typeof(PreLateUpdate)) top[i].subSystemList = Edit(top[i].subSystemList, typeof(SimEndSystem), on, false, SimEnd);
+            }
+            loop.subSystemList = top;
+            PlayerLoop.SetPlayerLoop(loop);
+        }
+
+        private static PlayerLoopSystem[] Edit(PlayerLoopSystem[] list, Type marker, bool add, bool first, PlayerLoopSystem.UpdateFunction fn)
+        {
+            var l = new System.Collections.Generic.List<PlayerLoopSystem>(list ?? new PlayerLoopSystem[0]);
+            l.RemoveAll(s => s.type != null && s.type.FullName == marker.FullName);
+            if (add)
+            {
+                var sys = new PlayerLoopSystem { type = marker, updateDelegate = fn };
+                if (first) l.Insert(0, sys); else l.Add(sys);
+            }
+            return l.ToArray();
+        }
+
+        /// <summary>The chain went live / away: (un)hook and start from "nothing fed yet".</summary>
+        private static void Pacing(bool on)
+        {
+            flowing = false; fedThisFrame = false; unfed = IdleAfter; paceId = 0;
+            try { Hook(on); }
+            catch (Exception ex) { hooked = false; RenderforgeMod.Instance?.Logger.LogError("FG pacing hook failed: " + ex); }
         }
 
         private static int forced = -1;
@@ -104,6 +200,8 @@ namespace Renderforge
             if (Native.Fg_Pump() == 0) retiring = true;
             else if (retiring) retiring = Native.Fg_Shutdown() == 0;
             SyncAlive();
+            // Somebody replaced the PlayerLoop (SetPlayerLoop from another mod) and our systems went with it: put them back.
+            if (live && hooked && Time.frameCount - startFrame > 2) { hooked = false; Pacing(true); RenderforgeMod.ApplyFrameRate(); }
         }
 
         /// <summary>The shim detached the chain on its own; mirror that.</summary>
@@ -113,6 +211,7 @@ namespace Renderforge
             live = false;
             lastRc = -1;
             Overlay.FgFps = 0;
+            Pacing(false);
             RenderforgeMod.ApplyFrameRate();
             RenderforgeMod.Instance?.Logger.LogInfo("FG chain torn down by the shim: " + Native.Fg_Status());
         }
@@ -147,6 +246,7 @@ namespace Renderforge
             live = true;
             builtMultiplier = wantMultiplier;
             Native.Fg_SetEnabled(1);
+            Pacing(true);
             RenderforgeMod.ApplyFrameRate();
             RenderforgeMod.Instance?.Logger.LogInfo("FG live: " + Native.Fg_Status());
         }
@@ -169,7 +269,7 @@ namespace Renderforge
             live = false;
             lastRc = -1;
             Overlay.FgFps = 0;
-            if (wasLive) RenderforgeMod.ApplyFrameRate();
+            if (wasLive) { Pacing(false); RenderforgeMod.ApplyFrameRate(); }
             return !retiring;
         }
 

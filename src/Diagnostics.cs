@@ -30,8 +30,33 @@ namespace Renderforge
         /// <summary>Report the jitter of the previous (1) or the next (-1) frame instead of this one's (frame-pairing A-B lever).</summary>
         internal static int JitterReportDelay { get; set; }
 
+        // Frame-time sampler (PPCLI FrameStats): the driver's Update records Time.unscaledDeltaTime while Sampling.
+        internal static bool Sampling;
+        private static readonly float[] frameTimes = new float[16384];
+        private static int frameTimeCount;
+        private static float sampleStart;
+
+        internal static void SampleFrame(float dt) { if (frameTimeCount < frameTimes.Length) frameTimes[frameTimeCount++] = dt; }
+
+        /// <summary>start = true: clear and record; false: stop and report base-frame count, fps and frame-time percentiles (ms).</summary>
+        internal static string FrameStats(bool start)
+        {
+            if (start) { frameTimeCount = 0; sampleStart = UnityEngine.Time.realtimeSinceStartup; Sampling = true; return "sampling"; }
+            Sampling = false;
+            int n = frameTimeCount;
+            if (n == 0) return "frames=0";
+            float span = UnityEngine.Time.realtimeSinceStartup - sampleStart;
+            var s = new float[n];
+            System.Array.Copy(frameTimes, s, n);
+            System.Array.Sort(s);
+            System.Func<float, string> ms = v => (v * 1000f).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            return "frames=" + n + " fps=" + (n / UnityEngine.Mathf.Max(span, 1e-3f)).ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
+                 + " p50=" + ms(s[n / 2]) + " p99=" + ms(s[System.Math.Min(n - 1, n * 99 / 100)]) + " max=" + ms(s[n - 1]);
+        }
+
         internal static void Reset()
         {
+            Sampling = false;
             MvFilter = true;
             DepthSource = 0;
             JitterReportDelay = 0;

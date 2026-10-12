@@ -11,6 +11,10 @@
 // xefgSwapChainSetLatencyReduction BEFORE the proxy init, the same frame id for XeLL markers and the XeSS-FG present id
 // (guide :240-258), all six markers per frame (xell.h:74-79 "required"), xellSleep first for a new id
 // (xell guide :297). Teardown order: proxy refs dropped, xefgSwapChainDestroy, then xellDestroyContext (guide :1070-1094).
+// PACING (docs\DESIGN.md "FG pacing"): xellSleep + SIMULATION_START run on the MAIN thread at the start of the frame
+// ("at the beginning of each frame, before sampling user input", xell guide :294-298), SIMULATION_END after LateUpdate,
+// RENDERSUBMIT_* / PRESENT_* on the render thread with the same id, which travels in FgFrame::paceId. The frame cap is
+// xellSetSleepMode.minimumIntervalUs and nothing else (xell guide :93-100, :129).
 //
 // UI: XEFG_SWAPCHAIN_UI_MODE_BACKBUFFER_HUDLESS with UI composition enabled (guide :531-535, :602-605, :623): the
 // SDK interpolates the hud-less colour and extracts the HUD from the composed back buffer it already holds. Inputs are
@@ -73,16 +77,18 @@ struct ProviderXess : IFgProvider
     unsigned                maxInterp;
     int                     enabled;
     int                     lastRc;
-    // Our own frame counter, +1 per Prepare: XeLL insists on consecutive ids (Sleep() "expected frame N-1" errors)
+    // Our own frame counter, +1 per xellSleep: XeLL insists on consecutive ids (Sleep() "expected frame N-1" errors)
     // and the host's single frame slot can hand the render thread the SAME FgFrame.frameId twice or skip one when
-    // Unity's main thread runs ahead. Every Prepare tags a fresh id; the constants in `f` are the ones of the frame the
-    // tagged copies hold (the host pairs them per event, Fg.h FgFrame).
-    unsigned                presentId;
+    // Unity's main thread runs ahead. The thread that sleeps owns it (main: FrameBegin, render-thread pacing: Prepare).
+    // The constants in `f` are the ones of the frame the tagged copies hold (the host pairs them per event, Fg.h FgFrame).
+    unsigned                nextId;
+    unsigned                presentId;     // render thread: the id of the frame being prepared / presented
+    int                     mainPacing;    // FgMainPacing() at Create: 1 = FrameBegin sleeps (main thread), 0 = Prepare does
     int                     marked;        // RENDERSUBMIT_END/PRESENT_START issued for presentId (Generate ran)
     long long               generated;     // interpolated frames the proxy reported presenting
     int                     warned;
     // XeLL frame cap: minimumIntervalUs for the PRESENTED rate (XeLL halves the rendered rate itself with XeSS-FG,
-    // xell guide :210-214). Main thread writes `wantUs`, the render thread applies it before its next xellSleep.
+    // xell guide :210-214). Main thread writes `wantUs`, the sleeping thread applies it before its next xellSleep.
     volatile LONG           wantUs;
     LONG                    appliedUs;
     char                    version[64];
@@ -91,7 +97,7 @@ struct ProviderXess : IFgProvider
     void Zero()
     {
         fg = NULL; ll = NULL; proxy = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; caps = 0; maxInterp = 0;
-        enabled = 0; lastRc = 0; presentId = 0; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = 0;
+        enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = 0;
     }
 
     int Id() const { return FG_PROVIDER_XESS; }
@@ -110,6 +116,7 @@ struct ProviderXess : IFgProvider
             return FG_ERR_NO_PROVIDER;
         }
         outW = s.desc.Width; outH = s.desc.Height; backFmt = s.desc.Format;
+        mainPacing = FgMainPacing() ? 1 : 0;
         // The managed driver retries a refused Init 4x/s: once the GPU's maximum is known, refuse before any context.
         if (g_maxInterp) {
             caps = CapsFor(g_maxInterp);
@@ -183,21 +190,9 @@ struct ProviderXess : IFgProvider
         if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (warned < 8) { ++warned; FgLog("xess: tag %s %d", what, (int)r); } }
     }
 
-    // Render thread, DLSS_EV_FG_PREPARE: XeLL sleep + the pre-present markers, then tag this frame's inputs.
-    bool Prepare(ID3D12GraphicsCommandList*, const FgFrame& f)
+    // The sleeping thread: the cap when it changed, a fresh id, xellSleep (first call for a new id), SIMULATION_START.
+    unsigned Sleep()
     {
-        const OwnedSet12* o = FgOwned12();
-        ID3D12Resource* depth = FgDepth12();
-        ID3D12Resource* mv = FgMv12();
-        if (!fg || !o || !depth || !mv) return false;
-        // FgHudless12: the host's flipped copy in the back buffer's format (FgTwins.h). None = tag depth/mv/constants
-        // anyway (XeSS-FG interpolates from the back buffer; hudless is optional).
-        DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
-        ID3D12Resource* hud = FgHudless12(&hudFmt);
-        if (!hud || hudFmt != backFmt || o->outW != outW || o->outH != outH) {
-            if (warned < 8) { ++warned; FgLog("xess: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
-            hud = NULL;
-        }
         LONG us = InterlockedCompareExchange(&wantUs, 0, 0);
         if (us != appliedUs) {
             xell_sleep_params_t sp = {};
@@ -207,12 +202,67 @@ struct ProviderXess : IFgProvider
             appliedUs = us;
             FgLog("xess: XeLL frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
         }
-        ++presentId;
+        unsigned id = ++nextId;
+        xellSleep(ll, id);
+        xellAddMarkerData(ll, id, XELL_SIMULATION_START);
+        return id;
+    }
+
+    // Main thread, start of the frame / after LateUpdate.
+    unsigned FrameBegin() { return ll && fg && mainPacing ? Sleep() : 0; }
+    void SimEnd(unsigned id) { if (ll && fg && mainPacing && id) xellAddMarkerData(ll, id, XELL_SIMULATION_END); }
+
+    // Main thread. XeLL's last 64 frame reports (xell.h xell_frame_report_t, nanoseconds).
+    void Stats(char* buf, int cap)
+    {
+        if (cap <= 0) return;
+        buf[0] = 0;
+        if (!ll) return;
+        static xell_frame_report_t rep[64];
+        memset(rep, 0, sizeof(rep));
+        xell_result_t r = xellGetFramesReports(ll, rep);
+        if (r != XELL_RESULT_SUCCESS) { _snprintf_s(buf, cap, _TRUNCATE, "xell: xellGetFramesReports %d", (int)r); return; }
+        unsigned n = 0;
+        double sim = 0, toPresent = 0, submit = 0;
+        for (int i = 0; i < 64; ++i) {
+            const xell_frame_report_t& e = rep[i];
+            if (!e.m_sim_start_ts || e.m_present_end_ts <= e.m_sim_start_ts) continue;
+            ++n;
+            sim += (double)(e.m_sim_end_ts - e.m_sim_start_ts);
+            toPresent += (double)(e.m_present_end_ts - e.m_sim_start_ts);
+            submit += (double)(e.m_render_submit_end_ts - e.m_render_submit_start_ts);
+        }
+        double k = n ? 1.0 / (1000000.0 * n) : 0.0;
+        _snprintf_s(buf, cap, _TRUNCATE, "xell: frames=%u simMs=%.2f simToPresentEndMs=%.2f renderSubmitMs=%.2f minimumIntervalUs=%ld pacing=%s",
+                    n, sim * k, toPresent * k, submit * k, appliedUs, mainPacing ? "main" : "render");
+    }
+
+    // Render thread, DLSS_EV_FG_PREPARE: the pre-present markers, then tag this frame's inputs.
+    bool Prepare(ID3D12GraphicsCommandList*, const FgFrame& f)
+    {
+        const OwnedSet12* o = FgOwned12();
+        ID3D12Resource* depth = FgDepth12();
+        ID3D12Resource* mv = FgMv12();
+        if (!fg || !o || !depth || !mv) return false;
+        // Main-thread pacing: this frame's id was opened by FrameBegin. None = the frame was fed before the pacer started
+        // (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same id twice =
+        // a second prepare event inside one frame.
+        if (mainPacing && (!f.paceId || f.paceId == presentId)) return false;
+        // FgHudless12: the host's flipped copy in the back buffer's format (FgTwins.h). None = tag depth/mv/constants
+        // anyway (XeSS-FG interpolates from the back buffer; hudless is optional).
+        DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
+        ID3D12Resource* hud = FgHudless12(&hudFmt);
+        if (!hud || hudFmt != backFmt || o->outW != outW || o->outH != outH) {
+            if (warned < 8) { ++warned; FgLog("xess: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
+            hud = NULL;
+        }
+        if (mainPacing) presentId = f.paceId;
+        else {
+            // Render-thread pacing (diagnostic): the simulation is not reachable from here, SIMULATION_* bracket this event.
+            presentId = Sleep();
+            xellAddMarkerData(ll, presentId, XELL_SIMULATION_END);
+        }
         marked = 0;
-        // Unity's simulation boundaries are not reachable from the shim: SIMULATION_* bracket this event.
-        xellSleep(ll, presentId);
-        xellAddMarkerData(ll, presentId, XELL_SIMULATION_START);
-        xellAddMarkerData(ll, presentId, XELL_SIMULATION_END);
         xellAddMarkerData(ll, presentId, XELL_RENDERSUBMIT_START);
 
         Tag(XEFG_SWAPCHAIN_RES_MOTION_VECTOR, mv, o->w, o->h, "mv");

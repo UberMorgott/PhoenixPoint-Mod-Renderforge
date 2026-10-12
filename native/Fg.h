@@ -84,6 +84,9 @@ struct FgFrame
     float    view[16];            // world -> view
     float    proj[16];            // view -> clip, non-jittered
     float    camPos[3], camUp[3], camRight[3], camFwd[3];   // world space, orthonormal
+    // The pacing frame this block was fed in: what IFgProvider::FrameBegin returned on the main thread at the start of
+    // the frame (FgHostSetFrame stamps it). 0 = that frame was not paced on the main thread.
+    unsigned paceId;
 };
 
 struct IFgProvider
@@ -123,6 +126,19 @@ struct IFgProvider
     // xell_developer_guide_english.md:93-100,129) and the caller must switch its own limiter off; false = the caller
     // keeps limiting rendered frames itself.
     virtual bool     SetFrameLimit(unsigned) { return false; }
+    // PACING (docs\DESIGN.md "FG pacing"). Main thread, the very start of a frame - before Unity samples input - while
+    // frames flow through the chain: the latency SDK's sleep, then SIMULATION_START. Returns that frame's pace id (> 0);
+    // it comes back as FgFrame::paceId in the Prepare of the same frame, so the render-submit / present markers and the
+    // frame's constants carry the id the sleep and the simulation markers were issued with. 0 = this provider has no
+    // latency SDK, or it paces on the render thread (FgMainPacing() off).
+    virtual unsigned FrameBegin() { return 0; }
+    // Main thread, after LateUpdate of the frame FrameBegin opened: SIMULATION_END.
+    virtual void     SimEnd(unsigned /*paceId*/) {}
+    // Render thread, the first Present with no prepared frame (the host forwards Unity's Present until frames resume):
+    // nothing goes through the provider's chain from here on. Default no-op.
+    virtual void     Idle() {}
+    // Main thread. Latency SDK statistics, one line ("" = none).
+    virtual void     Stats(char* buf, int cap) { if (cap > 0) buf[0] = 0; }
     // Main thread.
     virtual void     SetEnabled(bool on) = 0;
     // Main thread, chain detached, the host's shadow reference already released. True = gone, the singleton is
@@ -202,6 +218,16 @@ int  FgHostCreateChildSwapChain(const FgSetup& s, IDXGISwapChain4** out);
 HWND FgHostChildHwnd(const FgSetup& s);
 int  FgHostProvider(void);
 int  FgHostSetFrameLimit(unsigned presentedFps);   // main thread; 1 = the live provider paces to it (IFgProvider::SetFrameLimit)
+// Main thread, start of the managed frame / end of LateUpdate (IFgProvider::FrameBegin / SimEnd on the live, enabled
+// provider). `pace` 0 = this frame is not paced (no frames flow): only forgets the previous frame's id. Returns the
+// pace id (0 = not paced here); FgHostSetFrame stamps it into the frame's block.
+unsigned FgHostFrameBegin(int pace);
+void FgHostSimEnd(void);
+// Where the latency SDK sleeps: 1 = main thread at frame start (production), 0 = render thread inside Prepare (the
+// placement before 2026-10-12, kept as a diagnostic A/B). The providers read it at Create; FgSetMainPacing: main thread.
+bool FgMainPacing(void);
+void FgSetMainPacing(bool on);
+const char* FgHostLatency(void);             // main thread: the live provider's Stats line (static buffer)
 const char* FgHostStatus(void);
 const char* FgHostReason(void);              // why the last Init failed, static text or ""
 

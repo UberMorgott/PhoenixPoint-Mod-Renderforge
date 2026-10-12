@@ -39,6 +39,7 @@ template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = NULL; } 
 
 enum { kNone = 0, kLive = 1, kDetached = 2 };
 enum { kFrameRing = 8 };   // the main thread is at most a frame or two ahead of the render thread
+enum { kIdleNotify = 30 }; // consecutive presents without a prepared frame before IFgProvider::Idle
 
 struct Chain
 {
@@ -93,11 +94,13 @@ struct Host
     FgFrame               sent;         // render thread: what the previous Prepare was handed (capture notes)
     int                   haveSent;
     int                   twinsOk;      // render thread: this Prepare's list wrote the flipped copies (FgTwins.h)
+    unsigned              paceId;       // main thread: what the provider's FrameBegin returned for the frame in progress
     char                  status[512];
 };
 
 Host H;
 SRWLOCK g_lock = SRWLOCK_INIT;
+bool g_mainPacing = true;   // FgMainPacing(): main thread writes, the providers read it at Create
 
 struct Locked
 {
@@ -468,6 +471,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.reason = NULL;
     H.lastPresentHr = 0;
     H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0; H.havePaired = 0; H.haveSent = 0; H.twinsOk = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
+    H.paceId = 0;
     {
         Locked lk;
         c.prov = p;                                        // publish: the render thread may pin from here on
@@ -487,6 +491,39 @@ int FgHostSetFrameLimit(unsigned presentedFps)
         if (H.state == kLive) p = H.c.prov;
     }
     return p && p->SetFrameLimit(presentedFps) ? 1 : 0;
+}
+
+// Main thread, both: Create / SetEnabled / Destroy are main-thread too, so the provider cannot go away underneath.
+static IFgProvider* LiveEnabled()
+{
+    Locked lk;
+    return H.state == kLive && H.enabled ? H.c.prov : NULL;
+}
+
+unsigned FgHostFrameBegin(int pace)
+{
+    IFgProvider* p = pace ? LiveEnabled() : NULL;
+    H.paceId = p ? p->FrameBegin() : 0;
+    return H.paceId;
+}
+
+void FgHostSimEnd(void)
+{
+    IFgProvider* p = H.paceId ? LiveEnabled() : NULL;
+    if (p) p->SimEnd(H.paceId);
+}
+
+bool FgMainPacing(void) { return g_mainPacing; }
+void FgSetMainPacing(bool on) { g_mainPacing = on; }
+
+const char* FgHostLatency(void)
+{
+    static char buf[512];
+    buf[0] = 0;
+    IFgProvider* p = NULL;
+    { Locked lk; if (H.state == kLive) p = H.c.prov; }
+    if (p) p->Stats(buf, (int)sizeof(buf));
+    return buf;
 }
 
 // Main thread. The flag under the lock, the provider's SDK call outside it (SetEnabled and Destroy are both
@@ -516,8 +553,9 @@ const FgFrame* FgHostSetFrame(const FgFrame& f)
         Locked lk;
         oh = H.slot.hudless; od = H.slot.depth; om = H.slot.mv;
         H.slot = f;
+        H.slot.paceId = H.paceId;       // the frame the main thread is in (FgHostFrameBegin)
         r = &H.ring[H.ringIdx++ % kFrameRing];
-        *r = f;
+        *r = H.slot;
     }
     if (oh) oh->Release();
     if (od) od->Release();
@@ -670,6 +708,8 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     // Present, no vendor call), the hook forwards Unity's Present unchanged, and the child hides on the first such frame.
     if (!H.prepared) {
         if (++H.idle == 1) { H.hidden = 1; FgWndShow(false); FgLog("host: idle: no prepared frame - child hidden, provider untouched, Unity presents on its own"); }
+        // A real idle stretch (a menu, a loading screen), not one skipped frame: tell the provider (DLSS-G goes eOff).
+        if (H.idle == kIdleNotify) c.prov->Idle();
         Unpin(NULL);
         return false;
     }

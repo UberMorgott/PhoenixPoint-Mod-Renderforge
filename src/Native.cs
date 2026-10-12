@@ -169,6 +169,24 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Fg_SetFrameLimit(uint presentedFps);
 
+        /// <summary>Start of the main thread's frame while a chain is live. pace = 1 while frames are fed: the latency SDK's
+        /// sleep + SIMULATION_START; returns the frame's pace id (0 = nothing slept here).</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern uint Fg_FrameBegin(int pace);
+
+        /// <summary>After LateUpdate of the frame Fg_FrameBegin opened: SIMULATION_END.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Fg_SimEnd();
+
+        /// <summary>Diagnostic A/B, next chain: 1 = sleep on the main thread (default), 0 = on the render thread.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Fg_SetMainPacing(int on);
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Fg_Latency")]
+        private static extern IntPtr Fg_LatencyPtr();
+
+        public static string Fg_Latency() => Marshal.PtrToStringAnsi(Fg_LatencyPtr()) ?? "";
+
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         public static extern int Fg_Init(int provider, uint multiplier, [MarshalAs(UnmanagedType.LPWStr)] string dllDir);
 

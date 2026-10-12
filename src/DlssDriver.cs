@@ -193,6 +193,7 @@ namespace Renderforge
 
         private void Update()
         {
+            if (Diagnostics.Sampling) Diagnostics.SampleFrame(Time.unscaledDeltaTime);
             var cfg = RenderforgeMod.Instance?.Cfg;
             if (cfg != null && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
                             && (Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt)))
@@ -638,6 +639,7 @@ namespace Renderforge
                         fgView, fgProj, fgCam);
                     // The block travels WITH the event: the render thread pairs it with the frame it really holds (Fg.h).
                     cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_FG_PREPARE, fgSlot);
+                    FrameGen.Fed();   // frames flow: the provider's pacer owns the next frame start (FrameGen pacing)
                 }
                 frames++;
             }

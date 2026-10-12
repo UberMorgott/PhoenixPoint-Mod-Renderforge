@@ -279,19 +279,22 @@ namespace Renderforge
         /// <summary>The setting is the final presented-FPS ceiling. With a live 2x/3x/4x frame-generation
         /// chain, cap Unity's rendered frames to floor(ceiling / multiplier), so generated frames stay inside
         /// the requested total. If FG is unavailable or tears down, FrameGen immediately reapplies the full cap.
-        /// ONE pacer per provider: a provider whose latency SDK owns the cap (XeSS-FG: XeLL takes the presented rate and
-        /// halves the rendered one itself; its guide wants every other limiter off) gets the ceiling through
-        /// Fg_SetFrameLimit and Unity's limiter is switched off; FSR-FG has no latency SDK and DLSS-G's Reflex frame limit
-        /// is undocumented under frame generation, so there Unity keeps capping the rendered frames.
+        /// ONE pacer at a time (docs\DESIGN.md "FG pacing"). While frames FLOW through the chain (FrameGen.Flowing) a
+        /// provider with a latency SDK owns the cap - XeSS-FG: XeLL minimumIntervalUs, DLSS-G: Reflex frameLimitUs, both
+        /// set through Fg_SetFrameLimit and enforced by the sleep at the start of the frame - and Unity's limiter is off
+        /// (both guides want every other limiter off). FSR-FG has no latency SDK: Unity caps the rendered frames at
+        /// floor(ceiling / multiplier). A live chain nothing is fed to (main menu, loading, a camera-less screen)
+        /// generates nothing and sleeps nowhere, so there Unity caps at the full ceiling and the provider's cap is cleared.
         /// Also the InitVideoOptions postfix (Patches.cs), after the game's own SetFrameRateLimit(60).</summary>
         public static void ApplyFrameRate()
         {
             var cfg = Instance?.Cfg;
             if (cfg == null) return;
             int presented = Mathf.Clamp(cfg.FrameRateLimit, 30, 300);
-            bool providerPaces = FrameGen.Live && Native.Fg_SetFrameLimit(cfg.LimitFrameRate ? (uint)presented : 0u) != 0;
+            bool flowing = FrameGen.Flowing;
+            bool providerPaces = FrameGen.Live && Native.Fg_SetFrameLimit(cfg.LimitFrameRate && flowing ? (uint)presented : 0u) != 0 && flowing;
             Application.targetFrameRate = cfg.LimitFrameRate && !providerPaces
-                ? NativeFrameRateFor(presented, FrameGen.OutputMultiplier)
+                ? NativeFrameRateFor(presented, flowing ? FrameGen.OutputMultiplier : 1)
                 : -1;
         }
 
@@ -576,9 +579,28 @@ namespace Renderforge
             var cfg = Instance?.Cfg;
             return "targetFrameRate=" + Application.targetFrameRate + " vSyncCount=" + QualitySettings.vSyncCount
                  + " limiter=" + (cfg != null && cfg.LimitFrameRate ? cfg.FrameRateLimit.ToString() : "off")
-                 + " fgMultiplier=" + FrameGen.OutputMultiplier
+                 + " fgMultiplier=" + FrameGen.OutputMultiplier + " flowing=" + FrameGen.Flowing
                  + " baseFps=" + Mathf.RoundToInt(1f / Mathf.Max(Time.smoothDeltaTime, 1e-5f))
                  + " presentedFps=" + (FrameGen.Live ? Native.Fg_PresentedFps() : 0) + " frame=" + Time.frameCount;
+        }
+
+        /// <summary>PPCLI diagnostic: {"member":"FrameStats","args":[true]} starts the base-frame sampler, [false] stops it and
+        /// returns frames / fps / p50 / p99 / max frame time (ms) + the caps of that moment.</summary>
+        public static string FrameStats(bool start) => Diagnostics.FrameStats(start) + (start ? "" : " | " + FgCaps());
+
+        /// <summary>PPCLI diagnostic: the live provider's latency-SDK statistics (Reflex / XeLL frame reports), "" = none.</summary>
+        public static string FgLatency() => FrameGen.Live ? Native.Fg_Latency() : "fg not live";
+
+        /// <summary>PPCLI A/B lever: {"member":"SetFgMainPacing","args":[false]} - false = the latency SDK sleeps on the render
+        /// thread inside the prepare event (the placement before 2026-10-12) instead of at the start of the main thread's
+        /// frame. Rebuilds the chain. Runtime-only.</summary>
+        public static string SetFgMainPacing(bool on)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            FrameGen.SetMainPacing(on);
+            FrameGen.Apply(m.Cfg);
+            return "fgMainPacing=" + on + " " + FrameGen.Status();
         }
 
         /// <summary>PPCLI test knob: {"member":"SetHoldPrepare","args":[true]} - the driver stops feeding FG frames while the chain stays live.</summary>

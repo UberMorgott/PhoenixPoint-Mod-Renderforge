@@ -168,9 +168,21 @@ enum { FG_PROVIDER_NONE = 0, FG_PROVIDER_FSR = 1, FG_PROVIDER_XESS = 2, FG_PROVI
 // Presented frames per second counted in the Present hook (includes generated frames). 0 = no data yet.
 DLSS_API int __cdecl Fg_PresentedFps(void);
 // Main thread. The frame-rate ceiling in PRESENTED frames per second (0 = none) for the live chain. Returns 1 when the
-// provider's own latency SDK enforces it (XeSS-FG: XeLL) - the caller must then switch its own limiter off - and 0
-// when the caller has to keep capping rendered frames itself (FSR-FG, DLSS-G, no chain).
+// provider's own latency SDK enforces it (XeSS-FG: XeLL minimumIntervalUs, DLSS-G: Reflex frameLimitUs) - the caller
+// must then switch its own limiter off while it calls Fg_FrameBegin - and 0 when the caller has to keep capping
+// rendered frames itself (FSR-FG, no chain).
 DLSS_API int __cdecl Fg_SetFrameLimit(unsigned presentedFps);
+// Main thread, the very start of every frame while a chain is live (before Unity samples input). pace = 1 while frames
+// are being fed to the chain: the latency SDK's sleep + SIMULATION_START; returns the frame's pace id, 0 = nothing
+// slept here (pace 0, no chain, FSR-FG, render-thread pacing). Fg_SimEnd: after LateUpdate of the same frame
+// (SIMULATION_END).
+DLSS_API unsigned __cdecl Fg_FrameBegin(int pace);
+DLSS_API void __cdecl Fg_SimEnd(void);
+// Diagnostic A/B, main thread, takes effect on the next chain: 1 = sleep on the main thread (default), 0 = on the
+// render thread inside the prepare event.
+DLSS_API void __cdecl Fg_SetMainPacing(int on);
+// One line of latency-SDK statistics of the live provider (static buffer, main thread), "" = none.
+DLSS_API const char* __cdecl Fg_Latency(void);
 
 // Main thread. Builds the FG chain: hook (if not yet), provider, shadow swapchain. Retry-safe: returns
 // FG_ERR_NO_SWAPCHAIN until the hook has seen at least one Present and while a previous chain is still being
