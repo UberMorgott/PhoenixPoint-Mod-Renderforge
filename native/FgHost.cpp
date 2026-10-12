@@ -478,6 +478,17 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     return FG_OK;
 }
 
+// Main thread. The presented-fps ceiling for the live provider (IFgProvider::SetFrameLimit); 1 = it paces to it itself.
+int FgHostSetFrameLimit(unsigned presentedFps)
+{
+    IFgProvider* p = NULL;
+    {
+        Locked lk;
+        if (H.state == kLive) p = H.c.prov;
+    }
+    return p && p->SetFrameLimit(presentedFps) ? 1 : 0;
+}
+
 // Main thread. The flag under the lock, the provider's SDK call outside it (SetEnabled and Destroy are both
 // main-thread only, so the provider cannot go away underneath).
 void FgHostSetEnabled(int on)

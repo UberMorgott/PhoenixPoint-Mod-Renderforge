@@ -164,6 +164,11 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Fg_PresentedFps();
 
+        /// <summary>The presented-fps ceiling (0 = none) for the live chain. 1 = the provider's latency SDK enforces it
+        /// (XeSS-FG: XeLL) and Unity's limiter must be off; 0 = the caller caps rendered frames itself.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_SetFrameLimit(uint presentedFps);
+
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         public static extern int Fg_Init(int provider, uint multiplier, [MarshalAs(UnmanagedType.LPWStr)] string dllDir);
 

@@ -416,6 +416,7 @@ int __cdecl Dlss_ReleaseStatus(void) { return (int)InterlockedCompareExchange(&g
 // ---------------------------------------------------------------- frame generation (Phase 5)
 
 int __cdecl Fg_PresentedFps(void) { return FgPresentedFps(); }
+int __cdecl Fg_SetFrameLimit(unsigned presentedFps) { return FgHostSetFrameLimit(presentedFps); }
 
 int __cdecl Fg_Init(int provider, unsigned multiplier, const wchar_t* dllDir)
 {

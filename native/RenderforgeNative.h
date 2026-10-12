@@ -167,6 +167,10 @@ enum { FG_PROVIDER_NONE = 0, FG_PROVIDER_FSR = 1, FG_PROVIDER_XESS = 2, FG_PROVI
 
 // Presented frames per second counted in the Present hook (includes generated frames). 0 = no data yet.
 DLSS_API int __cdecl Fg_PresentedFps(void);
+// Main thread. The frame-rate ceiling in PRESENTED frames per second (0 = none) for the live chain. Returns 1 when the
+// provider's own latency SDK enforces it (XeSS-FG: XeLL) - the caller must then switch its own limiter off - and 0
+// when the caller has to keep capping rendered frames itself (FSR-FG, DLSS-G, no chain).
+DLSS_API int __cdecl Fg_SetFrameLimit(unsigned presentedFps);
 
 // Main thread. Builds the FG chain: hook (if not yet), provider, shadow swapchain. Retry-safe: returns
 // FG_ERR_NO_SWAPCHAIN until the hook has seen at least one Present and while a previous chain is still being

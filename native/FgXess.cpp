@@ -81,13 +81,17 @@ struct ProviderXess : IFgProvider
     int                     marked;        // RENDERSUBMIT_END/PRESENT_START issued for presentId (Generate ran)
     long long               generated;     // interpolated frames the proxy reported presenting
     int                     warned;
+    // XeLL frame cap: minimumIntervalUs for the PRESENTED rate (XeLL halves the rendered rate itself with XeSS-FG,
+    // xell guide :210-214). Main thread writes `wantUs`, the render thread applies it before its next xellSleep.
+    volatile LONG           wantUs;
+    LONG                    appliedUs;
     char                    version[64];
 
     ProviderXess() { Zero(); }
     void Zero()
     {
         fg = NULL; ll = NULL; proxy = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; caps = 0; maxInterp = 0;
-        enabled = 0; lastRc = 0; presentId = 0; marked = 1; generated = 0; warned = 0; version[0] = 0;
+        enabled = 0; lastRc = 0; presentId = 0; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = 0;
     }
 
     int Id() const { return FG_PROVIDER_XESS; }
@@ -155,7 +159,7 @@ struct ProviderXess : IFgProvider
         s.factory->MakeWindowAssociation(child, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
         xefgSwapChainSetUiCompositionState(fg, XEFG_SWAPCHAIN_UI_COMPOSITION_STATE_ENABLED);
 
-        // XeLL on, no XeLL fps cap (the mod's own limiter stays). Render is idle here (Init runs on the main thread).
+        // XeLL on; the fps cap follows through SetFrameLimit. Render is idle here (Init runs on the main thread).
         xell_sleep_params_t sp = {};
         sp.bLowLatencyMode = 1;
         lr = xellSetSleepMode(ll, &sp);
@@ -193,6 +197,15 @@ struct ProviderXess : IFgProvider
         if (!hud || hudFmt != backFmt || o->outW != outW || o->outH != outH) {
             if (warned < 8) { ++warned; FgLog("xess: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
             hud = NULL;
+        }
+        LONG us = InterlockedCompareExchange(&wantUs, 0, 0);
+        if (us != appliedUs) {
+            xell_sleep_params_t sp = {};
+            sp.bLowLatencyMode = 1;
+            sp.minimumIntervalUs = (uint32_t)us;
+            xell_result_t lr = xellSetSleepMode(ll, &sp);
+            appliedUs = us;
+            FgLog("xess: XeLL frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
         }
         ++presentId;
         marked = 0;
@@ -257,6 +270,12 @@ struct ProviderXess : IFgProvider
         lastRc = (int)st.frameGenResult;
         if (st.framesPresented > 1) { generated += st.framesPresented - 1; FgPresentedAdd((int)st.framesPresented - 1); }  // the host counts the real one
         if (st.frameGenResult != XEFG_SWAPCHAIN_RESULT_SUCCESS && warned < 8) { ++warned; FgLog("xess: frameGenResult %d (presented %u, enabled %u)", (int)st.frameGenResult, st.framesPresented, st.isFrameGenEnabled); }
+    }
+
+    bool SetFrameLimit(unsigned presentedFps)
+    {
+        InterlockedExchange(&wantUs, presentedFps ? (LONG)(1000000u / presentedFps) : 0);
+        return true;
     }
 
     void SetEnabled(bool on)

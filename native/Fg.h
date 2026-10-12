@@ -118,6 +118,11 @@ struct IFgProvider
     // The queue the provider's chain presents on when it is NOT Unity's (DLSS-G: a queue from the Streamline proxy
     // device). The host then runs its back-buffer copy on it after a fence wait on Unity's queue. NULL = Unity's queue.
     virtual ID3D12CommandQueue* PresentQueue() { return NULL; }
+    // Main thread. The frame-rate ceiling in PRESENTED frames per second, 0 = none. True = this provider's own latency
+    // SDK enforces it (XeLL: "FPS Cap is controlled via xellSetSleepMode", other limiters "should be disabled",
+    // xell_developer_guide_english.md:93-100,129) and the caller must switch its own limiter off; false = the caller
+    // keeps limiting rendered frames itself.
+    virtual bool     SetFrameLimit(unsigned) { return false; }
     // Main thread.
     virtual void     SetEnabled(bool on) = 0;
     // Main thread, chain detached, the host's shadow reference already released. True = gone, the singleton is
@@ -196,6 +201,7 @@ int  FgHostCreateChildSwapChain(const FgSetup& s, IDXGISwapChain4** out);
 // the child cannot be made.
 HWND FgHostChildHwnd(const FgSetup& s);
 int  FgHostProvider(void);
+int  FgHostSetFrameLimit(unsigned presentedFps);   // main thread; 1 = the live provider paces to it (IFgProvider::SetFrameLimit)
 const char* FgHostStatus(void);
 const char* FgHostReason(void);              // why the last Init failed, static text or ""
 

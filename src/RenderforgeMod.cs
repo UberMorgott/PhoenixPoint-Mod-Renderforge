@@ -279,13 +279,18 @@ namespace Renderforge
         /// <summary>The setting is the final presented-FPS ceiling. With a live 2x/3x/4x frame-generation
         /// chain, cap Unity's rendered frames to floor(ceiling / multiplier), so generated frames stay inside
         /// the requested total. If FG is unavailable or tears down, FrameGen immediately reapplies the full cap.
+        /// ONE pacer per provider: a provider whose latency SDK owns the cap (XeSS-FG: XeLL takes the presented rate and
+        /// halves the rendered one itself; its guide wants every other limiter off) gets the ceiling through
+        /// Fg_SetFrameLimit and Unity's limiter is switched off; FSR-FG has no latency SDK and DLSS-G's Reflex frame limit
+        /// is undocumented under frame generation, so there Unity keeps capping the rendered frames.
         /// Also the InitVideoOptions postfix (Patches.cs), after the game's own SetFrameRateLimit(60).</summary>
         public static void ApplyFrameRate()
         {
             var cfg = Instance?.Cfg;
             if (cfg == null) return;
             int presented = Mathf.Clamp(cfg.FrameRateLimit, 30, 300);
-            Application.targetFrameRate = cfg.LimitFrameRate
+            bool providerPaces = FrameGen.Live && Native.Fg_SetFrameLimit(cfg.LimitFrameRate ? (uint)presented : 0u) != 0;
+            Application.targetFrameRate = cfg.LimitFrameRate && !providerPaces
                 ? NativeFrameRateFor(presented, FrameGen.OutputMultiplier)
                 : -1;
         }
