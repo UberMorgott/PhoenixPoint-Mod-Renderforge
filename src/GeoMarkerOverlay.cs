@@ -74,8 +74,10 @@ namespace Renderforge
         {
             public Object Owner; public GeoVehicle V; public Transform Root, Pivot; public bool Near; public int Kids = -1;
             // World pose at this and the previous GeoscapeCamera pre-cull (PoseFrame = Time.frameCount of Pos), and the
-            // local pose BeginPresent put aside while the present camera draws the previous one (Shifted).
-            public Vector3 Pos, PrevPos, HeldPos; public Quaternion Rot, PrevRot, HeldRot; public int PoseFrame = -1; public bool Shifted;
+            // local pose BeginPresent put aside while the present camera draws the previous one (Shifted). FlipFrame =
+            // the frame of its last side change under PoseLag: in that frame the present camera still draws the
+            // PREVIOUS split, so "on the marker layer for the present camera" is Near != (FlipFrame == this frame).
+            public Vector3 Pos, PrevPos, HeldPos; public Quaternion Rot, PrevRot, HeldRot; public int PoseFrame = -1, FlipFrame = -1; public bool Shifted;
         }
         private static readonly List<Loose> loose = new List<Loose>();                  // horizon-tested every frame (aircraft fly)
         private static readonly HashSet<Object> looseKnown = new HashSet<Object>();
@@ -587,6 +589,7 @@ namespace Renderforge
             if (looseSpawned.Count > 0) { foreach (var o in looseSpawned) AddLoose(o); looseSpawned.Clear(); }
             Vector3 c = geo.transform.position, g = GlobeUnits.GlobeCenter;
             float r2 = GlobeUnits.GlobeRadius * GlobeUnits.GlobeRadius;
+            int f = Time.frameCount;
             for (int i = loose.Count - 1; i >= 0; i--)
             {
                 var k = loose[i];
@@ -607,21 +610,33 @@ namespace Renderforge
                 bool sideChange = visible != k.Near;
                 k.Near = visible; k.Kids = kids;
                 WalkGuarded(k.Root, visible);
-                if (sideChange && PoseLag) flips.Add(new Flip { L = k, Take = visible });
+                if (sideChange && PoseLag)
+                {
+                    flips.Add(new Flip { L = k, Take = visible });
+                    k.FlipFrame = f;
+                    // Near -> far: BeginPresent puts it back on the marker layer for this frame's present render (the
+                    // previous split), so it needs its previous pose like every near one - the loop below skips it now.
+                    if (!visible) CapturePose(k, f);
+                }
             }
             // The pose every near aircraft and globe marker had one frame ago, for PoseLag: a flying aircraft moves every
             // frame, and so does a GlobeMarker parented to one (GeoscapeGlobeMarkers.AddMarker(GeoActor, ..) :92 - under
             // the actor's own transform, not its MeshRoot).
-            int f = Time.frameCount;
             for (int i = 0; i < loose.Count; i++)
             {
                 var k = loose[i];
                 if (!k.Near || !k.Root) continue;
-                Vector3 p = k.Root.position; Quaternion q = k.Root.rotation;
-                bool fresh = k.PoseFrame == f - 1;
-                k.PrevPos = fresh ? k.Pos : p; k.PrevRot = fresh ? k.Rot : q;
-                k.Pos = p; k.Rot = q; k.PoseFrame = f;
+                CapturePose(k, f);
             }
+        }
+
+        /// <summary>This frame's world pose next to the previous frame's (the current one when none was taken then).</summary>
+        private static void CapturePose(Loose k, int f)
+        {
+            Vector3 p = k.Root.position; Quaternion q = k.Root.rotation;
+            bool fresh = k.PoseFrame == f - 1;
+            k.PrevPos = fresh ? k.Pos : p; k.PrevRot = fresh ? k.Rot : q;
+            k.Pos = p; k.Rot = q; k.PoseFrame = f;
         }
 
         /// <summary>Direct3D 12 presents the scene one frame late: the shim's list runs before Unity's own of the same frame
@@ -630,7 +645,10 @@ namespace Renderforge
         /// (measured: 10 px at 30 fps under an orbit; 0 on D3D11) and a flying aircraft led its own trails and range ring.
         /// So on D3D12 the present camera draws frame N-1: the previous pose and projection (Sync), for the aircraft and
         /// globe markers that moved the previous world pose - put on the transform for the present camera's cull and
-        /// render only - and the previous near/far split (BeginPresent).</summary>
+        /// render only - and the previous near/far split (BeginPresent). The two go together: ShiftCrafts moves what the
+        /// present camera draws THIS frame, i.e. the objects that were near in the previous frame - including one that
+        /// crossed to the far side in this frame (it left at its current position before: one frame of its own motion
+        /// ahead of the picture, at the limb).</summary>
         private static bool PoseLag => Diagnostics.MarkerPoseDelay < 0 ? Availability.IsD3D12 : Diagnostics.MarkerPoseDelay > 0;
 
         private static void ShiftCrafts()
@@ -639,7 +657,7 @@ namespace Renderforge
             for (int i = 0; i < loose.Count; i++)
             {
                 var k = loose[i];
-                if (!k.Near || k.Shifted || k.PoseFrame != f || !k.Root || (k.PrevPos == k.Pos && k.PrevRot == k.Rot)) continue;
+                if (k.Near == (k.FlipFrame == f) || k.Shifted || k.PoseFrame != f || !k.Root || (k.PrevPos == k.Pos && k.PrevRot == k.Rot)) continue;
                 k.HeldPos = k.Root.localPosition; k.HeldRot = k.Root.localRotation; k.Shifted = true;
                 k.Root.SetPositionAndRotation(k.PrevPos, k.PrevRot);
             }
