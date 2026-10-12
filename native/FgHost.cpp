@@ -619,14 +619,26 @@ const char* FgHostLatency(void)
 // main-thread only, so the provider cannot go away underneath).
 void FgHostSetEnabled(int on)
 {
+    // The provider's switch runs with the chain pinned by THIS thread: a Prepare or Present in flight has left, none
+    // enters (DLSS-G's SetEnabled(false) is slDLSSGSetOptions, which the render thread also issues from Prepare and
+    // which must be ordered against Present - sl_dlss_g.h:207, ProgrammingGuideDLSS_G.md:486-494). Off closes the
+    // gate first so nothing new queues up behind the pin; on opens it under the pin, the provider enabled before
+    // the first Prepare can enter.
+    enum { kEnableWaitMs = 500 };
     IFgProvider* p = NULL;
+    if (!on) {
+        { Locked lk; H.enabled = 0; }
+        WakeAllConditionVariable(&g_unpinned);         // a waiting Pin re-reads `enabled` now
+    }
+    const bool pinned = PinMain(kEnableWaitMs);
     {
         Locked lk;
         H.enabled = on ? 1 : 0;
         if (H.state == kLive) p = H.c.prov;
     }
-    if (!on) WakeAllConditionVariable(&g_unpinned);    // a waiting Pin re-reads `enabled` now
+    if (p && !pinned) FgLog("host: enabled=%d issued with a thread still inside the chain after %d ms", on ? 1 : 0, (int)kEnableWaitMs);
     if (p) p->SetEnabled(on != 0);
+    if (pinned) Unpin(NULL);
     FgLog("host: enabled=%d", on ? 1 : 0);
 }
 
