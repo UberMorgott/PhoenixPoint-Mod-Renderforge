@@ -1070,18 +1070,21 @@ DLSS-G on NVIDIA, FSR-FG elsewhere; `RenderforgeMod.SetFgProvider` forces one fo
 | Provider | SDK versions | Swapchain | Latency | Caps | Notes |
 |---|---|---|---|---|---|
 | FSR-FG | FG-swapchain 3.1.7 / model 3.1.6 | SDK proxy on child HWND (manual dispatch fallback for composition) | none | 2x | Paced by SDK's present thread |
-| XeSS-FG | `libxess_fg.dll` 1.3.1 + `libxell.dll` 1.3.2 | `InitFromSwapChainDesc` on child, `pApplicationSwapChain=NULL` | XeLL mandatory, 6 markers | 2x off Intel Arc | `maxSupportedInterpolations=1` on non-Intel |
-| DLSS-G | Streamline 2.14.1 + `nvngx_dlssg.dll` 310.9.1 | proxy factory `CreateSwapChainForHwnd` on child + proxy device queue | Reflex `eLowLatency` + 6 PCL markers | 2x-4x on RTX 50 (`numFramesToGenerateMax=5`) | NVIDIA focus gate: unfocused -> real only, no error |
+| XeSS-FG | `libxess_fg.dll` 1.3.1 + `libxell.dll` 1.3.2 | `InitFromSwapChainDesc` on child, `pApplicationSwapChain=NULL` | XeLL mandatory, 6 markers, sleep at main-thread frame start, cap `minimumIntervalUs` | 2x off Intel Arc | `maxSupportedInterpolations=1` on non-Intel |
+| DLSS-G | Streamline 2.14.1 + `nvngx_dlssg.dll` 310.9.1 | proxy factory `CreateSwapChainForHwnd` on child + proxy device queue | Reflex `eLowLatency` + 6 PCL markers, sleep at main-thread frame start, cap `frameLimitUs` | 2x-4x on RTX 50 (`numFramesToGenerateMax=5`) | NVIDIA focus gate: unfocused -> real only, no error |
 
 ### Per-frame sequence
 
-1. Main thread: `FrameGen.Apply` -> `Fg_Init` (once) -> `Fg_SetFrame` (jitter, camera, matrices, dt; returns the
-   stored block, which travels as the `data` of that frame's `DLSS_EV_FG_PREPARE`).
+1. Main thread: `FrameGen.Apply` -> `Fg_Init` (once); every frame while frames flow: PlayerLoop `FrameStart` ->
+   `Fg_FrameBegin` (latency SDK sleep + `SIMULATION_START`, "FG pacing" below), `SimEnd` -> `Fg_SimEnd`; then
+   `Fg_SetFrame` (jitter, camera, matrices, dt, the frame's pace id; returns the stored block, which travels as the
+   `data` of that frame's `DLSS_EV_FG_PREPARE`).
 2. Render thread, `DLSS_EV_FG_PREPARE` (`CameraEvent.AfterEverything`): `FgHostPrepare(block)` -> row-flipped copies
    of the owned twins (`FgTwins.h`) -> `PairFrame` -> `provider.Prepare` on a recording command list submitted
    through `ExecuteCommandList`. Providers tag `FgDepth12()` / `FgMv12()` / `FgHudless12()` (all resting in COMMON),
    never the Unity RTs and never the upscaler's own twins.
-3. Render thread, Present hook: `FgHostOnPresent` copies Unity backbuffer (PRESENT -> COPY_SOURCE -> PRESENT)
+3. Unity's D3D12 submission thread (not the render thread; serialised with step 2 by `Pin`), Present hook:
+   `FgHostOnPresent` copies Unity backbuffer (PRESENT -> COPY_SOURCE -> PRESENT)
    into shadow chain -> `provider.Generate` (FSR manual path only) -> `provider.BeforePresent` (DLSS: markers
    after copy fence wait) -> shadow `Present` (vendor paces internally) -> `provider.AfterPresent` (XeSS/DLSS:
    end markers) -> Unity's original `Present` (sync 0, ALLOW_TEARING).
@@ -1147,27 +1150,96 @@ memory order). `RENDERFORGE_FG_DEBUG=1` turns FidelityFX's debug checker on (`fs
 
 ### FG pacing (2026-10-12)
 
-One pacer per provider; the FPS LIMIT setting is the **presented** ceiling.
+The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer at a time:
 
-| Provider | who caps | measured, limit 120 → base / presented |
+| State | who caps | how |
 |---|---|---|
-| XeSS-FG | XeLL: `xellSetSleepMode.minimumIntervalUs = 1e6 / limit`, Unity `targetFrameRate = -1` | 60 / 120 (limit 60: 30 / 60) |
-| FSR-FG | Unity `targetFrameRate = floor(limit / multiplier)`; the FSR swapchain only spaces the presents | 60 / 119 |
-| DLSS-G | Unity `targetFrameRate = floor(limit / multiplier)` **and** Reflex `eLowLatency` sleep | 60 / 60 unfocused |
+| FG off | Unity | `targetFrameRate = limit` (unchanged, nothing of the pacing code runs) |
+| chain live, frames **flowing**, XeSS-FG | XeLL | `xellSetSleepMode.minimumIntervalUs = 1e6 / limit`; XeLL halves the rendered rate itself; Unity `targetFrameRate = -1` |
+| chain live, frames flowing, DLSS-G | Reflex | `ReflexOptions::frameLimitUs = 1e6 / limit` (presented interval, see below); Unity `targetFrameRate = -1` |
+| chain live, frames flowing, FSR-FG | Unity | `targetFrameRate = floor(limit / multiplier)`; the FSR swapchain only spaces the presents |
+| chain live, **nothing fed** (main menu without a camera, loading, `HoldPrepare`) | Unity | `targetFrameRate = limit`, provider cap cleared, no SDK sleep |
 
-- XeLL: other limiters "should be disabled when XeLL is in use", "FPS Cap is controlled via `xellSetSleepMode`"
-  (`xell_developer_guide_english.md:93-100,129`); with XeSS-FG it limits rendered frames to half the target (`:210-214`)
-  — measured as documented. `IFgProvider::SetFrameLimit` / `Fg_SetFrameLimit` is the seam; `ApplyFrameRate` switches
-  Unity's limiter off when the provider answers 1.
-- FSR: "rendered frame rate slightly below half the desired output frame rate" (`frame-interpolation-swap-chain.md:144`).
-- **Open, DLSS-G:** Streamline names `ReflexOptions::frameLimitUs` as the fixed-rate pacer (`ProgrammingGuideDLSS_G.md:769`)
-  but not whether it counts rendered or presented frames under frame generation (`sl_reflex.h:44-59`), and nothing
-  here can measure it unfocused. Until that is settled DLSS-G keeps two pacers (Unity's limiter + the Reflex sleep).
-- **Open, sleep placement:** `xellSleep` belongs "at the beginning of each frame, before sampling user input"
-  (`xell_developer_guide_english.md:294-298`) and Streamline defers `slReflexSleep` placement to the Reflex SDK guide
-  (`ProgrammingGuideReflex.md:181,210`, not on disk). Both still run on the render thread at `DLSS_EV_FG_PREPARE`,
-  with the six markers; moving them to the main thread's frame start needs frame ids shared across the two threads.
+- **Flowing** (`FrameGen.Flowing`) = the driver issued a `DLSS_EV_FG_PREPARE` within the last 3 frames (`FrameGen.Fed`).
+  Before this a live XeSS-FG chain with no prepare events had no pacer at all (`Fg_SetFrameLimit` answered 1, Unity's
+  limiter went off, `xellSleep` only ran inside `Prepare`): limit 120, `HoldPrepare` → 574 fps. Now 119 fps
+  (`targetFrameRate=120`); menu with the camera feeding: 60 / 120.
+- **Sleep at the start of the main thread's frame.** While a chain is live `FrameGen` keeps two systems in Unity's
+  PlayerLoop (`UnityEngine.LowLevel.PlayerLoop`, present in the game's `UnityEngine.CoreModule` 2019.4.31):
+  `FrameStart` first in `Initialization` (before `PlayerUpdateTime`, long before `EarlyUpdate.UpdateInputManager`) →
+  `Fg_FrameBegin` → `IFgProvider::FrameBegin`: new frame id, `slReflexSleep` / `xellSleep`, `SIMULATION_START`;
+  `SimEnd` last in `PreLateUpdate` (after `ScriptRunBehaviourLateUpdate`) → `SIMULATION_END`. The id travels in
+  `FgFrame::paceId`; the render thread issues `RENDERSUBMIT_START`, the constants and tags, `RENDERSUBMIT_END`,
+  `PRESENT_START/END` with the same id. Sources: XeLL "at the beginning of each frame, before sampling user input …
+  Only one call per frame" (`xell_developer_guide_english.md:294-298`); Reflex guide §3.4.2 / §3.5 (sleep at the start
+  of the simulation thread's frame, `SIMULATION_START` after it), Streamline `ProgrammingGuideDLSS_G.md:25,951`
+  (frame index of the constants = the present markers'). No chain = no PlayerLoop systems (removed on teardown; a
+  watchdog in `FrameGen.Pump` puts them back if another mod replaced the PlayerLoop).
+- **Streamline frame tokens are not kept.** `slGetNewFrameToken(idx)` hands out one of 6 handles and a request for a
+  different index rotates the ring (`source\core\sl.api\sl.cpp:1120`), so both threads carry the index and ask for
+  its token where they use it. The first fed frame after an idle stretch has no id (the pacer starts with the next
+  frame start) and is left unprepared: one more idle present.
+- **`frameLimitUs` counts presented frames.** Measured with DLSS-G generating (development plugins +
+  `sl.dlss_g.json {"runWhenNoFocus":true}`, geoscape, uncapped base 138): `frameLimitUs = 16666` → 30 rendered / 60
+  presented at 2x; `8333` → 60 / 120 (2x), 40 / 120 (3x), 30 / 120 (4x); `4166` → 120 / 240, 80 / 240, 60 / 240. With
+  nothing generated (production plugin, window not in the foreground) `8333` → 120 / 120. So the limit goes in
+  undivided for every multiplier. Docs: `sl_reflex.h:45-50` ("the driver would be aware"), `ProgrammingGuideDLSS_G.md:769`.
+- **Reflex only while a chain lives:** `eLowLatency` (+ cap) at `Create`, `eOff` + cap 0 at `Destroy`, cap 0 while
+  nothing flows — a cap left set would also throttle Unity's own presents (`nvapi.h:18331`: the interval applies even
+  without `NvAPI_D3D_Sleep`).
+- **DLSS-G `eOff` while idle:** after 30 presents without a prepared frame the host calls `IFgProvider::Idle` and
+  DLSS-G goes `eOff` (`ProgrammingGuideDLSS_G.md:29`: paused / loading / menus); the next prepared frame re-issues
+  `eOn`. `eRetainResourcesWhenOff` is set (`:593`). A resize detaches the chain, and `SetEnabled(false)` turns DLSS-G
+  off before the chain is released (`:756,954`).
+- **FSR-FG:** "rendered frame rate slightly below half the desired output frame rate"
+  (`frame-interpolation-swap-chain.md:144`); Unity's limiter at `floor(limit / 2)` lands on 59.7–59.8 / 119–120 and
+  119.9 / 239, i.e. just under — kept.
+- **Prepare and Present run on different threads** (Unity's D3D12 backend presents from its submission thread:
+  `host: first prepare tid` ≠ `first hooked present tid`). `FgHost.cpp` `Pin` serialises them: a prepare waits (≤ 100 ms)
+  for the previous prepared frame's Present, a Present for a prepare in flight. Before, an overlapping prepare was
+  refused or superseded the unpresented frame and the next Present went the idle way (FSR-FG tactical uncapped: 124 of
+  2901 prepares overlapped). Counters in `Fg_Status`: `prepare=ok/events presents= idled= waited=`.
+- Diagnostics (PPCLI): `FrameStats(true|false)` (base-frame count, fps, p50 / p99 / max ms), `FgLatency()` (Reflex /
+  XeLL frame reports), `SetFgMainPacing(false)` (A/B: sleep on the render thread inside `Prepare`, the old placement).
 
+Measured, final build, D3D12, 2560x1440 borderless, DLSS Quality 1707x960, FG 2x, `vSyncCount=0`, game at High
+priority, window in the background, foreign CPU load 60–100 % of all cores (other jobs on the machine). Base = Unity
+frames (`Time.unscaledDeltaTime`, 5–6 s), presented = Present-hook counter + the provider's own count.
+
+| scene / provider | limit 120: base / presented, p50 / p99 ms | limit 240 | limiter off |
+|---|---|---|---|
+| geoscape FG off | 119.5 / –, 8.33 / 8.76 | 237.1 / –, 4.17 / 4.75 | 330.6 / –, 3.02 / 4.01 |
+| geoscape XeSS-FG | 60.0 / 120, 16.67 / 16.71 | 119.8 / 240, 8.34 / 8.44 | 186.0 / 380, 5.23 / 8.23 |
+| geoscape FSR-FG | 59.7 / 118–120, 16.67 / 17.40 | 119.9 / 239, 8.33 / 8.54 | 223.4 / 440, 4.42 / 5.92 |
+| geoscape DLSS-G, generating (dev plugin) | 60.0 / 120, 16.67 / 16.69 | 119.9 / 240, 8.33 / 8.34 | 137.5 / 275, 7.29 / 8.53 |
+| geoscape DLSS-G 3x / 4x (dev plugin) | 40.0 / 120 · 30.0 / 120 | 80.0 / 240 · 60.0 / 240 | 117 / 351 · 103.5 / 412 |
+| geoscape DLSS-G, production, unfocused (no generation) | 120.0 / 120, 8.33 / 8.34 | 239.3 / 240, 4.17 / 4.18 | 272.8 / 272, 3.65 / 4.38 |
+| tactical FG off | 98 / – (CPU-bound; limit 60: 59.8, 16.67 / 17.06) | 98 / – | 98.1 / –, 10.45 / 11.81 |
+| tactical XeSS-FG | 59.9 / 120, 16.67 / 16.71 | 94.6 / 196 (CPU-bound) | 96.9 / 199, 10.45 / 12.53 |
+| tactical FSR-FG | 59.8 / 120, 16.67 / 17.21 | 98.5 / 197 (CPU-bound) | 95.8 / 193, 10.51 / 13.20 |
+| tactical DLSS-G, production, unfocused (no generation) | 103.1 / 97–107 (CPU-bound; limit 60: 60.0 / 60, 16.67 / 16.83) | 101.2 / 98 (CPU-bound) | 99.1 / 101, 10.38 / 12.00 |
+
+Before (HEAD `8f13fd2`, tactical, limit 120): XeSS-FG 60.0 / 120 p99 19.02; FSR-FG 59.5 / 118 p99 17.77; DLSS-G 59.7 / 59
+p99 17.68 (Unity's limiter + Reflex sleep).
+
+Latency reports (frame-start sleep, simulation start → present end, mean of the SDK's last 64 frames): geoscape limit
+240 — Reflex 6.3–6.5 ms (2x generating: 6.4, 3x 6.8, 4x 7.0), XeLL 4.9 ms; tactical limit 120 — Reflex 14.1 ms, XeLL
+10.8–14.4 ms. The render-thread placement cannot be compared through the same report: its `SIMULATION_*` markers
+bracketed the prepare event (simulation 0.00 ms, start → present end 1.3–2.7 ms), i.e. it never measured the
+simulation. What can be compared is pacing: DLSS-G 2x limit 240 generating, render-thread sleep 111.3 / 222, p99
+10.28 ms; main-thread sleep 119.9 / 240, p99 8.35 ms.
+
+- **Test-rig trap: an occluded game window.** Windows 11 stops honouring a process's timer resolution while its
+  window is fully covered, `Sleep` falls back to 15.6 ms, and every `Sleep`-based limiter lands on half its target:
+  Unity `targetFrameRate` 60 → 34 fps, 120 → 65 fps (FG off too), Reflex `frameLimitUs` 16666 → 55 fps with 30 ms
+  frames, XeSS-FG's present pacing stretches. A player's foreground window is not affected. Unattended runs opt the
+  game process out first (`SetProcessInformation(ProcessPowerThrottling)`, `ControlMask =
+  PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`, `StateMask = 0`); every number above was taken that way.
+- **Not observed:** DLSS-G generating with the PRODUCTION plugin (needs the window in the foreground); input lag
+  by feel; presented-frame intervals (no provider exposes them — FrameView `MsBetweenDisplayChange` is the tool).
+- **Open:** a Present of an unprepared frame that arrives after the next frame's prepare event consumes that
+  prepare's constants (one frame early) — only around idle transitions, unchanged from before; exact pairing needs a
+  per-frame id on the Present side.
 ### HUD
 
 The present path gives every SDK what it needs: the upscaler's `out` twin = upscaled scene WITHOUT the HUD, back
