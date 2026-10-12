@@ -1621,6 +1621,127 @@ affinity, and `ID3D12CommandQueue::ExecuteCommandLists` is not hooked (no hook w
   hooked Present in that run. Not excluded by measurement; excluded only by the hook above.
 - Probe: an empty queue behind the call is not reported, a queue left waiting on a fence is (`quiesceBusy == 1`).
 
+### One pacer at every instant (2026-10-12, review 5)
+
+- **Invariant:** at every instant exactly one pacer enforces the user's limit. The provider's latency SDK is that
+  pacer only while it has ACCEPTED the cap; in every other state Unity's limiter (`Application.targetFrameRate`) is.
+- **Defect it replaces (regression FAIL 2):** `Fg_SetFrameLimit` answered with the WISH. XeSS returned `true`
+  unconditionally, DLSS-G `!reflex.bad` - which is still `false` on a fresh chain whose first Reflex request has not
+  been made. Unity's limiter went off, the SDK then refused (or had not been asked yet) and nothing re-evaluated:
+  uncapped at limit 60 (`xell_mode` every call: 627 fed frames in 2.0 s; `sl_reflex`: 519 in 2.0 s; a fresh 3x chain:
+  330 idle presents in ~1 s).
+- **State, not wish:** `IFgProvider::PacerState()` -> `FG_PACER_HELD` | `FG_PACER_GENERATING` (`native\Fg.h`).
+  - HELD - XeSS: `wantUs > 0 && appliedUs == wantUs` (`appliedUs` moves only on `xellSetSleepMode` SUCCESS).
+    DLSS-G: the Reflex latch's accepted mode is low latency with exactly `LimitUs()`, not `bad`, and the frame is paced.
+    A fresh chain, a cap change waiting for its quiescent point, a refused or backed-off request: NOT held.
+  - GENERATING - XeSS: `fgOn` (the SDK accepted `xefgSwapChainSetEnabled(1)`). DLSS-G: `isOn && !dead && !reflex.bad`
+    (Prepare's own gate). FSR: always (no latency SDK; never HELD).
+- **Decision** (`RenderforgeMod.ApplyFrameRate`): `Fg_SetFrameLimit` records the cap and returns the bits.
+  `providerPaces = flowing && HELD` -> `targetFrameRate = -1`. Otherwise Unity caps at `ceiling / multiplier` when
+  GENERATING, and at the UNDIVIDED ceiling when not (nothing is generated: rendered = presented).
+- **Re-evaluation:** the answer arrives on other threads (the presenting thread's quiescent point, the render
+  thread's options). `FrameGen.FrameStart` polls `Fg_PacerState` every frame and calls `ApplyFrameRate` when the bits
+  differ from the ones the last decision used (`FrameGen.NotePacer`). One frame of latency, no SDK call in the poll.
+- **The 72 of J2** (limit 144, DLSS-G 2x, `sl_reflex@6944` refused for good): Unity capped at `144 / 2 = 72` because
+  the old code divided by the chain's multiplier whenever frames FLOWED - but a refused Reflex request gates the feed
+  (`reflex.bad`), nothing is generated, so 72 rendered = 72 presented. Now GENERATING is clear there and Unity caps
+  at 144. Reflex's previously accepted cap (120) stays in effect inside the SDK - a refused change cannot take it
+  back - so the frame rate is min(120, 144) until the watchdog drops the provider (~2 s): never above the limit.
+- **`sdkFails` of XeSS (FAIL 3):** `modeFails` was reset only inside `Quiescent()`, and a refused cap change that is
+  taken back needs no quiescent point (`wantUs == appliedUs`) - the host never went there, `sdkFails=1/0/0` stayed.
+  `WantsQuiescent()` (presenting thread, pinned, every present) now ends the run when the wanted cap is the accepted one.
+
+### One slDLSSGSetOptions per Streamline frame (2026-10-12, review 5)
+
+- sl.log: `Repeated slDLSSGSetOptions() call for the frame N. A redundant call or a race condition with Present()`,
+  once per DLSS-G chain start after the first (warnings = chains - 1).
+- Streamline's frame advances with the PROXY's Present and only with it (measured: N = proxy presents + 1, unchanged
+  across 30 unprepared presents). Options "take effect in the next Present() call that executes after" them
+  (`ProgrammingGuideDLSS_G.md:487-488`).
+- The two calls: the teardown's eOff (`Off()`, main thread, required before the chain goes, `:745-748`) - no Present
+  follows it - and the next chain's eOn in its first Prepare. Same pair: `Idle()`'s eOff and the eOn of the resume.
+- Fix (`FgStreamline.cpp`): `SlCore::presents` counts proxy Presents (`AfterPresent`), `optStamp` = presents + 1 at
+  every set that reached the SDK. `IssueOptions` returns `kOptHold` when a set is already out for this frame: the
+  frame is prepared (token, constants, tags, markers) and presented through the proxy with DLSS-G as it is (off:
+  passed through), which ends the Streamline frame; the eOn goes out with the next prepare. Refusing the frame would
+  deadlock - an unprepared frame bypasses the proxy. Cost: the first frame of a chain / after an idle stretch is not
+  interpolated. `isOn` still follows the SDK's answer only; the `sl_options` lever does not stamp.
+- Not covered: eOn followed by a teardown before any Present (the eOff cannot wait).
+
+### A vendor Present that does not return (2026-10-12) - OPEN
+
+- **Incident:** FSR-FG, fast off/on (900/1600 ms), 7th rebuild (epoch 17), video memory overcommitted by a second
+  game instance. Player.log `D3D12Fence::Wait(16038) error: got 16037. Possible device removal.`, then Unity's render
+  thread broke into the debugger after its 30 s fence timeout. Not reproduced in 35 later cycles.
+- **What the dump proves** (`cdb` on crash.dmp, all threads):
+  - Unity's D3D12 submission thread: `HookPresent1` -> `FgHostOnPresent` -> `c.shadow->Present` - inside AMD's proxy
+    `Present` (the SECOND one of a fresh chain; the first returned S_OK), spinning in `waitForFenceValue`
+    (`FrameInterpolationSwapchainDX12_Helpers.cpp:97-118`, no timeout) on "AMD FSR CompositionFence CPU", wanted 2,
+    completed 0, for 30.09 s.
+  - "AMD FSR Interpolation Thread": the same spin on "AMD FSR InterpolationFence", wanted 1, completed 0, 30.10 s -
+    the fence `presentInterpolated` signalled on Unity's queue in Present #1 (`FrameInterpolationSwapchainDX12.cpp:1938`).
+  - "AMD FSR Presenter Thread": parked on its pacer event (never woken: the interpolation thread never got there).
+  - Unity's render thread: its own fence 16038 - most likely never SUBMITTED, the submission thread being stuck.
+  - No frame of ours on any other thread; `g_lock` not held; the pin is held by the presenting thread across Present
+    (by design), every waiter on it is bounded (`kPinWaitMs`), and the render thread was not waiting on it.
+  - Device not removed (fences read 0, not UINT64_MAX; `removed=0x00000000` in the log); no TDR event.
+  - The queue was alive at the end of the previous teardown (AMD's `shutdown()` signals and CPU-waits on it; it took 110 ms).
+- **What it does not prove:** why a Signal on Unity's queue did not complete for 30 s. Not a queue-level Wait of ours
+  (FSR presents on Unity's queue: `CopyBackBuffer` issues none there). Candidates: the GPU scheduler holding the
+  queue while it pages under overcommit (no TDR for that), or a failing `Signal` AMD does not check.
+- **Teardown order vs AMD's docs** (`frame-interpolation-api.md:318-337`, `frame-interpolation-swap-chain.md:262-268`):
+  Configure(off) -> DestroyContext(FG) -> DestroyContext(swapchain) -> release the FINAL proxy reference. Ours had one
+  deviation: the host released its proxy reference BEFORE the provider's Destroy (the XeSS-FG rule, applied to all).
+  Now per provider (`IFgProvider::ProxyOutlivesDestroy`, FSR = true). Cannot explain the hang (it was the 2nd Present
+  of the NEXT chain, the queue was alive in between) - conformance, not the fix.
+- **Mitigations in the build** (none of them can interrupt AMD's spin):
+  - `host: provider=... , vram local <usage>/<budget> MB [OVER BUDGET], shared ...` at every chain start.
+  - Present watchdog (own thread, reads and logs only): a shadow Present that has not returned for 2 s ->
+    `host: WATCHDOG shadow Present #n (...) has not returned for N ms ...: removed=..., Unity queue probe COMPLETED |
+    DID NOT COMPLETE in 1 s, vram ...`. The probe is a fence of our own signalled on Unity's queue: COMPLETED = the
+    queue retires work and the provider waits on something of its own; DID NOT COMPLETE = the queue itself stands still.
+  - Test lever `RENDERFORGE_FG_TEST_VRAM_MB=<n>`: commits n MB of throwaway textures before the first chain.
+- **Residual risk:** the hang can recur under video-memory overcommit; the process then dies in Unity's 30 s fence
+  timeout. Not mitigated: keeping the FSR proxy across off/on (Configure(off) instead of a rebuild), refusing FG over budget.
+
+### XeLL marker refusals (2026-10-12) - OPEN, instrumented
+
+- `xess: xellAddMarkerData(id N, marker 2..5) -4` in 2 sessions (id 4 right after the first quiescent point of a
+  chain; ids 63/64 mid-chain). -4 = `XELL_RESULT_ERROR_INVALID_ARGUMENT` (`xell.h:54`); markers 2..5 =
+  RENDERSUBMIT_START/END, PRESENT_START/END. SIMULATION_* of the same ids were accepted.
+- Ruled out: an id used on another context (ids and the context are per provider, ids restart per chain), marker
+  order (sleep returns before the markers, START before END - by construction; guide `:296-298`, `:320-329`).
+- Unverified hypothesis: XeLL forgets an id once the sleeping thread is two ids ahead of it. The refusal line now
+  carries `newest slept id` and the thread; the first 32 are logged. No fix without that evidence.
+
+### Debug-layer attribution (2026-10-12)
+
+- Every D3D12 object of ours is named `Renderforge ...` (rings: lists, allocators, fence, timestamp heap; post pass;
+  FG twins; FG capture; the DLSS-G present queue; the queue handoff fence; under `RENDERFORGE_D3D12_DEBUG` also the
+  shadow chain's back buffers). A message that names none of them is not about our lists or resources.
+- `renderforge-d3d12.log` records, per chain, the first `FG copy:` lines (Unity back buffer pointer, queue, thread)
+  and - now for FSR generations too - the four Unity RTs a generation declares (`RfDbg::Resource` / `States`).
+- Regression sessions (S1 geo / S3 tactical / L1): E527 `RESOURCE_BARRIER_BEFORE_AFTER_MISMATCH` 71702 / 9821 / 1039
+  and E538 `INVALID_SUBRESOURCE_STATE` 40791 / 16233 / 1090, ALL on unnamed (Unity) lists; none names a ring list,
+  none names one of the four declared RTs (checked by pointer), the same signatures hit RT sizes we never create
+  (2048x1024, 192x192, 1024x32) and come from ~27 submitting threads. They are Unity's own state tracking for its
+  depth copies and ping-pong targets under the driver's command buffers (see the 2026-09 note above).
+- Back buffer: 1-2 messages per session in 88-123 chain starts (`Draw` with `BackBufferN_0` in PRESENT on a worker
+  thread; once `Draw` + barrier with it in COPY_SOURCE on the submission thread). Our only access is `CopyBackBuffer`:
+  PRESENT -> COPY_SOURCE -> PRESENT inside ONE list, and validation is per `ExecuteCommandLists` call, so no other
+  list can observe the intermediate state; no message names `Renderforge ring`. Unattributed - not shown to be ours.
+- E1315 x2, W954, W1361, W1380, W680: our code has no such call (our descriptor heaps are SHADER_VISIBLE, we never
+  pass 0 barriers, create no sampler / graphics PSO / placed resource) - Unity or vendor.
+
+### Geoscape click probe (2026-10-12)
+
+- `ProbeMarkerClick` / `ProbeCraftClick` replicate the game's pick: cursor ray vs the GLOBE layer (10000 units,
+  `GeoscapeView.cs:912-914`), then `GeoMap.PickObjectOnPosition<T>(point, true)` - a ray from the globe's centre
+  through that point vs the PICKING layer (`GeoMap.cs:822-851`). The old probe cast the camera ray against every
+  layer and took the nearest collider, which near the limb belongs to another site than the game picks.
+- Every near-side site / aircraft on screen: `n / same / globeMiss / none / other`; PASS = `other == 0`
+  (globeMiss = the pixel is off the globe, none = no enabled actor under it: the game picks nothing either way).
+
 ### HUD
 
 The present path gives every SDK what it needs: the upscaler's `out` twin = upscaled scene WITHOUT the HUD, back

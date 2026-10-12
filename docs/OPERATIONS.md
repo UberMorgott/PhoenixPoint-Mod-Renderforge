@@ -29,6 +29,18 @@ GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
 - Never restore sources into the tree with a tool that keeps timestamps and then trust an incremental build made by
   anything other than `build-native.ps1`.
 
+## FG test levers and diagnostics lines (2026-10-12)
+
+- `RENDERFORGE_FG_TEST_SDK_FAIL=<call>[,<count>][,skip=<n>]`, `RENDERFORGE_FG_TEST_PRESENT_DELAY=<ms>,<every>` - see DESIGN.
+- `RENDERFORGE_FG_TEST_VRAM_MB=<n>` - commit n MB of throwaway textures on Unity's device before the first FG chain
+  (`host: TEST RENDERFORGE_FG_TEST_VRAM_MB=... committed k of m textures, vram local u/b MB`). Check `nvidia-smi`
+  first and leave room for whatever else runs on the GPU.
+- `host: provider=... , vram local <usage>/<budget> MB` - every chain start. `OVER BUDGET` = expect stalls.
+- `host: WATCHDOG shadow Present #n ... has not returned for N ms` - a vendor Present is stuck; the line says whether
+  Unity's queue still retires work (`Unity queue probe COMPLETED` / `DID NOT COMPLETE`). Keep the log and the dump.
+- PPCLI on `RenderforgeMod`: `BuildInfo` (stamps), `FgCaps` (who paces: `targetFrameRate=-1` = the provider's SDK),
+  `FgLatency` (XeSS `sdkFails=mode/enable/input`), `ProbeMarkerClick` / `ProbeCraftClick` (`pass=True` = `other=0`).
+
 ## Workshop
 ### Identity & paths
 
