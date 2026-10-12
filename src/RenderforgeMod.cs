@@ -51,6 +51,7 @@ namespace Renderforge
                     }
                     else
                     {
+                        Logger.LogInfo(BuildInfo());
                         probeTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
                         Native.SetBiasMaskMode(0);   // after Load: the shim keeps its own copy; a re-enable must land on production values
                         InitNative(Cfg.Upscaler);
@@ -574,6 +575,31 @@ namespace Renderforge
         public static string FgCaptureStatus() => "capture=" + Native.Fg_CaptureStatus() + " " + FgCaps();
 
         /// <summary>PPCLI diagnostic: every cap that bounds a frame-rate measurement, plus base and presented fps.</summary>
+        /// <summary>PPCLI: {"member":"BuildInfo"} - which tree the two loaded binaries were built from. One line, also
+        /// logged at mod load: "build stamp: managed=&lt;commit12&gt;[+dirty] src=&lt;hash&gt; native=... [MISMATCH]".
+        /// A test run is only about HEAD when both commits are HEAD and neither is dirty (docs\OPERATIONS.md).</summary>
+        public static string BuildInfo()
+        {
+            string m = Renderforge.BuildStamp.Value, n = Native.BuildStamp();
+            string mc = StampField(m, "commit"), nc = StampField(n, "commit");
+            return "build stamp: managed=" + ShortStamp(m) + " native=" + ShortStamp(n)
+                 + (mc.Length == 0 || mc != nc || StampField(m, "dirty") != StampField(n, "dirty") ? " MISMATCH (the two DLLs are not one build)" : "");
+        }
+
+        private static string StampField(string stamp, string key)
+        {
+            foreach (var part in (stamp ?? "").Split('|'))
+                if (part.StartsWith(key + "=", StringComparison.Ordinal)) return part.Substring(key.Length + 1);
+            return "";
+        }
+
+        private static string ShortStamp(string stamp)
+        {
+            string c = StampField(stamp, "commit");
+            if (c.Length == 0) return "unstamped";
+            return (c.Length > 12 ? c.Substring(0, 12) : c) + (StampField(stamp, "dirty") == "1" ? "+dirty" : "") + " src=" + StampField(stamp, "src");
+        }
+
         public static string FgCaps()
         {
             var cfg = Instance?.Cfg;

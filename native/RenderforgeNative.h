@@ -136,6 +136,9 @@ DLSS_API int __cdecl Dlss_Provider(void);
 // suffix = execution path; empty for NGX, whose runtime version the managed side reads off nvngx_dlss.dll),
 // NUL-terminated into `buf` (at most `cap` bytes incl. NUL). Returns the number of bytes written, 0 when unknown.
 DLSS_API int __cdecl Dlss_ProviderVersion(char* buf, int cap);
+// Build stamp of this DLL: "RFSTAMP|kind=native|commit=<40 hex>|dirty=<0|1>|src=<16 hex>|END" (build\stamp.ps1). The
+// literal is what deploy.ps1 / build\release.ps1 read back out of the file to prove which tree it was built from.
+DLSS_API const char* __cdecl Rf_BuildStamp(void);
 // Main thread. Camera parameters FSR/XeSS need and NGX does not; cached and copied into every later frame slot.
 // fovYRadians = vertical field of view in RADIANS. Defaults: 0.1 / 1000 / 60 degrees.
 DLSS_API void __cdecl Dlss_SetCamera(float nearZ, float farZ, float fovYRadians);

@@ -2,6 +2,7 @@ bin/
 obj/
 build/*
 !build/release.ps1
+!build/stamp.ps1
 *.user
 .vs/
 RenderforgeNative.dll

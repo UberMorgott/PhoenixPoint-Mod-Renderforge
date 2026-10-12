@@ -354,6 +354,15 @@ void __cdecl Dlss_SetProvider(int provider)
 
 int __cdecl Dlss_Provider(void) { return S.dev ? S.provider : -1; }
 
+// rf_build_stamp.h is written into the build dir by build-native.ps1 before every build; a tree configured by anything
+// else (the gate's static analysis) has none and says so instead of failing to compile.
+#if __has_include("rf_build_stamp.h")
+#include "rf_build_stamp.h"
+#else
+#define RF_BUILD_STAMP "RFSTAMP|kind=native|unstamped|END"
+#endif
+const char* __cdecl Rf_BuildStamp(void) { return RF_BUILD_STAMP; }
+
 int __cdecl Dlss_ProviderVersion(char* buf, int cap)
 {
     if (!buf || cap <= 0) return 0;

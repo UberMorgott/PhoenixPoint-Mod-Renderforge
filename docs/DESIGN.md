@@ -1675,6 +1675,12 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
 
 ## Packaging (Phase 6, 2026-09-02)
 
+- **Build stamp (2026-10-12).** Both DLLs carry `RFSTAMP|kind|commit|dirty|src|END` (`build\stamp.ps1`,
+  `Rf_BuildStamp()` in the shim, `AssemblyMetadata("RfStamp")` + `BuildStamp.Value` in the mod; logged at load,
+  `RenderforgeMod.BuildInfo()`). `deploy.ps1` and `build\release.ps1` read it back out of the files and refuse a binary
+  that was not built from the tree on disk; a release additionally needs a clean tree and a `-Clean` native rebuild.
+  Native objects follow source CONTENT (per-build-dir manifest, changed files are re-dated), and the quality gate
+  builds into `build\gate\` - never into the dirs a deploy links from. Runbook: `docs\OPERATIONS.md` §Build stamp.
 - `build\release.ps1` is the only packaging path. It reads the version from `meta.json`, walks an
   ordered pack table, and emits `Renderforge-{Core,NVIDIA,AMD,Intel,Full}-<v>.zip` plus
   `SHA256SUMS.txt` into `build\release\`.

@@ -1,10 +1,23 @@
 # build-native.ps1 - configure + build RenderforgeNative.dll and dlss_probe.exe (Release x64), stage into build\out, run the probe.
 # Exit code != 0 on any failure.
+param(
+    # The quality gate's build (qgate.json, pre-commit): its OWN intermediate + output dirs. The gate may build a tree
+    # that is not the one being deployed (a partially staged commit, a stash-reduced tree); it must never leave its
+    # objects where deploy.ps1 / build\release.ps1 link from.
+    [switch] $Gate,
+    # Throw the intermediate dir away first: every object is compiled from the sources on disk. build\release.ps1 uses it.
+    [switch] $Clean
+)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+. (Join-Path $root 'build\stamp.ps1')
+# qgate.json calls this script without arguments (its content is hash-trusted by the owner, `qgate trust`), so a run
+# from inside the gate is recognised by the slot marker a -Full gate run exports to its checks (gate\check.ps1).
+if ($env:QGATE_SLOT_HELD -eq '1') { $Gate = $true }
+if ($Gate) { Write-Host 'build-native: gate build -> build\gate\ (never the dirs deploy.ps1 / release.ps1 link from)' }
 $sdk = Join-Path $root '..\refs\DLSS-sdk'
-$buildDir = Join-Path $root 'build\native'
-$outDir = Join-Path $root 'build\out'
+$buildDir = Join-Path $root ($Gate ? 'build\gate\native' : 'build\native')
+$outDir = Join-Path $root ($Gate ? 'build\gate\out' : 'build\out')
 $cmake = 'C:\Program Files\CMake\bin\cmake.exe'
 
 if (-not (Test-Path $cmake)) { throw "cmake not found at $cmake" }
@@ -61,13 +74,46 @@ foreach ($dll in $slDlls) {
 $dlssgVer = (Get-Item $slDlls[-1]).VersionInfo.FileVersion -replace '[ ,]+', '.'
 if ($dlssgVer -notlike '310.9.*') { Write-Warning "nvngx_dlssg.dll is $dlssgVer, expected a 310.9.* build (refs\Streamline\latest-dll, 310.9.1 verified) - shipping it anyway" }
 
+# --- Objects follow source CONTENT, not file time -------------------------------------------------------------------
+# MSBuild rebuilds an object when an input is NEWER than it. A file whose content changed while its mtime did not move
+# forward (restored by a copy that keeps timestamps, an archive, a sync tool) is invisible to it: the stale object is
+# linked and nothing says so (2026-10-12, STALE-BUILD). So every build records the content hash of each native source
+# next to the objects, and the next build RE-DATES every file whose content differs from that record. A build dir
+# without a record is of unknown origin and is thrown away.
+$manifest = Join-Path $buildDir 'rf-src-manifest.txt'
+$wipe = $null
+if ($Clean -and (Test-Path $buildDir)) { $wipe = '-Clean' }
+elseif ((Test-Path $buildDir) -and -not (Test-Path $manifest)) { $wipe = 'no source manifest (objects of unknown origin)' }
+if ($wipe) {
+    if ((Split-Path $buildDir -Leaf) -ne 'native' -or -not $buildDir.StartsWith((Join-Path $root 'build'))) { throw "refusing to remove '$buildDir'" }
+    Write-Host "build-native: removing $buildDir ($wipe)"
+    [IO.Directory]::Delete($buildDir, $true)
+}
 New-Item -ItemType Directory -Force $buildDir, $outDir | Out-Null
+$now = Get-RfSourceFiles 'native'
+if (Test-Path $manifest) {
+    $was = @{}
+    foreach ($l in [IO.File]::ReadAllLines($manifest)) { if ($l.Length -gt 41) { $was[$l.Substring(41)] = $l.Substring(0, 40) } }
+    $redate = [DateTime]::UtcNow
+    foreach ($l in $now) {
+        $path = $l.Substring(41)
+        if ($was[$path] -ne $l.Substring(0, 40)) {
+            (Get-Item -LiteralPath (Join-Path $root $path)).LastWriteTimeUtc = $redate
+            Write-Host "build-native: content changed since the last build of this dir, re-dated: $path"
+        }
+    }
+}
+[IO.File]::WriteAllLines($manifest, [string[]]$now)
+# The stamp the DLL carries (Rf_BuildStamp): commit + dirty flag + hash of exactly the list above.
+& (Join-Path $root 'build\stamp.ps1') -WriteNative (Join-Path $buildDir 'rf_build_stamp.h')
 
 & $cmake -S (Join-Path $root 'native') -B $buildDir -G 'Visual Studio 17 2022' -A x64 "-DDLSS_SDK=$((Resolve-Path $sdk).Path)" "-DFFX_SDK=$((Resolve-Path $ffxSdk).Path)" "-DXESS_SDK=$((Resolve-Path $xessSdk).Path)"
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
 & $cmake --build $buildDir --config Release
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
 
+# The linked DLL must carry the stamp of the tree on disk: proves the stamp TU was compiled and linked in THIS build.
+Assert-RfStamp (Join-Path $buildDir 'Release\RenderforgeNative.dll') 'native' | Out-Null
 Copy-Item (Join-Path $buildDir 'Release\RenderforgeNative.dll') $outDir -Force
 Copy-Item (Join-Path $buildDir 'Release\dlss_probe.exe') $outDir -Force
 Copy-Item $ngxDll $outDir -Force

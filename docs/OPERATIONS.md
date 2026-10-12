@@ -5,8 +5,31 @@ Commands are verified against the scripts in `workshop\`. All paths assume
 **CWD = `E:\DEV\PhoenixPoint\Renderforge`**. Release cutting (version bump, zips,
 GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
 
-## Workshop
+## Build stamp — which tree a binary was built from (2026-10-12)
 
+- **Why:** an incremental `deploy.ps1` shipped a `RenderforgeNative.dll` that was NOT HEAD. The pre-commit gate had
+  built a stash-reduced tree into `build\native`; the full sources then came back through a copy that kept their OLD
+  mtime, so MSBuild (which compares file TIMES) kept linking the reduced tree's objects. A whole regression run was void.
+- **Stamp:** both DLLs carry `RFSTAMP|kind=<native|managed>|commit=<40 hex>|dirty=<0|1>|src=<16 hex>|END`
+  (`build\stamp.ps1`; `src` = hash of the working-tree content of that binary's sources: `native\` + `build-native.ps1`,
+  resp. `src\` + `Renderforge.csproj` + `meta.json`).
+  - Read it from a file: `pwsh -File build\stamp.ps1 -Read <dll>`.
+  - At mod load (Player.log / mod log): `build stamp: managed=<commit12>[+dirty] src=<h> native=<commit12>[+dirty] src=<h>`,
+    plus ` MISMATCH` when the two DLLs are not one build. PPCLI: `{"member":"BuildInfo"}` on `RenderforgeMod`.
+  - **A test run is about HEAD only when that line shows HEAD's commit twice and no `+dirty`.** Record it with the results.
+- **Enforcement:** `build-native.ps1` asserts the linked DLL's stamp; `deploy.ps1` asserts both DLLs against the tree
+  before copying anything (also with `-SkipNative`: a `build\out` older than HEAD is refused);
+  `build\release.ps1` refuses a dirty tree, rebuilds native with `-Clean` (intermediate dir deleted first) and asserts
+  both stamps = HEAD, clean - also with `-SkipBuild`. The pack manifests record `commit`.
+- **Objects follow content:** `build\native\rf-src-manifest.txt` records the content hash of every native source per
+  build; the next build re-dates each file whose content differs (`build-native: content changed ..., re-dated: <path>`),
+  so MSBuild recompiles it whatever its mtime says. A build dir without a manifest is deleted (unknown origin).
+- **The gate builds elsewhere:** inside a `qgate -Full` run (`QGATE_SLOT_HELD=1`, or `build-native.ps1 -Gate` by hand) the build goes to `build\gate\native` + `build\gate\out`.
+  Nothing the gate compiles (a partial commit, a reduced tree) can reach `build\native` / `build\out`.
+- Never restore sources into the tree with a tool that keeps timestamps and then trust an incremental build made by
+  anything other than `build-native.ps1`.
+
+## Workshop
 ### Identity & paths
 
 | Thing | Value |
@@ -43,7 +66,8 @@ GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
 
 ### Task: first publish (item does not exist yet)
 
-1. `.\build\release.ps1` — packs every runtime including frame generation (the old `-WithFrameGen` opt-in is gone:
+1. `.\build\release.ps1` — needs a CLEAN, committed tree (refuses otherwise); rebuilds native from an empty intermediate
+   dir and asserts both DLL build stamps = HEAD (§Build stamp). Packs every runtime including frame generation (the old `-WithFrameGen` opt-in is gone:
    a bare run once produced a 122 MB Full zip without FG). Compare the Full zip size (~171 MB) against the last release.
 2. `pwsh -File workshop\pack-dist.ps1` — must print `Dist <version>: N files, X MB`.
    It throws if the stage is missing or its version differs from `meta.json`.

@@ -30,6 +30,15 @@
            Text="Phoenix Point ModSDK not found at '$(ModSDK)'. Build with /p:PPRoot=&quot;&lt;your Phoenix Point install&gt;&quot; (deploy.ps1 passes this for you)." />
   </Target>
 
+  <!-- Build stamp (build\stamp.ps1): commit + dirty flag + hash of the managed sources, compiled in as an assembly
+       attribute. deploy.ps1 / build\release.ps1 read it back out of the DLL and refuse a file not built from the tree. -->
+  <Target Name="RfBuildStamp" BeforeTargets="CoreCompile">
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildProjectDirectory)\build\stamp.ps1&quot; -WriteManaged &quot;$(MSBuildProjectDirectory)\$(IntermediateOutputPath)BuildStamp.g.cs&quot;" StandardOutputImportance="low" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)BuildStamp.g.cs" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <Compile Include="src\**\*.cs" />
     <EmbeddedResource Include="src\Localization\strings.csv" LogicalName="Renderforge.strings.csv" />

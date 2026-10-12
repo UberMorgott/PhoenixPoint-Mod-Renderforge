@@ -28,6 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root   = Split-Path $PSScriptRoot -Parent            # repo root: this script lives in build\
+. (Join-Path $PSScriptRoot 'stamp.ps1')
 $refs   = Join-Path (Split-Path $root -Parent) 'refs' # E:\DEV\PhoenixPoint\refs
 $outDir = Join-Path $root 'build\out'
 $relDir = Join-Path $root 'build\release'
@@ -99,11 +100,23 @@ $packs = [ordered]@{
 }
 
 # --- Build unless told not to -------------------------------------------------------------
+# A release is built from a COMMITTED tree, and its native DLL from a CLEAN intermediate dir: no object of an earlier
+# tree can be linked (2026-10-12: an incremental build shipped objects of a partially staged commit to the test install).
+if (-not $ValidateOnly) {
+    $dirtyNow = @(git -C $root status --porcelain --untracked-files=all)
+    if ($dirtyNow.Count -gt 0) { throw "REFUSED: the working tree is not clean ($($dirtyNow.Count) path(s), first: $($dirtyNow[0])). Commit or stash, then release." }
+}
 if (-not $SkipBuild -and -not $ValidateOnly) {
-    & (Join-Path $root 'build-native.ps1')
+    & (Join-Path $root 'build-native.ps1') -Clean
     if ($LASTEXITCODE -ne 0) { throw "build-native.ps1 failed (exit $LASTEXITCODE)." }
     dotnet build (Join-Path $root 'Renderforge.csproj') -c $Configuration /p:PPRoot="$PPRoot"
     if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
+}
+
+# --- Our two binaries carry the stamp of HEAD, clean (also with -SkipBuild: a reused build must still be HEAD) ----
+if (-not $ValidateOnly) {
+    $nativeStamp  = Assert-RfStamp (Join-Path $outDir 'RenderforgeNative.dll') 'native' -RequireClean
+    $managedStamp = Assert-RfStamp (Join-Path $root "bin\$Configuration\Renderforge\Renderforge.dll") 'managed' -RequireClean
 }
 
 # --- Validate every source file ------------------------------------------------------------
@@ -173,6 +186,7 @@ foreach ($pack in $selected.Keys) {
         modId         = 'com.morgott.Renderforge'
         pack          = $pack
         version       = $version
+        commit        = $nativeStamp.Commit
         frameGen      = $true
         generatedUtc  = $stamp
         extractInto   = 'Mods\'

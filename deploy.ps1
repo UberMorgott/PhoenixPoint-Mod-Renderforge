@@ -11,6 +11,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+. (Join-Path $root 'build\stamp.ps1')
 
 if (-not (Test-Path (Join-Path $PPRoot 'PhoenixPointWin64.exe'))) {
     throw "No Phoenix Point at $PPRoot (no PhoenixPointWin64.exe there). Pass -PPRoot '<install folder>'."
@@ -51,6 +52,10 @@ dotnet build (Join-Path $root 'Renderforge.csproj') -c $Configuration /p:PPRoot=
 if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit $LASTEXITCODE)." }
 
 $out  = Join-Path $root "bin\$Configuration\Renderforge"
+# Both binaries must be built from the tree on disk (commit, dirty flag, source content). -SkipNative with a
+# build\out that is older than the tree, or objects that did not follow the sources, stops here - never in the game.
+Assert-RfStamp $nativeDll 'native' | Out-Null
+Assert-RfStamp (Join-Path $out 'Renderforge.dll') 'managed' | Out-Null
 $dest = Join-Path $PPRoot 'Mods\Renderforge'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 foreach ($file in @((Join-Path $out 'Renderforge.dll'), (Join-Path $root 'meta.json'), (Join-Path $root 'assets\rf-exposure-d3d12.bundle'), $nativeDll, $ngxDll, $amdLoader, $amdUpscaler, $amdFrameGen, $xessDll, $xessFgDll, $xellDll) + $slDlls +

@@ -348,6 +348,17 @@ namespace Renderforge
         }
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr Rf_BuildStamp();
+
+        /// <summary>Build stamp compiled into the loaded shim (build\stamp.ps1): commit, dirty flag, source hash.
+        /// "" for a shim that predates the export.</summary>
+        public static string BuildStamp()
+        {
+            try { return Marshal.PtrToStringAnsi(Rf_BuildStamp()) ?? ""; }
+            catch (Exception) { return ""; }
+        }
+
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         private static extern void Dlss_SetBiasMaskMode(int mode);
 
         /// <summary>Diagnostic: bias-current-colour mask mode (0 off, 1 all-zero, 2 all-one) behind a try - an older shim without the export must not throw.</summary>
