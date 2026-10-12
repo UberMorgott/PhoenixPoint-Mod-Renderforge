@@ -43,8 +43,18 @@ function Get-RfSourceHash([string] $Kind) {
     finally { $sha.Dispose() }
 }
 
+function Test-RfGit {
+    # A source zip / a machine without git: there is no commit to stamp. Never throws.
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $false }
+    try { $null = git -C $script:RfRoot rev-parse --verify --quiet HEAD 2>$null; return $LASTEXITCODE -eq 0 } catch { return $false }
+}
+
 function Get-RfStamp([string] $Kind) {
-    $commit = (git -C $script:RfRoot rev-parse HEAD).Trim()
+    # Without git (or outside a checkout) the build still works: the stamp says `commit=unknown`, which Read-RfStamp
+    # does not accept as a stamp - so deploy.ps1 / build\release.ps1 (Assert-RfStamp) refuse such a binary by design,
+    # and the mod logs `build stamp: managed=unknown+dirty ...`.
+    if (-not (Test-RfGit)) { return [pscustomobject]@{ Kind = $Kind; Commit = 'unknown'; Dirty = 1; Src = '0000000000000000' } }
+    $commit = "$(git -C $script:RfRoot rev-parse HEAD)".Trim()
     if ($LASTEXITCODE -ne 0) { throw "git rev-parse HEAD failed in $script:RfRoot" }
     $dirty = if (@(git -C $script:RfRoot status --porcelain --untracked-files=all).Count -gt 0) { 1 } else { 0 }
     [pscustomobject]@{ Kind = $Kind; Commit = $commit; Dirty = $dirty; Src = (Get-RfSourceHash $Kind) }
