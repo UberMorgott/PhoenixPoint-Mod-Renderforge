@@ -616,18 +616,89 @@ stage, same early-out when all eight uniforms are zero.
   An exception anywhere in the overlay logs once, restores, and sets `Diagnostics.MarkerOverlay = false` for the
   session - the upscaler never goes down for a marker walk.
 - **Gates** (`GeoMarkerOverlay.Blocker`, checked every Live frame, closing one releases at once): scene camera is
-  `GeoscapeCamera`, generation not passthrough, **D3D11 or D3D12**, **frame generation Off** (config and live), and
-  **`Cfg.ColorVision == None`** - the markers bypass the shim's post pass, so daltonisation would stop covering the
-  colour-coded icons and FG's interpolated frames would lack them; every other combination keeps the vanilla path
-  unchanged. **D3D12 (un-gated 2026-10-12):** the pass needed no change - on the production FP16 path
+  `GeoscapeCamera`, generation not passthrough, **D3D11 or D3D12**, and **`Cfg.ColorVision == None`** - the markers
+  bypass the shim's post pass, so daltonisation would stop covering the colour-coded icons; every other combination
+  keeps the vanilla path unchanged. Frame generation is no longer a gate ("with frame generation" below). **D3D12 (un-gated 2026-10-12):** the pass needed no change - on the production FP16 path
   (`D3D12HalfColor`, outRT `R16G16B16A16_SFloat`) the present camera's backbuffer write encodes and blends exactly
   like D3D11. Measured on Instance3, 2560x1440, Performance 1280x720, same camera pose on both APIs: badge orange
   `255,152,0` on both (vanilla path `216,116,0` / `224,126,0`), semi-transparent label gradient `82,79,94` on both,
   `ProbeMarkerClick` `sameSite=True`, armed under DLSS / FSR / XeSS, restore + re-arm across a campaign restart,
   0 Renderforge errors. Before that D3D12 logged `not armed - API D3D12` and the site icons / % labels were
-  reconstructed from render resolution (blurry at 4K Performance). Still on the vanilla path on both APIs: aircraft
-  (`GeoVehicle` 3D models, not under a `GeoSiteVisualsController`) and everything while frame generation is on. Plus the curtain / mask gates below. Each "not armed"
-  reason is logged once.
+  reconstructed from render resolution (blurry at 4K Performance). Plus the curtain / mask gates below. Each
+  "not armed" reason is logged once.
+- **With frame generation (un-gated 2026-10-12).** The gate dated from b5255e3 (2026-09-07) and rested on a guess
+  ("interpolated frames would lack the markers"), written before the FG input contract existed. What the generators
+  are handed ("FG input contract" / "HUD" below): hud-less colour = the upscaler's `out` twin, final frame = Unity's
+  back buffer. The markers are drawn after the outRT blit, so they are in the back buffer and not in the hud-less
+  colour - the HUD's class, which every SDK documents as kept out of the interpolation:
+  DLSS-G `kBufferTypeHUDLessColor` = "the scene color before any UI/HUD elements are drawn", "without any HUD/UI
+  elements in it" (`refs\Streamline\docs\ProgrammingGuideDLSS_G.md:247`, `:268`; tagged `FgStreamline.cpp:557`);
+  XeSS-FG `XEFG_SWAPCHAIN_UI_MODE_BACKBUFFER_HUDLESS` = "interpolates on the HUD-less color texture and extracts the
+  UI from the back buffer" (`refs\XeSS-sdk\doc\xess_fg_developer_guide_english.md:602-605`; `FgXess.cpp:158`);
+  FSR-FG `HUDLessColor` = "the frame interpolation shader will detect UI areas in the frame and suppress distortion
+  in those areas" (`refs\FidelityFX-SDK\Kits\FidelityFX\docs\techniques\frame-interpolation-swap-chain.md:91-92`;
+  `FgFsr.cpp:246`). Nothing in the native side changed. Measured (`Fg_Capture`, D3D12, 2560x1440, Performance, FG 2x,
+  crop 260x220 around the base marker + parked aircraft, pixels differing by more than 24/255 between tagged hud-less
+  and back buffer): DLSS-G 14.6 %, XeSS-FG 15.2 %, FSR-FG 16.5 % (the markers and the aircraft; whole frame 10.3-10.5 %
+  with the HUD) - the hud-less crop shows the bare globe. Overlay armed, site and aircraft picking unchanged, 0 errors
+  under all three; XeSS-FG and FSR-FG presented 401 / 399 fps from 193 / 286 unfocused.
+  **Known limit:** composited UI updates at the rendered rate - "certain UI elements (such as waypoints or enemy
+  markers) may stutter" (XeSS guide `:521-522`): under an orbit the markers step at the base rate over an
+  interpolated globe. Before this, FG users got render-resolution markers through the upscaler (blurred at
+  Performance, FSR worst: Laplacian 37.6 on the icon crop against 63.4 drawn after reconstruction) AND interpolated
+  as scene. The alternative - markers inside the hud-less colour, so they interpolate with the globe's motion
+  vectors - needs them composited into the native `out` twin before the generators read it (on D3D12 Unity's own
+  draws of frame N reach the GPU after the shim's list of frame N, so nothing Unity draws can be in that twin);
+  not built. **Not observable here:** the generated frames themselves - the test bench must not take the
+  foreground or capture the screen, DLSS-G only interpolates focused, and no diagnostic reads the shadow chain.
+- **Aircraft and globe markers (2026-10-12).** Two marker families live outside every `VisualsContainer`:
+  - `GeoVehicle` (`PhoenixPoint.Geoscape.Entities\GeoVehicle.cs`): `GlobeOffset` (`VisualsRoot` :316) holds `Visuals`
+    (`MeshRoot` :317 - `Model` (Standard, opaque, lit), `UI` base disc, `Geo_Shadow`, `Selected_Circle`, the
+    `UI_GS_Selection(Clone)` quads, disengage visuals :378), `Trails` (two `TrailRenderer`s) and the
+    `RangeIndicator` decal. Left to the scene camera the model was a render-resolution picture UNDER every site
+    label (the overlay draws last). `MeshRoot` now rides the marker layer: the model is opaque and writes depth in
+    the present camera's forward pass, so labels behind it are hidden again as in the scene.
+  - `GlobeMarker` (`PhoenixPoint.Geoscape.View\GlobeMarker.cs`, e.g. `UI_GS_TravelTo(Clone)`): the pulsing ground
+    ring of a destination / current site, a sibling of the site's `SphereOffset`. It was the soft ring left behind
+    every sharp icon.
+  Both are "loose" items (`GeoMarkerOverlay.Loose`): found by `FindObjectsOfType` at activation and on every
+  fallback pass, plus seams `GeoVehicle.Initialize` :312 and `GlobeMarker.Awake` :46; tested against the globe every
+  frame with the sites' segment/sphere test on their pivot (an aircraft's carries the flight altitude), behind the
+  globe they go back to their own layers and the globe's depth hides them (pop at the limb, like a site); a near
+  one is re-walked when its root's `childCount` changes (selection visuals spawn there). `WalkGuarded` leaves a
+  GameObject with a `Collider` on its layer (`PickingCollider`, 20: picking is a physics raycast, and
+  GeoscapeCamera's mask is `0xFFFFFFFF`, so "was it ever drawn by it" cannot tell) and never enters a
+  `MaterialDecalComponent` subtree. `ProbeCraftClick` = `ProbeMarkerClick` for aircraft.
+  **Left with the upscaler, and why:** range rings and travel paths are `MaterialDecals` (a projection box that
+  needs the deferred G-buffer and the globe's depth - in a forward pass it would draw as a box); aircraft `Trails`
+  (a ribbon along the flight path can reach behind the limb and the cleared depth has no globe to hide it); the
+  hover name label (`SiteDetails_Visuals`, a WorldSpace canvas under `Markers` with `SoftMask`: needs a mouse hover
+  to verify, which the unfocused test bench cannot give).
+- **Lighting of the marker layer (`LightLayer`).** Forward and deferred disagree twice here. `Geoscape_Lights`
+  (directional, 1.2, soft shadows) lists its layers (`0x7FFF6F37`) and the free layer 15 is not among them: every
+  light that lights Default gains the bit while armed. And `QualitySettings.pixelLightCount` is **0** in this game:
+  the forward pass shades only the brightest directional light per pixel and folds the other three (`Yellow SUN` 4,
+  `Geoscape_Lights` 1.2, `BacklightLight` 1, `Pale SUN` 0.6) into spherical harmonics - the aircraft came out flat.
+  The directional lights go `LightRenderMode.ForcePixel` while armed (per light, not the global setting). Laplacian
+  on the aircraft crop, D3D12 Performance: 24.4 as taken → 28.9 with the mask → 35.3 with both (vanilla upscaled
+  41.9, upscaler off 51.1: the rest is PPv2 - SAO, tonemap, NIS - which nothing drawn after reconstruction gets).
+  Both are put back on release (only where the value is still the one set).
+- **D3D12 draws the layer one frame late (`PoseLag`).** The outRT the present camera blits in frame N holds what
+  GeoscapeCamera rendered in frame N-1 ("D3D12 frame pairing" below). Drawn with frame N's camera the markers led
+  the globe by one frame of camera motion. Measured with `DumpScreen` pairs under an orbit at 30 fps (template match
+  of the base marker against its projected pivot; `SetDumpAnchor` pins the site): marker minus pivot (-3.2, 9.4) px
+  with the overlay off (the truth: marker in the scene), (0.5..1.6, -1.7..-2.1) with this frame's pose, (-1.9..-3.1,
+  8.7..10.2) with the previous frame's. D3D11, same test: (-6.1, -3.0) off, (-5.7, -2.7) with this frame's pose,
+  (+8..13, +3..5) with the previous one - no lag there. So on D3D12 `Sync` hands the present camera the previous
+  frame's pose, fov and projection, and an aircraft that moved since the last frame is put on its previous world
+  pose for the present camera's cull and render only (`ShiftCrafts` in `OnPreCull`, `UnshiftCrafts` in
+  `OnPostRender` and in `Restore`): in flight at 3600x game speed it sat a frame ahead of its own trails and range
+  ring (54 px in a frame stretched by a dump), now at the head of the trail. A/B: `SetMarkerOverlayOptions(aircraft,
+  poseDelay)` (-1 by API, 0, 1), runtime-only.
+- **`MotionVectorFilter` and the layer.** The filter keys on `Renderer`, the overlay on `Transform` layers; the
+  `Rotator`s on `Selected_Circle` / `Quad_2` stay in the filter's map (mode Camera) while their objects are on the
+  marker layer, where no camera with a motion-vector pass draws them. Either can be released first. After
+  upscaler Off on both APIs: `AuditMvModes` `decal/Object=434 rotator/Object=95`, `saved=0`, overlay `inactive`.
 - **A third screen camera does not work here** (measured, `marker-cam\results.md`): a separate marker camera after
   DlssPresent (any clearFlags, any depth) leaves the present blit out of the buffer the HUD and end-of-frame
   `ReadPixels` see - stale frames with marker trails; disabling it brings the blit back. Drawing with the present
@@ -657,8 +728,9 @@ stage, same early-out when all eight uniforms are zero.
   The `SiteSpecialAddonContainer` / `SiteUniqueAddonContainer` subtrees (:50/:52) are excluded by direct reference.
 - **Known look difference:** the markers no longer pass through PPv2's HDR tonemapping/grade: whites reach 255
   (vanilla caps at 246), the unknown-site disk reads as a translucent grey instead of crushed black
-  (`marker-cam\still2-site116-on-vs-vanilla.png`), and a parked aircraft now sits under the soldier row instead of
-  over it. Trails are gone; A/B lever `RenderforgeMod.SetMarkerOverlay(bool)` (runtime-only).
+  (`marker-cam\still2-site116-on-vs-vanilla.png`). A parked aircraft sat under the soldier row instead of over it
+  until the aircraft joined the layer (2026-10-12); the aircraft model itself is now forward-lit without PPv2 (flatter
+  contrast than the scene's, unanti-aliased 1-pixel edges; "Lighting of the marker layer"). Trails are gone; A/B lever `RenderforgeMod.SetMarkerOverlay(bool)` (runtime-only).
 - Diagnostics: `GetMarkerOverlayStatus`, `ProbeMarkerClick`, `DumpScreen(path)` (raw RGB24 of the real backbuffer at
   end of frame + `.txt` sidecar - PPCLI's `screenshot` re-renders the cameras itself and shows the level-curtain art
   once the present camera draws objects), `DumpHierarchy(name, path)`.
@@ -1243,7 +1315,9 @@ simulation. What can be compared is pacing: DLSS-G 2x limit 240 generating, rend
 ### HUD
 
 The present path gives every SDK what it needs: the upscaler's `out` twin = upscaled scene WITHOUT the HUD, back
-buffer = same frame WITH it. The generators get the host's row-flipped copy of it in the back buffer's format
+buffer = same frame WITH it. The geoscape markers and aircraft drawn after reconstruction (`GeoMarkerOverlay`) are
+in the back buffer only, i.e. HUD for the generators ("Geoscape markers after reconstruction" → "With frame
+generation"). The generators get the host's row-flipped copy of it in the back buffer's format
 (`FgTwins.h`; an FP16 `out` is sRGB-encoded into 8 bits on the way): FidelityFX's `HUDLessColor`, XeSS's UI mode 4
 (`BACKBUFFER_HUDLESS`) and DLSS-G's `kBufferTypeHUDLessColor`. No UI render target is built.
 
