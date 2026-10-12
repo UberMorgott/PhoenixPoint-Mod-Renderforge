@@ -642,6 +642,11 @@ stage, same early-out when all eight uniforms are zero.
   and back buffer): DLSS-G 14.6 %, XeSS-FG 15.2 %, FSR-FG 16.5 % (the markers and the aircraft; whole frame 10.3-10.5 %
   with the HUD) - the hud-less crop shows the bare globe. Overlay armed, site and aircraft picking unchanged, 0 errors
   under all three; XeSS-FG and FSR-FG presented 401 / 399 fps from 193 / 286 unfocused.
+  **The one FG gate left:** a chain whose frames carry no hud-less colour (`FgTwins::HudPair`: the back buffer's
+  format has no typed UAV, or is not the `out` twin's picture). The generator then interpolates the back buffer
+  itself, and an opaque aircraft that is in neither the depth nor the motion vectors would be warped with the
+  globe's. The providers report what they tagged (`FgNoteHudless`), `Fg_Hudless()` = 1 / 0 / -1 (nothing prepared
+  yet), and `Blocker` releases the overlay on 0 ("frame generation without a hud-less colour").
   **Known limit:** composited UI updates at the rendered rate - "certain UI elements (such as waypoints or enemy
   markers) may stutter" (XeSS guide `:521-522`): under an orbit the markers step at the base rate over an
   interpolated globe. Before this, FG users got render-resolution markers through the upscaler (blurred at
@@ -661,11 +666,14 @@ stage, same early-out when all eight uniforms are zero.
   - `GlobeMarker` (`PhoenixPoint.Geoscape.View\GlobeMarker.cs`, e.g. `UI_GS_TravelTo(Clone)`): the pulsing ground
     ring of a destination / current site, a sibling of the site's `SphereOffset`. It was the soft ring left behind
     every sharp icon.
-  Both are "loose" items (`GeoMarkerOverlay.Loose`): found by `FindObjectsOfType` at activation and on every
-  fallback pass, plus seams `GeoVehicle.Initialize` :312 and `GlobeMarker.Awake` :46; tested against the globe every
-  frame with the sites' segment/sphere test on their pivot (an aircraft's carries the flight altitude), behind the
-  globe they go back to their own layers and the globe's depth hides them (pop at the limb, like a site); a near
-  one is re-walked when its root's `childCount` changes (selection visuals spawn there). `WalkGuarded` leaves a
+  Both are "loose" items (`GeoMarkerOverlay.Loose`): found by `FindObjectsOfType` at activation (and on a fallback
+  pass only when a seam is missing), plus seams `GeoVehicle.Initialize` :312 and `GlobeMarker.Awake` :46; tested
+  against the globe every frame with the sites' segment/sphere test on their pivot (an aircraft's carries the flight
+  altitude), behind the globe they go back to their own layers and the globe's depth hides them (pop at the limb,
+  like a site); one is re-walked when its root's `childCount` changes, on either side of the globe: the vehicle
+  selection quads are ONE instance without a `GlobeMarker` (`UIStateVehicleSelected.cs:714`) re-parented under the
+  selected aircraft's `MeshRoot` (:724) - taken with a near aircraft, they have to go back to their own layer when
+  the next selection is behind the globe, or the present camera draws them through it. `WalkGuarded` leaves a
   GameObject with a `Collider` on its layer (`PickingCollider`, 20: picking is a physics raycast, and
   GeoscapeCamera's mask is `0xFFFFFFFF`, so "was it ever drawn by it" cannot tell) and never enters a
   `MaterialDecalComponent` subtree. `ProbeCraftClick` = `ProbeMarkerClick` for aircraft.
@@ -679,10 +687,21 @@ stage, same early-out when all eight uniforms are zero.
   light that lights Default gains the bit while armed. And `QualitySettings.pixelLightCount` is **0** in this game:
   the forward pass shades only the brightest directional light per pixel and folds the other three (`Yellow SUN` 4,
   `Geoscape_Lights` 1.2, `BacklightLight` 1, `Pale SUN` 0.6) into spherical harmonics - the aircraft came out flat.
-  The directional lights go `LightRenderMode.ForcePixel` while armed (per light, not the global setting). Laplacian
-  on the aircraft crop, D3D12 Performance: 24.4 as taken → 28.9 with the mask → 35.3 with both (vanilla upscaled
-  41.9, upscaler off 51.1: the rest is PPv2 - SAO, tonemap, NIS - which nothing drawn after reconstruction gets).
-  Both are put back on release (only where the value is still the one set).
+  The directional lights go `LightRenderMode.ForcePixel` (per light, not the global setting) **for the present
+  camera's render only**: set in its `OnPreCull` (`BeginPresent`), back to `Auto` in its `OnPostRender`
+  (`EndPresent`). Held for the whole frame (as first built) the mode also applied to GeoscapeCamera: every
+  forward-lit surface it draws (transparent Standard, shaders without a deferred pass) got three ForwardAdd passes
+  at render resolution and a different specular look. The mask bit stays while armed - no other camera draws the
+  layer. `EndPresent` is idempotent and also runs from GeoscapeCamera's next pre-cull, `Tick` and `Restore`, so a
+  present-camera render that never reaches `OnPostRender` leaves nothing behind. Laplacian on the aircraft crop,
+  D3D12 Performance: 24.4 as taken → 28.9 with the mask → 35.3 with both (vanilla upscaled 41.9, upscaler off 51.1:
+  the rest is PPv2 - SAO, tonemap, NIS - which nothing drawn after reconstruction gets). The mask is put back on
+  release (only where the value is still the one set). Lights are collected at activation and on every fallback
+  pass: one created later joins within 2 s. Frame cost, D3D12 DLSS Quality 2560x1440, one launch, 3x10 s each
+  (`SetMarkerOverlayLights(mask)`: 1 = mask, 2 = per-pixel, 4 = shadows on the present camera): all on 377 / 371
+  fps, no shadows 368, no per-pixel 377, unlit 369, no aircraft 337 (a loaded sample), overlay off 363 / 355 -
+  nothing in the lighting, the shadows or the aircraft costs a measurable frame; the overlay is not slower than
+  markers through the upscaler.
 - **D3D12 draws the layer one frame late (`PoseLag`).** The outRT the present camera blits in frame N holds what
   GeoscapeCamera rendered in frame N-1 ("D3D12 frame pairing" below). Drawn with frame N's camera the markers led
   the globe by one frame of camera motion. Measured with `DumpScreen` pairs under an orbit at 30 fps (template match
@@ -694,7 +713,13 @@ stage, same early-out when all eight uniforms are zero.
   pose for the present camera's cull and render only (`ShiftCrafts` in `OnPreCull`, `UnshiftCrafts` in
   `OnPostRender` and in `Restore`): in flight at 3600x game speed it sat a frame ahead of its own trails and range
   ring (54 px in a frame stretched by a dump), now at the head of the trail. A/B: `SetMarkerOverlayOptions(aircraft,
-  poseDelay)` (-1 by API, 0, 1), runtime-only.
+  poseDelay)` (-1 by API, 0, 1), runtime-only. The same holds for every loose item, not only aircraft: a
+  `GlobeMarker` added for a `GeoActor` hangs under the actor's own transform (`GeoscapeGlobeMarkers.AddMarker(GeoActor,
+  ..)` :92), not under `MeshRoot`, and flies with a vehicle. And for the near/far split: ownership changes in
+  GeoscapeCamera's pre-cull of frame N, while the picture under the markers is frame N-1's - a marker crossing the
+  limb was missing for one frame on its way out and drawn twice on its way in. With `PoseLag` the side changes of
+  the frame are recorded (`flips`), undone for the present camera's render and re-applied after it (`BeginPresent` /
+  `EndPresent`).
 - **`MotionVectorFilter` and the layer.** The filter keys on `Renderer`, the overlay on `Transform` layers; the
   `Rotator`s on `Selected_Circle` / `Quad_2` stay in the filter's map (mode Camera) while their objects are on the
   marker layer, where no camera with a motion-vector pass draws them. Either can be released first. After
@@ -1278,8 +1303,8 @@ The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer
   low-latency mode is never left on without its sleep. `slReflexSleep` and `SIMULATION_START/END` go out in both
   states (`ProgrammingGuideReflex.md:171,247`: "must always be called even when Reflex Low Latency mode is Off");
   `slReflexSetOptions` only when mode or cap change. `Create` starts `eOff`, `Destroy` ends `eOff`. XeLL is left
-  alone while unfed (no `xellSleep`, no markers: its ids must be consecutive and each needs all six markers through
-  a Present); its sleep mode is only touched by the sleeping thread.
+  alone while unfed (no `xellSleep`, no markers: its ids must be consecutive and each needs all six markers - see
+  "Every XeLL frame id" below); its sleep mode is only touched by the sleeping thread.
 - **XeLL calls are serialised** (`FgXess.cpp` `XellLock`): markers come from three threads (main, render, presenting)
   and neither the XeLL guide nor `xell.h` states thread safety. One lock around every XeLL call except `xellSleep`,
   which blocks for the pacing interval and is never called under it.
@@ -1298,6 +1323,41 @@ The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer
   dup=` (`stalls` = pin timeouts, `maxWaitMs` = the longest prepare wait). A waiter is woken by `Unpin`, by a detach
   (any thread), by `SetEnabled(0)` and by the pump, so it never sits out its timeout on a chain that went away;
   `presentStalled` is cleared only by a Present of the chain's own app swapchain.
+- **Tagged inputs are valid "now" only, for every provider.** The three flipped twins (`FgTwins.h`) are one set of
+  textures rewritten by every Prepare, and a frame whose Present does not come within the pin timeout is superseded
+  by the next one. XeSS-FG was tagged `XEFG_SWAPCHAIN_RV_UNTIL_NEXT_PRESENT`, which promises the resource untouched
+  until "the `Present`/`Present1` call with the matching frame ID" (`xess_fg_developer_guide_english.md` "Resource
+  Tagging", `xefg_swapchain.h:72-75`) - a promise the host cannot keep. Now `XEFG_SWAPCHAIN_RV_ONLY_NOW` with the
+  prep list: "XeSS-FG will record a copy operation to the provided command list", reusable "as soon as the tagging
+  command list has been submitted". DLSS-G already was `eOnlyValidNow` on the same list (`FgStreamline.cpp:573-575`).
+  FSR-FG copies depth / motion vectors in its prepare dispatch on the list, but reads `HUDLessColor` from inside its
+  Present (the latest `Configure`), queued after the list that wrote it: `FgTwins::Ensure` therefore releases the old
+  twins on a size / format change only after the prep ring AND Unity's queue have drained (`D3D12Ring::DrainQueue`).
+- **`xellSetSleepMode` with the chain quiesced.** "application must ensure any GPU activity is finished before
+  `xellSetSleepMode` is called" (`xell_developer_guide_english.md:131`). A cap change is applied on the main thread at
+  the start of a frame, with the chain pinned by that thread (no Prepare, no Present inside it) and Unity's queue
+  drained (`FgHostQuiesce` / `FgHostResume`); a quiesce that does not come through in 200 ms leaves the cap for the
+  next frame. `Create` drains the queue before its own call. Out of reach from native code: what Unity's render
+  thread still has to submit of the frame in flight.
+- **Every XeLL frame id gets all six markers** (`xell.h:74-79` "required"; guide "Markers": "must be delivered each
+  frame for XeLL to correctly calculate and execute the `xellSleep` API call"). `FrameBegin` opens an id for every
+  paced frame, and some never reach Prepare: the frames of the grace period after the feed stops (`FrameGen`
+  `IdleAfter`), a refused, failed or superseded prepare. The presenting thread closes them in id order
+  (`ProviderXess::CloseSkipped`): before a prepared frame's own markers every lower id, and on a Present without a
+  prepared frame (`IFgProvider::UnpreparedPresent`) every id that can no longer be prepared - nothing was fed in its
+  frame (`FrameUnfed`, told by the host at the next `FgHostFrameBegin`) or its prepare event has run (`PrepareDone`).
+  An id whose event is still to come stops the walk (an age-in-presents rule closed ids too early when the
+  presenting thread fell behind: 467 prepares refused in a 150 ms-delay run). `xess: destroyed (... XeLL ids N,
+  closed without a prepared frame M)` reports it: 9482 ids / 942 closed in a run with every 20th Present delayed
+  150 ms (941 idle presents), prepares 9460 of 9461 events.
+- **The provider's on/off runs under the pin.** `slDLSSGSetOptions` "is NOT thread safe" (`sl_dlss_g.h:207`) and has
+  to be ordered against Present (`ProgrammingGuideDLSS_G.md:486-494`); the render thread issues it from Prepare and
+  `SetEnabled(false)` issued it from the main thread with a Prepare or Present possibly in flight. `FgHostSetEnabled`
+  now closes the gate, takes the pin on the main thread (`PinMain`, ≤ 500 ms), switches the provider and unpins.
+- **`Fg_Capture` never frees what the queue may still use:** a readback list that did not retire in 5 s keeps its
+  allocator and buffers (leaked once, logged).
+- Test lever `RENDERFORGE_FG_TEST_PRESENT_DELAY=ms,every` (env): every `every`-th hooked Present is held back `ms`
+  before it pins - above 100 ms the next prepare times out and supersedes the unpresented frame.
 - Diagnostics (PPCLI): `FrameStats(true|false)` (base-frame count, fps, p50 / p99 / max ms), `FgLatency()` (Reflex /
   XeLL frame reports), `SetFgMainPacing(false)` (A/B: sleep on the render thread inside `Prepare`, the old placement).
 
