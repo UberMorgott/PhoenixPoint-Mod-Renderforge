@@ -18,8 +18,12 @@
 // upscaler wrote them) and the next frame's upscaler can rewrite them freely (sl_core_types.h:386-394, DLSS_G.md:288-293).
 //
 // Reflex is MANDATORY for DLSS-G (DLSS_G.md:674-681, sl_dlss_g.h:131-132 eFailReflexNotDetectedAtRuntime):
-// slReflexSetOptions(eLowLatency [+ frameLimitUs]) while a chain lives and, per frame with ONE frame index,
-// slReflexSleep + the six PCL markers (sl_pcl.h:60-67) around slSetConstants / slSetTagForFrame and the proxy Present.
+// slReflexSetOptions(eLowLatency [+ frameLimitUs]) while frames FLOW through the chain and, per frame with ONE frame
+// index, slReflexSleep + the six PCL markers (sl_pcl.h:60-67) around slSetConstants / slSetTagForFrame and the proxy
+// Present. While the chain is live but nothing is fed to it (menu without a camera, loading, HoldPrepare) nothing is
+// presented through the proxy and Unity's limiter paces: Reflex goes eOff with no frameLimitUs (FrameBegin(false)), so
+// low-latency mode is never left on without its sleep, and slReflexSleep + the simulation markers keep going on every
+// frame as Reflex.md:171,247 asks ("must always be called even when Reflex Low Latency mode is Off").
 // PACING (docs\DESIGN.md "FG pacing"): the sleep and SIMULATION_START run on the MAIN thread at the start of the frame
 // (FrameBegin, before Unity samples input - Reflex wants the sleep there), SIMULATION_END after LateUpdate (SimEnd),
 // RENDERSUBMIT_* / PRESENT_* on the render thread with the same index, which travels in FgFrame::paceId. The frame
@@ -245,6 +249,7 @@ struct ProviderStreamline : IFgProvider
     unsigned            cur;           // the index of the frame being presented (popped in BeforePresent), 0 = none
     int                 marked;        // 1 = RENDERSUBMIT_END/PRESENT_START issued for `cur`, 2 = PRESENT_END too
     int                 mainPacing;    // FgMainPacing() at Create: 1 = FrameBegin sleeps (main thread), 0 = Prepare does
+    int                 paced;         // main thread: the last FrameBegin was a paced one (Reflex eLowLatency + the cap)
     unsigned            lastPrepared;  // render thread: the index of the last Prepare (one Prepare per index)
     unsigned            limitFps;      // main thread: the presented-fps ceiling asked for (SetFrameLimit), 0 = none
     unsigned            lastStatus;
@@ -259,7 +264,7 @@ struct ProviderStreamline : IFgProvider
         proxy = NULL; proxyFactory = NULL; queue = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = buffers = 0;
         framesToGen = 1; caps = 0; wantOn = isOn = 0; sentW = sentH = failW = failH = 0; failRc = 0; frames = 0; cur = 0; marked = 0; lastStatus = 0;
         for (unsigned i = 0; i < kTokens; ++i) fifo[i] = 0;
-        head = tail = 0; mainPacing = 1; lastPrepared = 0; limitFps = 0;
+        head = tail = 0; mainPacing = 1; paced = 0; lastPrepared = 0; limitFps = 0;
         generated = 0; warned = 0; havePrev = 0;
     }
 
@@ -331,7 +336,10 @@ struct ProviderStreamline : IFgProvider
         FgLog("sl: numFramesToGenerateMax=%u (rc %d, minWidthOrHeight %u, vsync %d) -> caps 0x%X", maxGen, (int)r, st.minWidthOrHeight, (int)st.bIsVsyncSupportAvailable, caps);
         if (framesToGen > maxGen) { FgLog("sl: %ux asked, %ux supported", s.multiplier, maxGen + 1); return Fail(FG_ERR_UNSUPPORTED_MULTIPLIER); }
 
-        ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
+        // Main-thread pacing: Reflex stays eOff until the first paced FrameBegin (frames flow); this also is the "at
+        // least once" slReflexSetOptions of Reflex.md:177. Render-thread pacing (diagnostic) sleeps in Prepare: on now.
+        if (mainPacing) ReflexApply(sl::ReflexMode::eOff, 0);
+        else ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
         *out = proxy;
         void* nat = NULL;
         g_sl.native(proxy, &nat);
@@ -395,15 +403,20 @@ struct ProviderStreamline : IFgProvider
     bool SetFrameLimit(unsigned presentedFps)
     {
         limitFps = presentedFps;
-        if (proxy) ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
+        if (proxy && (paced || !mainPacing)) ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
         return true;
     }
 
-    // Main thread, start of the frame: a fresh index, the Reflex sleep, SIMULATION_START (Reflex guide: sleep at the
-    // start of the simulation thread's frame, before input; SIMULATION_START right after it).
-    unsigned FrameBegin()
+    // Main thread, start of every frame: a fresh index, the Reflex sleep, SIMULATION_START (Reflex guide: sleep at the
+    // start of the simulation thread's frame, before input; SIMULATION_START right after it). `pace` decides who paces:
+    // true = Reflex (eLowLatency + frameLimitUs), false = Unity's limiter (Reflex eOff, no cap: the sleep returns at
+    // once). ReflexApply only talks to SL when the mode or the cap changes.
+    unsigned FrameBegin(bool pace)
     {
         if (!proxy || !mainPacing) return 0;
+        paced = pace ? 1 : 0;
+        if (pace) ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
+        else ReflexApply(sl::ReflexMode::eOff, 0);
         unsigned idx = (unsigned)InterlockedIncrement(&g_sl.frameIdx);
         sl::FrameToken* t = Tok(idx);
         if (!t) return 0;

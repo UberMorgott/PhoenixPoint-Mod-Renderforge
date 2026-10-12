@@ -209,7 +209,7 @@ struct ProviderXess : IFgProvider
     }
 
     // Main thread, start of the frame / after LateUpdate.
-    unsigned FrameBegin() { return ll && fg && mainPacing ? Sleep() : 0; }
+    unsigned FrameBegin(bool pace) { return ll && fg && mainPacing && pace ? Sleep() : 0; }
     void SimEnd(unsigned id) { if (ll && fg && mainPacing && id) xellAddMarkerData(ll, id, XELL_SIMULATION_END); }
 
     // Main thread. XeLL's last 64 frame reports (xell.h xell_frame_report_t, nanoseconds).

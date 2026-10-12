@@ -126,16 +126,20 @@ struct IFgProvider
     // xell_developer_guide_english.md:93-100,129) and the caller must switch its own limiter off; false = the caller
     // keeps limiting rendered frames itself.
     virtual bool     SetFrameLimit(unsigned) { return false; }
-    // PACING (docs\DESIGN.md "FG pacing"). Main thread, the very start of a frame - before Unity samples input - while
-    // frames flow through the chain: the latency SDK's sleep, then SIMULATION_START. Returns that frame's pace id (> 0);
-    // it comes back as FgFrame::paceId in the Prepare of the same frame, so the render-submit / present markers and the
-    // frame's constants carry the id the sleep and the simulation markers were issued with. 0 = this provider has no
-    // latency SDK, or it paces on the render thread (FgMainPacing() off).
-    virtual unsigned FrameBegin() { return 0; }
+    // PACING (docs\DESIGN.md "FG pacing"). Main thread, the very start of EVERY frame of a live, enabled chain - before
+    // Unity samples input. `pace` = frames flow through the chain and this provider is the frame pacer: the latency
+    // SDK's sleep, then SIMULATION_START. Returns that frame's id (> 0); when paced it comes back as FgFrame::paceId in
+    // the Prepare of the same frame, so the render-submit / present markers and the frame's constants carry the id the
+    // sleep and the simulation markers were issued with. `pace` false = nothing is fed to the chain (menu without a
+    // camera, loading) and Unity's limiter paces: the provider must leave NO pacing state of its own behind (DLSS-G:
+    // Reflex eOff, no frameLimitUs - the sleep and the simulation markers still go out, as the Reflex guide wants them
+    // in every mode) and its id only closes the frame in SimEnd. 0 = this provider has no latency SDK, it paces on the
+    // render thread (FgMainPacing() off), or it has nothing to do on an unpaced frame.
+    virtual unsigned FrameBegin(bool /*pace*/) { return 0; }
     // Main thread, after LateUpdate of the frame FrameBegin opened: SIMULATION_END.
-    virtual void     SimEnd(unsigned /*paceId*/) {}
-    // Render thread, the first Present with no prepared frame (the host forwards Unity's Present until frames resume):
-    // nothing goes through the provider's chain from here on. Default no-op.
+    virtual void     SimEnd(unsigned /*id*/) {}
+    // The presenting thread (chain pinned), the kIdleNotify-th consecutive Present with no prepared frame (the host
+    // forwards Unity's Present until frames resume): nothing goes through the provider's chain. Default no-op.
     virtual void     Idle() {}
     // Main thread. Latency SDK statistics, one line ("" = none).
     virtual void     Stats(char* buf, int cap) { if (cap > 0) buf[0] = 0; }
@@ -219,10 +223,16 @@ HWND FgHostChildHwnd(const FgSetup& s);
 int  FgHostProvider(void);
 int  FgHostSetFrameLimit(unsigned presentedFps);   // main thread; 1 = the live provider paces to it (IFgProvider::SetFrameLimit)
 // Main thread, start of the managed frame / end of LateUpdate (IFgProvider::FrameBegin / SimEnd on the live, enabled
-// provider). `pace` 0 = this frame is not paced (no frames flow): only forgets the previous frame's id. Returns the
-// pace id (0 = not paced here); FgHostSetFrame stamps it into the frame's block.
+// provider). `pace` 0 = this frame is not paced (no frames flow): the provider only keeps its SDK's per-frame calls
+// going (IFgProvider::FrameBegin) and the previous frame's pace id is forgotten. Returns the pace id (0 = not paced
+// here); FgHostSetFrame stamps it into the frame's block.
 unsigned FgHostFrameBegin(int pace);
 void FgHostSimEnd(void);
+// Main thread. Frames the live chain prepared so far (provider Prepare recorded + submitted); restarts with a chain.
+unsigned FgHostPreparedCount(void);
+// Test lever (Fg_TestFailPrepare): every provider Prepare counts as failed while on - the "native prepare fails for
+// good" state the managed driver must notice (FrameGen starvation watchdog).
+void FgHostTestFailPrepare(int on);
 // Where the latency SDK sleeps: 1 = main thread at frame start (production), 0 = render thread inside Prepare (the
 // placement before 2026-10-12, kept as a diagnostic A/B). The providers read it at Create; FgSetMainPacing: main thread.
 bool FgMainPacing(void);

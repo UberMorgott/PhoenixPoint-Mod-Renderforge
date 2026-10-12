@@ -173,11 +173,17 @@ DLSS_API int __cdecl Fg_PresentedFps(void);
 // rendered frames itself (FSR-FG, no chain).
 DLSS_API int __cdecl Fg_SetFrameLimit(unsigned presentedFps);
 // Main thread, the very start of every frame while a chain is live (before Unity samples input). pace = 1 while frames
-// are being fed to the chain: the latency SDK's sleep + SIMULATION_START; returns the frame's pace id, 0 = nothing
-// slept here (pace 0, no chain, FSR-FG, render-thread pacing). Fg_SimEnd: after LateUpdate of the same frame
-// (SIMULATION_END).
+// are being fed to the chain: the latency SDK's sleep + SIMULATION_START as the frame PACER; returns the frame's pace
+// id, 0 = this frame is not paced here (pace 0, no chain, FSR-FG, render-thread pacing). pace = 0: Unity's limiter
+// paces, the provider only keeps its SDK's per-frame calls going with its own pacing off (DLSS-G: Reflex eOff, sleep
+// and simulation markers still issued). Fg_SimEnd: after LateUpdate of the same frame (SIMULATION_END).
 DLSS_API unsigned __cdecl Fg_FrameBegin(int pace);
 DLSS_API void __cdecl Fg_SimEnd(void);
+// Main thread. Frames the live chain has prepared so far (0 with no chain; restarts with every chain): the managed
+// driver compares it with what it fed to notice a chain that takes frames and prepares none.
+DLSS_API unsigned __cdecl Fg_PreparedCount(void);
+// Test lever: 1 = every provider Prepare is treated as failed (nothing prepared, nothing generated).
+DLSS_API void __cdecl Fg_TestFailPrepare(int on);
 // Diagnostic A/B, main thread, takes effect on the next chain: 1 = sleep on the main thread (default), 0 = on the
 // render thread inside the prepare event.
 DLSS_API void __cdecl Fg_SetMainPacing(int on);

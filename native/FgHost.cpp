@@ -89,17 +89,21 @@ struct Host
     int                   hidden;       // the child window is hidden because of idle
     FgFrame               ring[kFrameRing]; // main thread writes under g_lock; an entry travels as its event's data
     unsigned              ringIdx;
+    unsigned              lastEvPace;   // render thread: pace id of the last prepare event taken (0 = none / unpaced)
     FgFrame               paired;       // render thread: the previous event's block (PairFrame)
     int                   havePaired;
     FgFrame               sent;         // render thread: what the previous Prepare was handed (capture notes)
     int                   haveSent;
     int                   twinsOk;      // render thread: this Prepare's list wrote the flipped copies (FgTwins.h)
-    unsigned              paceId;       // main thread: what the provider's FrameBegin returned for the frame in progress
-    // Totals of the live chain (status line): prepare events, prepared frames, presents seen, presents taken the idle way.
-    volatile LONG         nPrepare, nPrepared, nPresent, nIdle, nWaited;
+    unsigned              paceId;       // main thread: the pace id of the frame in progress (0 = this frame is not paced)
+    unsigned              simId;        // main thread: the id FrameBegin opened this frame, paced or not (SimEnd closes it)
+    // Totals of the live chain (status line): prepare events, prepared frames, presents seen, presents taken the idle way,
+    // prepares that waited for a Present, duplicate prepare events refused, Pin timeouts; the longest prepare wait (ms).
+    volatile LONG         nPrepare, nPrepared, nPresent, nIdle, nWaited, nDup, nStall;
+    unsigned              maxWaitMs;    // under g_lock
     int                   presentStalled; // a prepared frame's Present did not come within kPinWaitMs: prepares stop waiting until one does
     int                   tidLogged;
-    char                  status[512];
+    char                  status[640];
 };
 
 Host H;
@@ -107,6 +111,7 @@ SRWLOCK g_lock = SRWLOCK_INIT;
 CONDITION_VARIABLE g_unpinned = CONDITION_VARIABLE_INIT;   // Unpin: the other thread left the chain
 enum { kPinWaitMs = 100 };
 bool g_mainPacing = true;   // FgMainPacing(): main thread writes, the providers read it at Create
+volatile LONG g_testFailPrepare = 0;   // Fg_TestFailPrepare (test lever): every provider Prepare is treated as failed
 
 struct Locked
 {
@@ -504,8 +509,8 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.reason = NULL;
     H.lastPresentHr = 0;
     H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0; H.havePaired = 0; H.haveSent = 0; H.twinsOk = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
-    H.paceId = 0;
-    H.nPrepare = H.nPrepared = H.nPresent = H.nIdle = H.nWaited = 0;
+    H.paceId = 0; H.simId = 0; H.lastEvPace = 0; H.maxWaitMs = 0;
+    H.nPrepare = H.nPrepared = H.nPresent = H.nIdle = H.nWaited = H.nDup = H.nStall = 0;
     H.presentStalled = 0; H.tidLogged = 0;
     {
         Locked lk;
@@ -535,18 +540,24 @@ static IFgProvider* LiveEnabled()
     return H.state == kLive && H.enabled ? H.c.prov : NULL;
 }
 
+// Every frame of a live, enabled chain reaches the provider, paced or not: a latency SDK wants its sleep and its
+// simulation markers on every frame, and its low-latency mode + frame cap on only while it is the pacer (`pace`).
 unsigned FgHostFrameBegin(int pace)
 {
-    IFgProvider* p = pace ? LiveEnabled() : NULL;
-    H.paceId = p ? p->FrameBegin() : 0;
+    IFgProvider* p = LiveEnabled();
+    H.simId = p ? p->FrameBegin(pace != 0) : 0;
+    H.paceId = pace ? H.simId : 0;
     return H.paceId;
 }
 
 void FgHostSimEnd(void)
 {
-    IFgProvider* p = H.paceId ? LiveEnabled() : NULL;
-    if (p) p->SimEnd(H.paceId);
+    IFgProvider* p = H.simId ? LiveEnabled() : NULL;
+    if (p) p->SimEnd(H.simId);
 }
+
+unsigned FgHostPreparedCount(void) { return (unsigned)H.nPrepared; }
+void FgHostTestFailPrepare(int on) { InterlockedExchange(&g_testFailPrepare, on ? 1 : 0); }
 
 bool FgMainPacing(void) { return g_mainPacing; }
 void FgSetMainPacing(bool on) { g_mainPacing = on; }
@@ -670,6 +681,7 @@ void FgHostPrepare(const FgFrame* ev)
                     }
                 }
                 bool prepared = H.c.prov->Prepare(l, f);
+                if (prepared && g_testFailPrepare) { H.c.prov->DropPrepared(); prepared = false; }
                 H.sent = f; H.haveSent = 1;
                 bool submitted = H.c.prep.End(0);   // always End: an open list would wedge the ring's next Begin
                 ok = prepared && submitted;

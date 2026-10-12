@@ -35,7 +35,7 @@ namespace Renderforge
         internal static uint Caps => Usable ? Native.Fg_Caps() : 0u;
         internal static int LastResult => lastRc;
         /// <summary>Every provider Auto could try on this GPU failed this session (the picker greys FG with LastReason).</summary>
-        internal static bool Exhausted => !live && AutoProvider() < 0;
+        internal static bool Exhausted => !live && (pacingFailed || AutoProvider() < 0);
         internal static string LastReason => lastReason;
 
         internal static string ProviderName(int id)
@@ -62,16 +62,31 @@ namespace Renderforge
         // FLOWING = the driver fed the chain a frame recently (DlssDriver calls Fed with every FG_PREPARE it issues). Only
         // then does a provider generate and its pacer sleep; a live chain nothing is fed to (main menu, loading screen, a
         // camera-less screen, HoldPrepare) is paced by Unity's own limiter at the full ceiling (RenderforgeMod.ApplyFrameRate).
+        // The feed is the managed side's word only. Whether the shim PREPARED those frames is checked against
+        // Fg_PreparedCount: a chain that is fed and prepares nothing for StarveFrames frames and StarveSeconds (twins
+        // that cannot be built, a refused option, a provider prepare that fails for good) would otherwise leave the
+        // rendered frames capped at ceiling / multiplier with nothing generated - it is torn down and its provider marked
+        // failed for the session, like a provider whose init failed (Auto moves on, the picker shows the reason).
         private struct FrameStartSystem { }
         private struct SimEndSystem { }
         private const int IdleAfter = 3;       // frames without a fed one before the provider's pacer hands back to Unity
+        private const int StarveFrames = 120;
+        private const float StarveSeconds = 2f;
         private static bool hooked, fedThisFrame, flowing, mainPacing = true;
         private static int unfed = IdleAfter, startFrame = -1;
-        private static uint paceId;
+        private static uint paceId, preparedSeen;
+        private static int starved;
+        private static float starvedSince;
+        private static bool pacingFailed;      // FrameStart / SimEnd threw: FG stays off until the provider is forced again
+        private static bool starvedOut;        // Starved() marked the provider failed: the next Pump releases the chain
 
         /// <summary>Frames are reaching the live chain: the provider generates and (XeSS-FG, DLSS-G) owns the frame cap.</summary>
         internal static bool Flowing => live && flowing;
         internal static void Fed() { fedThisFrame = true; }
+
+        /// <summary>Diagnostics (FgCaps): PostProcessLayer.OnPreCull calls of the bound layer beyond the first inside one
+        /// frame, and how many of those would have fed the chain a second time (DlssDriver feeds a frame once).</summary>
+        internal static int DupPreCull, DupFeeds;
 
         /// <summary>Diagnostic A/B: false = the latency SDK sleeps on the render thread. Rebuilds the chain (latched at Create).</summary>
         internal static void SetMainPacing(bool on) { mainPacing = on; Stop(); Native.Fg_SetMainPacing(on ? 1 : 0); }
@@ -81,7 +96,9 @@ namespace Renderforge
             try
             {
                 startFrame = Time.frameCount;
-                if (!live) { paceId = 0; return; }
+                if (!live || pacingFailed) { paceId = 0; return; }
+                if (!fedThisFrame) starved = 0;
+                else if (Starved()) { paceId = 0; return; }
                 unfed = fedThisFrame ? 0 : Math.Min(unfed + 1, IdleAfter);
                 fedThisFrame = false;
                 bool now = unfed < IdleAfter;
@@ -91,17 +108,41 @@ namespace Renderforge
             catch (Exception ex) { PacingFailed(ex); }
         }
 
+        /// <summary>The previous frame was fed. True = the chain has prepared nothing for too long and was torn down.</summary>
+        private static bool Starved()
+        {
+            uint n = Native.Fg_PreparedCount();
+            if (n != preparedSeen) { preparedSeen = n; starved = 0; return false; }
+            if (starved++ == 0) starvedSince = Time.unscaledTime;
+            if (starved < StarveFrames || Time.unscaledTime - starvedSince < StarveSeconds) return false;
+            int prov = Native.Fg_Provider();
+            failed |= 1 << prov;
+            lastReason = ProviderName(prov) + ": frames could not be prepared - see renderforge_fg.log";
+            RenderforgeMod.Instance?.Logger.LogError("FG " + ProviderName(prov) + " takes frames and prepares none (" + starved + " consecutive fed frames, "
+                + (Time.unscaledTime - starvedSince).ToString("F1") + " s) - tearing the chain down, provider off for this session: " + Native.Fg_Status());
+            starved = 0; flowing = false;
+            starvedOut = true;                  // Pump tears down (same frame): the PlayerLoop is not edited from inside one of its systems
+            return true;
+        }
+
         private static void SimEnd()
         {
-            try { if (paceId != 0) Native.Fg_SimEnd(); }
+            // Every frame FrameStart opened natively, paced or not (the shim knows which id is open; none = no-op).
+            try { if (live && !pacingFailed) Native.Fg_SimEnd(); }
             catch (Exception ex) { PacingFailed(ex); }
         }
 
+        /// <summary>A pacing system threw (it runs inside Unity's PlayerLoop, so nothing above can catch it). The chain
+        /// cannot be paced any more: every later prepare would be refused for lack of a pace id and FG would sit there
+        /// live, capped and generating nothing. Only flags here - the PlayerLoop is not edited from inside one of its own
+        /// systems; the next Pump (same frame, driver Update) tears the chain down and Apply keeps FG off.</summary>
         private static void PacingFailed(Exception ex)
         {
+            if (pacingFailed) return;
+            pacingFailed = true;
             paceId = 0; flowing = false;
-            RenderforgeMod.Instance?.Logger.LogError("FG pacing off: " + ex);
-            try { Hook(false); RenderforgeMod.ApplyFrameRate(); } catch (Exception) { }
+            lastReason = "frame pacing failed - see the log";
+            RenderforgeMod.Instance?.Logger.LogError("FG pacing failed, frame generation off: " + ex);
         }
 
         /// <summary>Insert / remove the two systems. Entries are matched by type NAME, so a reloaded mod assembly
@@ -138,7 +179,7 @@ namespace Renderforge
         /// <summary>The chain went live / away: (un)hook and start from "nothing fed yet".</summary>
         private static void Pacing(bool on)
         {
-            flowing = false; fedThisFrame = false; unfed = IdleAfter; paceId = 0;
+            flowing = false; fedThisFrame = false; unfed = IdleAfter; paceId = 0; starved = 0; preparedSeen = 0;
             try { Hook(on); }
             catch (Exception ex) { hooked = false; RenderforgeMod.Instance?.Logger.LogError("FG pacing hook failed: " + ex); }
         }
@@ -146,7 +187,7 @@ namespace Renderforge
         private static int forced = -1;
 
         /// <summary>PPCLI/test override: -1 = auto, else an FG_PROVIDER_* id. Tears the live chain down so Apply rebuilds it.</summary>
-        internal static void Force(int provider) { forced = provider; failed = 0; Stop(); }
+        internal static void Force(int provider) { forced = provider; failed = 0; pacingFailed = false; Stop(); }
 
         internal static int Multiplier(FrameGenMode m) => m == FrameGenMode.X4 ? 4 : m == FrameGenMode.X3 ? 3 : m == FrameGenMode.X2 ? 2 : 0;
 
@@ -167,7 +208,7 @@ namespace Renderforge
         /// skipped; -1 = nothing left to try.</summary>
         internal static int AutoProvider()
         {
-            if (forced >= 0) return forced;
+            if (forced >= 0) return (failed & (1 << forced)) == 0 ? forced : -1;
             int[] order = Availability.IsNvidia ? new[] { Native.FG_PROVIDER_DLSS, Native.FG_PROVIDER_FSR, Native.FG_PROVIDER_XESS }
                         : Availability.IsIntel ? new[] { Native.FG_PROVIDER_XESS, Native.FG_PROVIDER_FSR }
                         : new[] { Native.FG_PROVIDER_FSR, Native.FG_PROVIDER_XESS };
@@ -180,7 +221,7 @@ namespace Renderforge
         internal static void Apply(DlssConfig cfg)
         {
             int mult = Multiplier(cfg.FrameGen);
-            if (!Usable || mult == 0 || Availability.Reason(Feature.FrameGen) != null)
+            if (!Usable || mult == 0 || pacingFailed || Availability.Reason(Feature.FrameGen) != null)
             {
                 Stop();
                 return;
@@ -200,8 +241,22 @@ namespace Renderforge
             if (Native.Fg_Pump() == 0) retiring = true;
             else if (retiring) retiring = Native.Fg_Shutdown() == 0;
             SyncAlive();
-            // Somebody replaced the PlayerLoop (SetPlayerLoop from another mod) and our systems went with it: put them back.
-            if (live && hooked && Time.frameCount - startFrame > 2) { hooked = false; Pacing(true); RenderforgeMod.ApplyFrameRate(); }
+            if (pacingFailed) { if (live || hooked) { Release(); Pacing(false); RenderforgeMod.ApplyFrameRate(); } return; }
+            if (starvedOut) { starvedOut = false; if (live) { Release(); wantProvider = AutoProvider(); } return; }
+            // Somebody replaced the PlayerLoop (SetPlayerLoop from another mod) and our systems went with it. FrameStart is
+            // the first system of Initialization, BEFORE PlayerUpdateTime advances Time.frameCount, so in frame N it
+            // records N - 1 and a healthy frame reads a difference of exactly 1 here; 2 = this very frame was not opened.
+            // Put the systems back and open the frame late rather than not at all: FrameStart forgets the stale pace id (a
+            // prepare stamped with it would be refused as a duplicate and the frame presented the idle way: child hidden,
+            // history reset) and keeps the fed / flowing state, so the provider goes on pacing without an idle gap.
+            if (live && hooked && Time.frameCount - startFrame > 1)
+            {
+                hooked = false;
+                try { Hook(true); }
+                catch (Exception ex) { hooked = false; RenderforgeMod.Instance?.Logger.LogError("FG pacing hook failed: " + ex); return; }
+                RenderforgeMod.Instance?.Logger.LogInfo("FG pacing systems were dropped from the PlayerLoop (frame " + Time.frameCount + ") - restored");
+                FrameStart();
+            }
         }
 
         /// <summary>The shim detached the chain on its own; mirror that.</summary>

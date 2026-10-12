@@ -581,7 +581,8 @@ namespace Renderforge
                  + " limiter=" + (cfg != null && cfg.LimitFrameRate ? cfg.FrameRateLimit.ToString() : "off")
                  + " fgMultiplier=" + FrameGen.OutputMultiplier + " flowing=" + FrameGen.Flowing
                  + " baseFps=" + Mathf.RoundToInt(1f / Mathf.Max(Time.smoothDeltaTime, 1e-5f))
-                 + " presentedFps=" + (FrameGen.Live ? Native.Fg_PresentedFps() : 0) + " frame=" + Time.frameCount;
+                 + " presentedFps=" + (FrameGen.Live ? Native.Fg_PresentedFps() : 0) + " frame=" + Time.frameCount
+                 + " dupPreCull=" + FrameGen.DupPreCull + " dupFeeds=" + FrameGen.DupFeeds;
         }
 
         /// <summary>PPCLI diagnostic: {"member":"FrameStats","args":[true]} starts the base-frame sampler, [false] stops it and
@@ -601,6 +602,18 @@ namespace Renderforge
             FrameGen.SetMainPacing(on);
             FrameGen.Apply(m.Cfg);
             return "fgMainPacing=" + on + " " + FrameGen.Status();
+        }
+
+        /// <summary>PPCLI test knob: {"member":"SetFgFailPrepare","args":[true]} - the shim treats every provider Prepare as
+        /// failed while the driver keeps feeding: FrameGen's starvation watchdog must tear the chain down. Runtime-only.</summary>
+        public static string SetFgFailPrepare(bool on) { Native.Fg_TestFailPrepare(on ? 1 : 0); return "fgFailPrepare=" + on + " " + FrameGen.Status(); }
+
+        /// <summary>PPCLI test knob: {"member":"ResetPlayerLoop","args":[]} - what a mod calling PlayerLoop.SetPlayerLoop does
+        /// to the FG pacing systems: Unity's default loop goes back in, FrameGen must restore its systems in that frame.</summary>
+        public static string ResetPlayerLoop()
+        {
+            UnityEngine.LowLevel.PlayerLoop.SetPlayerLoop(UnityEngine.LowLevel.PlayerLoop.GetDefaultPlayerLoop());
+            return "player loop reset at frame " + Time.frameCount + " " + FrameGen.Status();
         }
 
         /// <summary>PPCLI test knob: {"member":"SetHoldPrepare","args":[true]} - the driver stops feeding FG frames while the chain stays live.</summary>

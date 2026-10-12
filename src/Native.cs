@@ -170,13 +170,22 @@ namespace Renderforge
         public static extern int Fg_SetFrameLimit(uint presentedFps);
 
         /// <summary>Start of the main thread's frame while a chain is live. pace = 1 while frames are fed: the latency SDK's
-        /// sleep + SIMULATION_START; returns the frame's pace id (0 = nothing slept here).</summary>
+        /// sleep + SIMULATION_START as the frame pacer; returns the frame's pace id (0 = not paced here). pace = 0: Unity's
+        /// limiter paces and the provider's own pacing is off (DLSS-G: Reflex eOff; its sleep + markers still go out).</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern uint Fg_FrameBegin(int pace);
 
         /// <summary>After LateUpdate of the frame Fg_FrameBegin opened: SIMULATION_END.</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Fg_SimEnd();
+
+        /// <summary>Frames the live chain has prepared so far (0 with no chain; restarts with every chain).</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern uint Fg_PreparedCount();
+
+        /// <summary>Test lever: 1 = every native Prepare counts as failed (FrameGen's starvation watchdog must notice).</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void Fg_TestFailPrepare(int on);
 
         /// <summary>Diagnostic A/B, next chain: 1 = sleep on the main thread (default), 0 = on the render thread.</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
