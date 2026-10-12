@@ -105,9 +105,21 @@ struct SlCore
     // slReflexSetOptions (ReflexApply): what the SDK ACCEPTED, the refused request and its back-off, and `bad` - the
     // latest low-latency request is not in effect, DLSS-G must not be fed (FgLatch.h, with the invariant).
     FgReflexLatch               reflex;
+    // ONE slDLSSGSetOptions PER STREAMLINE FRAME (DLSS_G.md:483-491: options take effect at the next Present; a second
+    // set before that Present is sl.dlss_g's "Repeated slDLSSGSetOptions() call for the frame N. A redundant call or a
+    // race condition with Present()"). Streamline's frame advances with the proxy's Present and only with it - a frame
+    // that is not prepared never reaches the proxy. `presents` counts those Presents for the process (AfterPresent),
+    // `optStamp` is presents + 1 at the last slDLSSGSetOptions that reached the SDK (0 = none yet): equal = a set is
+    // already out for the frame the next Present ends. The eOff of a teardown (main thread, DLSS_G.md:745-748: off
+    // before the chain is released) and of Idle() are such sets with no Present behind them; the eOn of the next
+    // chain / of the resume then waits one prepared frame (IssueOptions kOptHold).
+    volatile LONG               presents, optStamp;
     char                        version[64];
 };
 SlCore g_sl;
+
+bool SlOptionsIssuedThisFrame() { return InterlockedCompareExchange(&g_sl.optStamp, 0, 0) == InterlockedCompareExchange(&g_sl.presents, 0, 0) + 1; }
+void SlOptionsIssued() { InterlockedExchange(&g_sl.optStamp, InterlockedCompareExchange(&g_sl.presents, 0, 0) + 1); }
 
 template <class T> bool Proc(const char* name, T*& out)
 {
@@ -417,21 +429,31 @@ struct ProviderStreamline : IFgProvider
     // caller prepares NOTHING - no token, no constants, no tags reach a DLSS-G that is off or sized for other inputs,
     // and the frame goes out the idle way. A refusal is logged once per size/result; if it lasts, the starvation
     // watchdog drops the provider.
-    bool IssueOptions(unsigned w, unsigned h)
+    // kOptHold = a slDLSSGSetOptions is already out for this Streamline frame (SlCore::optStamp: the eOff of the
+    // previous chain's teardown, or of Idle()): this frame's set would be the "Repeated slDLSSGSetOptions() call" and
+    // race the Present that applies the first. The frame is prepared all the same - token, constants, tags, markers -
+    // and presented through the proxy with the options DLSS-G has (off: passed through, nothing generated), which is
+    // what ends the Streamline frame; the set goes out with the next prepare. Refusing the frame instead would
+    // deadlock: an unprepared frame bypasses the proxy, the Streamline frame never ends. Cost: the first frame of a
+    // chain / after an idle stretch is not interpolated.
+    enum { kOptRefused = 0, kOptReady = 1, kOptHold = 2 };
+    int IssueOptions(unsigned w, unsigned h)
     {
-        if (wantOn == isOn && (!wantOn || (w == sentW && h == sentH))) return true;
+        if (wantOn == isOn && (!wantOn || (w == sentW && h == sentH))) return kOptReady;
+        if (SlOptionsIssuedThisFrame()) return kOptHold;
         // The back-off belongs to the REQUEST that was refused: another one (the size switched back, or on again
         // after Idle) is issued at once instead of waiting out a refusal that is not about it.
-        if (optSkip && wantOn == failOn && w == failW && h == failH) { --optSkip; return false; }
+        if (optSkip && wantOn == failOn && w == failW && h == failH) { --optSkip; return kOptRefused; }
         sl::DLSSGOptions op{};
         Options(op, wantOn ? (unsigned)sl::DLSSGMode::eOn : (unsigned)sl::DLSSGMode::eOff);
         sl::ViewportHandle vp(0u);
-        const sl::Result r = FgTestSdkFail("sl_options") ? sl::Result::eErrorInvalidParameter : g_sl.fgSetOptions(vp, op);
+        sl::Result r = sl::Result::eErrorInvalidParameter;
+        if (!FgTestSdkFail("sl_options")) { r = g_sl.fgSetOptions(vp, op); SlOptionsIssued(); }
         if (r == sl::Result::eOk || r == sl::Result::eWarnOutOfVRAM) {
             isOn = wantOn; sentW = w; sentH = h; failRc = 0; optSkip = 0;
             FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u, options %ux%u -> %ux%u fmt %u%s", wantOn ? "eOn" : "eOff", framesToGen, w, h, outW, outH, (unsigned)backFmt,
                   r == sl::Result::eWarnOutOfVRAM ? " (eWarnOutOfVRAM: DXGI budget exhausted)" : "");
-            return true;
+            return kOptReady;
         }
         optSkip = kOptRetry;
         const bool news = failRc != (int)r || failW != w || failH != h || failOn != wantOn;
@@ -440,7 +462,7 @@ struct ProviderStreamline : IFgProvider
             FgLog("sl: slDLSSGSetOptions(%d) REFUSED %d for %ux%u - DLSS-G stays %s (%ux%u), frames are not prepared, retry every %d prepares", wantOn, (int)r, w, h,
                   isOn ? "eOn" : "eOff", sentW, sentH, (int)kOptRetry);
         }
-        return false;
+        return kOptRefused;
     }
 
     // frameLimitUs is the interval between PRESENTED frames: the driver knows about frame generation and spaces the
@@ -508,6 +530,7 @@ struct ProviderStreamline : IFgProvider
         Options(o, (unsigned)sl::DLSSGMode::eOff);
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.fgSetOptions(vp, o);
+        SlOptionsIssued();
         if (r == sl::Result::eOk) isOn = 0;
         FgLog("sl: DLSS-G eOff while no frames are prepared -> %d", (int)r);
     }
@@ -554,7 +577,7 @@ struct ProviderStreamline : IFgProvider
         // started (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same
         // index twice = a second prepare event inside one frame: one set of constants per index.
         if (mainPacing && (!f.paceId || f.paceId == lastPrepared)) return false;
-        if (!IssueOptions(o->w, o->h)) return false;
+        if (IssueOptions(o->w, o->h) == kOptRefused) return false;   // kOptHold: prepared, the set follows next frame
         // The hud-less in the back buffer's format and row order (FgHudless12, the host's flipped copy). Without one the
         // frame still gets its token, constants and depth/mv tags - a skipped hudless is a quality loss, a skipped
         // token/constants wedges DLSS-G ("missing common constants", generated=0; measured 2026-09-03).
@@ -682,6 +705,7 @@ struct ProviderStreamline : IFgProvider
 
     void AfterPresent(HRESULT)
     {
+        InterlockedIncrement(&g_sl.presents);              // the proxy's Present ended a Streamline frame (SlCore::optStamp)
         if (!proxy) return;
         if (cur && marked == 1) { marked = 2; sl::FrameToken* t = Tok(cur); if (t) g_sl.marker(sl::PCLMarker::ePresentEnd, *t); }
         sl::DLSSGState st{};
@@ -707,6 +731,7 @@ struct ProviderStreamline : IFgProvider
         Options(o, (unsigned)sl::DLSSGMode::eOff);
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.fgSetOptions(vp, o);
+        SlOptionsIssued();
         if (r == sl::Result::eOk) { isOn = 0; return true; }
         FgLog("sl: slDLSSGSetOptions(off) %d", (int)r);
         return false;
