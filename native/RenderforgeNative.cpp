@@ -94,8 +94,8 @@ static struct {
     float nearZ, farZ, fovY;            // Dlss_SetCamera cache, copied into every slot
     int biasMaskMode;                   // Dlss_SetBiasMaskMode cache (DIAG), copied into every slot
     unsigned dlssPreset;                // Dlss_SetDlssPreset cache, copied into S.create by Dlss_SetCreateParams
-    FrameParams paired;                 // render thread: the previous evaluate's block (PairD3D12)
-    int havePaired;
+    FrameParams paired;                 // render thread ONLY: the previous evaluate's block (PairD3D12); cleared by the
+    int havePaired;                     // CREATE / RELEASE events, so a new generation never pairs with the one before it
 } S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0, 0.1f, 1000.0f, 1.0471976f, 0, 0u, {}, 0 };
 
 static bool ShutdownBackend(void)
@@ -104,7 +104,6 @@ static bool ShutdownBackend(void)
     if (S.dev && !S.dev->Shutdown()) return false;
     S.dev = NULL;
     S.lastSlot = NULL;
-    S.havePaired = 0;
     S.initCode = DLSS_ERR_NO_DEVICE;
     S.providerCode = 0;
     return true;
@@ -310,6 +309,7 @@ static void __stdcall OnRenderEventAndData(int eventId, void* data)
     if (RfDbg::NoEvents()) return;   // RENDERFORGE_D3D12_NOEVENTS=1: managed side runs, no GPU work of ours
     switch (eventId) {
     case DLSS_EV_CREATE:
+        S.havePaired = 0;
         S.dev->Create(S.create);
         break;
     case DLSS_EV_EVALUATE: {
@@ -321,6 +321,7 @@ static void __stdcall OnRenderEventAndData(int eventId, void* data)
         break;
     }
     case DLSS_EV_RELEASE:
+        S.havePaired = 0;
         InterlockedExchange(&g_releaseResult, FgHostRetired() && S.dev->ReleaseFeature() ? 1 : -1);
         break;
     case DLSS_EV_FG_PREPARE:
