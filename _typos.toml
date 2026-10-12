@@ -14,6 +14,9 @@ extend-exclude = [
 # evaluate (it then skips every file holding a non-ASCII word).
 extend-ignore-identifiers-re = ["(?i)\\blod"]
 
+[default.extend-identifiers]
+MirzaBeig = "MirzaBeig"   # vendor namespace of the game's FX pack (MirzaBeig.ParticleSystems.Rotator)
+
 [default.extend-words]
 LOD = "LOD"
 lod = "lod"

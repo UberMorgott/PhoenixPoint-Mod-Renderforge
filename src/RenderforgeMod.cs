@@ -688,6 +688,27 @@ namespace Renderforge
         /// <summary>{"member":"DumpColorIn","args":["C:\\Temp\\in.png"]} - colorRT (SDK colour input) to PNG.</summary>
         public static string DumpColorIn(string absPath) => DlssDriver.Instance?.DumpColorIn(absPath) ?? "no driver";
 
+        /// <summary>{"member":"MvStats","args":[""]} - whole-frame motion-field statistics (+ PNG when a path is given), see DlssDriver.MvStats.</summary>
+        public static string MvStats(string absPath) => DlssDriver.Instance?.MvStats(absPath) ?? "no driver";
+
+        /// <summary>{"member":"SurveyMovers","args":["C:\\Temp\\movers.txt",3]} - renderers whose transform moves on a still picture, see MotionVectorFilter.Survey.</summary>
+        public static string SurveyMovers(string absPath, int frames) => DlssDriver.Instance?.SurveyMovers(absPath, frames) ?? "no driver";
+
+        /// <summary>{"member":"GetMvFilterStatus"} - MotionVectorFilter: armed, seams, saved renderers and their original modes.</summary>
+        public static string GetMvFilterStatus() => MotionVectorFilter.Status();
+
+        /// <summary>{"member":"AuditMvModes"} - current motionVectorGenerationMode of every decal volume / rotator renderer in the loaded scenes.</summary>
+        public static string AuditMvModes() => MotionVectorFilter.Audit();
+
+        /// <summary>{"member":"SetMvFilter","args":[false]} - A/B lever: false restores every renderer's own motion-vector mode,
+        /// true re-arms on the live generation next frame. Runtime-only.</summary>
+        public static string SetMvFilter(bool on)
+        {
+            Diagnostics.MvFilter = on;
+            if (!on) MotionVectorFilter.Restore();
+            return MotionVectorFilter.Status();
+        }
+
         private static string JitterKnobs() =>
             " jitterSign=" + Diagnostics.JitterReportSignX + "," + Diagnostics.JitterReportSignY + " jitterScale=" + Diagnostics.JitterScale.ToString("R") + " jitterSwapXY=" + Diagnostics.JitterReportSwapXY
             + " jitterConst=" + Diagnostics.JitterConstEnabled + "," + Diagnostics.JitterConstX.ToString("R") + "," + Diagnostics.JitterConstY.ToString("R") + " forceReset=" + Diagnostics.ForceReset

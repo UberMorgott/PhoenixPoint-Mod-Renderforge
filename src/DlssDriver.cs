@@ -454,6 +454,7 @@ namespace Renderforge
                 cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy); copyAttached = false;
                 if (depthModeSaved) cam.depthTextureMode = savedDepthMode;
             }
+            MotionVectorFilter.Set(copyAttached);   // spun props + decal volumes write no object motion while the pass is consumed
             // SMAA off only under a real upscaler (it replaces the AA); a passthrough generation keeps vanilla AA.
             if (!passthrough && layer != null && layer.antialiasingMode != PostProcessLayer.Antialiasing.None) layer.antialiasingMode = PostProcessLayer.Antialiasing.None;
             present.depth = cam.depth + 1;
@@ -462,6 +463,7 @@ namespace Renderforge
         private void Detach()
         {
             GeoMarkerOverlay.Restore();
+            MotionVectorFilter.Restore();
             if (cam != null)
             {
                 if (cbCopy != null && copyAttached) cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy);
@@ -653,6 +655,86 @@ namespace Renderforge
                 RenderTexture.ReleaseTemporary(tmp);
                 Destroy(tex);
             }
+        }
+
+        /// <summary>Diagnostic: the whole mvRT as RGBA floats (r,g = Unity's UV-space motion), row 0 at the bottom; null when not live.</summary>
+        internal float[] ReadMv()
+        {
+            if (gen != Gen.Live || mvRT == null) return null;
+            var tmp = RenderTexture.GetTemporary(renderW, renderH, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var tex = new Texture2D(renderW, renderH, TextureFormat.RGBAFloat, false);
+            var prev = RenderTexture.active;
+            try
+            {
+                Graphics.Blit(mvRT, tmp);
+                RenderTexture.active = tmp;
+                tex.ReadPixels(new Rect(0, 0, renderW, renderH), 0, 0, false);
+                return tex.GetRawTextureData<float>().ToArray();
+            }
+            finally
+            {
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(tmp);
+                Destroy(tex);
+            }
+        }
+
+        /// <summary>Diagnostic: the motion field the SDK is fed, whole frame, in render-res pixels per frame: share of texels
+        /// above 0.01 px, the largest vector and where, the bounding box of the moving texels, and a 16x9 map of each
+        /// cell's largest magnitude in 1/100 px (rows top to bottom). A still camera over a still picture must read 0.
+        /// A non-empty absPath also gets a PNG: |mv| in px x 64 in red (x) and green (y), blue = any motion.</summary>
+        public string MvStats(string absPath)
+        {
+            float[] mv = ReadMv();
+            if (mv == null) return "not live (gen=" + gen + ")";
+            int w = renderW, h = renderH, moving = 0, minX = w, minY = h, maxX = -1, maxY = -1, atX = 0, atY = 0;
+            const int gw = 16, gh = 9;
+            var grid = new float[gw * gh];
+            float best = 0f, bx = 0f, by = 0f;
+            double sum = 0;
+            Color32[] px = string.IsNullOrEmpty(absPath) ? null : new Color32[w * h];
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    int i = (y * w + x) * 4;
+                    float mx = mv[i] * w, my = mv[i + 1] * h;
+                    float m = Mathf.Sqrt(mx * mx + my * my);
+                    sum += m;
+                    if (px != null) px[y * w + x] = new Color32((byte)Mathf.Min(255f, Mathf.Abs(mx) * 64f), (byte)Mathf.Min(255f, Mathf.Abs(my) * 64f), (byte)(m > 0.01f ? 255 : 0), 255);
+                    if (m <= 0.01f) continue;
+                    moving++;
+                    if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+                    int g = (gh - 1 - y * gh / h) * gw + x * gw / w;
+                    if (m > grid[g]) grid[g] = m;
+                    if (m > best) { best = m; bx = mx; by = my; atX = x; atY = y; }
+                }
+            }
+            if (px != null)
+            {
+                var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+                try { tex.SetPixels32(px); tex.Apply(false); System.IO.File.WriteAllBytes(absPath, tex.EncodeToPNG()); }
+                finally { Destroy(tex); }
+            }
+            var sb = new System.Text.StringBuilder();
+            sb.Append("render=").Append(w).Append('x').Append(h).Append(" moving=").Append((100.0 * moving / ((double)w * h)).ToString("F3")).Append('%')
+              .Append(" meanpx=").Append((sum / ((double)w * h)).ToString("F4")).Append(" maxpx=").Append(best.ToString("F3"))
+              .Append(" (").Append(bx.ToString("F3")).Append(',').Append(by.ToString("F3")).Append(") at ").Append(atX).Append(',').Append(atY)
+              .Append(" bbox=").Append(maxX < 0 ? "none" : minX + "," + minY + "-" + maxX + "," + maxY).Append(" grid=");
+            for (int r = 0; r < gh; r++)
+            {
+                if (r > 0) sb.Append('/');
+                for (int c = 0; c < gw; c++) sb.Append(c > 0 ? "," : "").Append(Mathf.RoundToInt(grid[r * gw + c] * 100f));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Diagnostic: MotionVectorFilter.Survey as a coroutine on this object; the file appears `frames` frames later.</summary>
+        public string SurveyMovers(string absPath, int frames)
+        {
+            if (gen != Gen.Live) return "not live (gen=" + gen + ")";
+            StartCoroutine(MotionVectorFilter.Survey(this, absPath, frames));
+            return "survey started -> " + absPath;
         }
 
         /// <summary>Diagnostic: outRT (the SDK output BEFORE Unity's present Blit) to PNG. Works on D3D12 (Blit into an

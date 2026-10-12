@@ -22,9 +22,12 @@ namespace Renderforge
         internal static int BiasMaskMode { get; set; }
         /// <summary>GeoMarkerOverlay on/off (A-B lever for the geoscape marker ghosting; production = on).</summary>
         internal static bool MarkerOverlay { get; set; }
+        /// <summary>MotionVectorFilter on/off (A-B lever for the geoscape softness; production = on).</summary>
+        internal static bool MvFilter { get; set; }
 
         internal static void Reset()
         {
+            MvFilter = true;
             BiasMaskMode = 0;
             MarkerOverlay = true;
             View = DebugView.None;

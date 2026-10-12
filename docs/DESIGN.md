@@ -662,6 +662,72 @@ stage, same early-out when all eight uniforms are zero.
   end of frame + `.txt` sidecar - PPCLI's `screenshot` re-renders the cameras itself and shows the level-curtain art
   once the present camera draws objects), `DumpHierarchy(name, path)`.
 
+### Motion vectors of spun props and decal volumes (2026-10-12)
+
+- **Symptom:** the geoscape was soft and shimmering under every upscaler, DLAA included, with the camera standing
+  still; the land dot grid was wiped.
+- **Cause:** Unity's object-MV pass re-draws every renderer in `MotionVectorGenerationMode.Object` whose transform
+  changed, with the renderer's own mesh. Two vanilla families move every frame without the picture moving:
+  - `MaterialDecals.MaterialDecalComponent` (decompile `MaterialDecals\MaterialDecalComponent.cs`): the mesh is the
+    decal's projection BOX, never the surface it lands on. `Vehicles/…/GlobeOffset/RangeIndicator` (`Material
+    Decals/Decal lit` q=2014, cube scale 5, spun (0,-3,0)°/s) wrote a screen-wide roll field. The game's other decal
+    system already sets Camera (`LlockhamIndustries.Decals\ProjectionRenderer.cs:381`); MaterialDecals forgot.
+  - `MirzaBeig.ParticleSystems.Rotator` (`Rotator.cs:44/:48`), the FX pack's idle spinner:
+    `GeoscapeVisual_Showroom/Core` (`PlanetCoreMaterial`, Standard q=2000, (0,0,-0.7)°/s) wrote motion over the whole
+    globe disc.
+  - Only opaque queues write: with everything else on Camera, switching ONE renderer back to Object gave Core
+    75.4 % of the frame (max 0.066 px), RangeIndicator 99.8 % (max 0.32 px), and 0 % for every transparent spinner
+    (`Atmosphere`, `Atmosphere_2`, `Atmosphere_4_clouds` q=3000-5000, `Selected_Circle (1)`, `Quad_2`) - the clouds
+    never had motion vectors to lose.
+- **Rule (`src\MotionVectorFilter.cs`):** while the MV/depth pass is consumed (`DlssDriver.KeepCameraState`,
+  `MotionVectorFilter.Set(copyAttached)` - real upscaler, frame generation on top of it, Depth / MotionVectors debug
+  views), every `MaterialDecalComponent` renderer and every renderer on a `Rotator`'s own GameObject (not its
+  children: a child may be real geometry riding along) is set to `MotionVectorGenerationMode.Camera`. By component
+  type, no names. The original mode of each touched renderer is saved and written back in `DlssDriver.Detach`
+  (mode Off, provider switch, level end), when the pass stops being needed (passthrough generation), or by the A/B
+  lever. A passthrough generation never arms it.
+- **Seams, no per-frame search:** decals at arm time from `MaterialDecalComponent.SceneDecals` (the game's own
+  registry, :59) and afterwards from a Harmony postfix on `MaterialDecalComponent.OnEnable` (:136 - a new
+  `RangeIndicator` per vehicle, travel-path decals); rotators from one `Resources.FindObjectsOfTypeAll<Rotator>` at
+  arm time (inactive ones included - they already ran `Start`) and a postfix on `Rotator.Start` (:19). A seam whose
+  method is gone skips itself (`Prepare`); an exception disables the filter for the session and restores, never the
+  upscaler. Dead keys (destroyed travel paths) are pruned when the map doubles.
+- **Measured** (Instance2, 2560x1440 borderless, vsync off, fresh campaign, day-side pose `ChaseGeoTarget (2,5,9)`,
+  still camera; `MvStats` = share of mvRT texels above 0.01 px; Laplacian of crop 1500,700-1900,1100 of
+  `DumpColorIn` / `DumpOut`; diff = two `DumpOut` 0.3 s apart, pixels differing by more than 8; filter off → on):
+
+  | API | Provider / mode | moving texels | Laplacian in | Laplacian out | diff >8 |
+  |---|---|---|---|---|---|
+  | D3D11 | native (Passthrough view) | - | 5.30 | 5.28 | 0.00 % |
+  | D3D11 | DLSS DLAA | 78.3 % → 0 | 5.3 | 4.08 → 7.50 | 1.12 → 0.03 % |
+  | D3D11 | DLSS Quality | 77.7 % → 0 | 3.97 | 4.22 → 7.50 | 1.38 → 0.06 % |
+  | D3D11 | DLSS Performance | 76.8 % → 0 | 3.2 | 7.37 → 6.91 | 2.69 → 0.24 % |
+  | D3D12 | native (Passthrough view) | - | 5.14 | 5.15 | 0.00 % |
+  | D3D12 | DLSS DLAA | 83.7 % → 0 | 5.27 | 2.13 → 8.43 | 0.11 → 0.15 % |
+  | D3D12 | DLSS Quality | 83.4 % → 0 | 3.9 | 2.47 → 5.50 | 0.03 → 0.27 % |
+  | D3D12 | DLSS Performance | 82.4 % → 0 | 3.2 | 3.88 → 6.31 | 2.18 → 0.33 % |
+  | D3D12 | XeSS Quality | 82.8 % → 0 | 3.7 | 1.69 → 2.40 | 0.02 → 0.03 % |
+  | D3D12 | FSR Quality | 83.5 % → 0 | 3.8 | 2.73 → 3.94 | 0.05 → 0.00 % |
+
+  With the range ring in view (start pose, D3D11 DLAA) 99.8 % of the frame moved, max 0.32 px. Frame generation
+  (D3D12, FSR Quality + DLSS-G x2 live): 83.1 % → 0. XeSS and FSR do not run on D3D11. Low "diff" beside a low
+  Laplacian (D3D12 filter off) is a stable blur, not a stable picture.
+- **Motion kept:** camera orbit feeds the pure camera field (100 % of texels, up to 2.5 px, back to exactly 0 once
+  settled; dots and coastline hold in a mid-orbit dump where the unfiltered one smears). A travelling aircraft keeps
+  its object motion (`Model`, Standard q=2000, neither family: a 41x41 px island of 0.02-0.05 px at geoscape time
+  scale 600, nothing else moving).
+- **Restore, asserted:** `AuditMvModes` after mode Off on both APIs: `decal/Object=434 rotator/Object=95`, saved 0;
+  armed: `decal/Camera=433 rotator/Camera=95`, `savedModes=Object:467`.
+- **Tactical:** nothing to fix and nothing touched. `ALN_PLT_Nest_48x48_A`, `NJR_PLT_IND_48x48_SSYN16`,
+  `SCV_PLT_56x56_SSYN12`: no `MaterialDecalComponent` and no `Rotator` in the scene (`saved=0`), the still world
+  reads 0 moving texels, the only motion is the squad's idle animation (0.3 % of the frame, same with the filter on
+  or off). Ground markers there are transparent (`_PX_UI/SimpleUIXRay`, Standard q=3000) and write nothing.
+- **Left alone:** the animated coastline glow (shader time, no transform motion: the native picture itself differs
+  by ~4 % between two frames there; no motion vector can describe it) and every transparent spinner (no MV pass).
+- Diagnostics (PPCLI): `MvStats(path)` (whole-frame motion field + PNG), `SurveyMovers(path, frames)` (renderers
+  whose transform moves on a still picture, with the vector at their centre), `GetMvFilterStatus`, `AuditMvModes`,
+  `SetMvFilter(bool)` (A/B lever, runtime-only). Dumps: session scratchpad `mvfix\`.
+
 ### Data flow per frame
 
 ```
