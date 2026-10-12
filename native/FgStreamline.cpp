@@ -51,6 +51,7 @@
 #include "Fg.h"
 #include "RenderforgeNative.h"
 #include "D3D12Owned.h"
+#include "FgLatch.h"
 
 #include <math.h>
 #include <string.h>
@@ -101,13 +102,9 @@ struct SlCore
     PFun_slReflexGetState*      reflexGetState;
     unsigned                    maxGen;        // DLSSGState::numFramesToGenerateMax once measured, 0 = not yet
     volatile LONG               frameIdx;      // process-wide: SL refuses constants/options set twice for one index
-    int                         reflexMode;    // last ReflexOptions the SDK ACCEPTED (-1 = none yet)
-    unsigned                    reflexUs;
-    // A refused slReflexSetOptions (ReflexApply): the request it was, calls to let pass before it is tried again,
-    // refusals in a row. reflexBad: the last request for a mode other than eOff was refused - DLSS-G must not be fed.
-    int                         reflexFailMode;
-    unsigned                    reflexFailUs, reflexSkip, reflexFails;
-    volatile LONG               reflexBad;
+    // slReflexSetOptions (ReflexApply): what the SDK ACCEPTED, the refused request and its back-off, and `bad` - the
+    // latest low-latency request is not in effect, DLSS-G must not be fed (FgLatch.h, with the invariant).
+    FgReflexLatch               reflex;
     char                        version[64];
 };
 SlCore g_sl;
@@ -144,31 +141,34 @@ sl::FrameToken* Tok(unsigned idx)
 // refusal records nothing, is retried kReflexRetry calls later (FrameBegin calls this every frame: not once per frame
 // against a call that keeps failing) and is logged with a throttle. DLSS-G needs Reflex at run time (DLSS_G.md
 // eFailReflexNotDetectedAtRuntime; the cap, DLSS_G.md:769): while the last low-latency request stands refused
-// (reflexBad) Prepare feeds DLSS-G nothing, and the managed starvation watchdog drops the provider if that lasts.
+// (reflex.bad) Prepare feeds DLSS-G nothing, and the managed starvation watchdog drops the provider if that lasts.
+// A request for what the SDK already accepted is in effect without a call and CLEARS reflex.bad (FgLatch.h invariant:
+// cap 120 working -> 144 refused once -> back to 120 must feed DLSS-G again).
 // True = the mode and cap asked for are in effect.
-enum { kReflexRetry = 30 };
+bool ReflexTestRefuse(unsigned frameLimitUs)   // lever: "sl_reflex" = every request, "sl_reflex@<us>" = the ones for that cap
+{
+    if (FgTestSdkFail("sl_reflex")) return true;
+    char name[32];
+    _snprintf_s(name, sizeof(name), _TRUNCATE, "sl_reflex@%u", frameLimitUs);
+    return FgTestSdkFail(name);
+}
 bool ReflexApply(sl::ReflexMode mode, unsigned frameLimitUs)
 {
-    if (g_sl.reflexMode == (int)mode && g_sl.reflexUs == frameLimitUs) return true;
-    if (g_sl.reflexSkip && g_sl.reflexFailMode == (int)mode && g_sl.reflexFailUs == frameLimitUs) { --g_sl.reflexSkip; return false; }
-    sl::ReflexOptions ro{};
-    ro.mode = mode;
-    ro.frameLimitUs = frameLimitUs;
-    const sl::Result r = FgTestSdkFail("sl_reflex") ? sl::Result::eErrorInvalidParameter : g_sl.reflexSetOptions(ro);
-    if (r == sl::Result::eOk) {
-        g_sl.reflexMode = (int)mode; g_sl.reflexUs = frameLimitUs;
-        g_sl.reflexSkip = 0; g_sl.reflexFails = 0;
-        if (mode != sl::ReflexMode::eOff) InterlockedExchange(&g_sl.reflexBad, 0);
-        FgLog("sl: Reflex mode %d frameLimitUs %u -> %d", (int)mode, frameLimitUs, (int)r);
-        return true;
-    }
-    g_sl.reflexFailMode = (int)mode; g_sl.reflexFailUs = frameLimitUs; g_sl.reflexSkip = kReflexRetry;
-    if (mode != sl::ReflexMode::eOff) InterlockedExchange(&g_sl.reflexBad, 1);
-    const unsigned n = ++g_sl.reflexFails;
-    if (n <= 8 || n % 64 == 0)
-        FgLog("sl: slReflexSetOptions(mode %d, frameLimitUs %u) REFUSED %d (#%u in a row) - in effect: mode %d, %u us; retry in %d frames%s", (int)mode, frameLimitUs, (int)r, n,
-              g_sl.reflexMode, g_sl.reflexUs, (int)kReflexRetry, mode != sl::ReflexMode::eOff ? "; DLSS-G is fed nothing meanwhile" : "");
-    return false;
+    FgReflexLatch& l = g_sl.reflex;
+    const bool needed = mode != sl::ReflexMode::eOff;
+    sl::Result r = sl::Result::eOk;
+    const int step = l.Apply((int)mode, frameLimitUs, needed, [&]() {
+        sl::ReflexOptions ro{};
+        ro.mode = mode;
+        ro.frameLimitUs = frameLimitUs;
+        r = ReflexTestRefuse(frameLimitUs) ? sl::Result::eErrorInvalidParameter : g_sl.reflexSetOptions(ro);
+        return r == sl::Result::eOk;
+    });
+    if (step == FgReflexLatch::kAccepted) FgLog("sl: Reflex mode %d frameLimitUs %u -> %d", (int)mode, frameLimitUs, (int)r);
+    else if (step == FgReflexLatch::kRefused && (l.fails <= 8 || l.fails % 64 == 0))
+        FgLog("sl: slReflexSetOptions(mode %d, frameLimitUs %u) REFUSED %d (#%u in a row) - in effect: mode %d, %u us; retry in %d frames%s", (int)mode, frameLimitUs, (int)r, l.fails,
+              l.mode, l.us, (int)FgReflexLatch::kRetry, needed ? "; DLSS-G is fed nothing meanwhile" : "");
+    return step > 0;
 }
 
 // Once per process. Returns FG_OK or the FG_ERR_* to hand back from Create.
@@ -238,7 +238,7 @@ int SlUp(const FgSetup& s)
     FgLog("sl: DLSS-G %s", g_sl.version);
 
     // Reflex options are issued per chain (Create: eLowLatency, DLSS-G needs it at runtime; Destroy: eOff, no cap).
-    g_sl.reflexMode = -1;
+    g_sl.reflex.mode = -1;
 
     void* dev = s.device;
     r = g_sl.upgrade(&dev);                        // ManualHooking.md:195-203
@@ -260,8 +260,8 @@ struct ProviderStreamline : IFgProvider
     unsigned            caps;
     int                 wantOn, isOn;  // desired / applied DLSSGMode (render thread applies in Generate)
     unsigned            sentW, sentH;  // mvecDepthWidth/Height last issued via slDLSSGSetOptions (re-issued on a quality switch)
-    unsigned            failW, failH;  // last refused options size + result: logged once
-    int                 failRc;
+    unsigned            failW, failH;  // last refused options (size, mode) + result: logged once, and what optSkip backs off
+    int                 failRc, failOn;
     // SDK RESULTS: Prepares to let pass before refused options are issued again, Prepares in a row whose constants /
     // tags the SDK refused, and `dead` - those reached kInputFailMax: the provider prepares nothing more.
     enum { kOptRetry = 30, kInputFailMax = 120 };
@@ -293,7 +293,7 @@ struct ProviderStreamline : IFgProvider
     void Zero()
     {
         proxy = NULL; proxyFactory = NULL; queue = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = buffers = 0;
-        framesToGen = 1; caps = 0; wantOn = isOn = 0; sentW = sentH = failW = failH = 0; failRc = 0; frames = 0; cur = 0; marked = 0; lastStatus = 0;
+        framesToGen = 1; caps = 0; wantOn = isOn = 0; sentW = sentH = failW = failH = 0; failRc = 0; failOn = 0; frames = 0; cur = 0; marked = 0; lastStatus = 0;
         for (unsigned i = 0; i < kTokens; ++i) fifo[i] = 0;
         head = tail = 0; mainPacing = 1; paced = 0; lastPrepared = 0; limitFps = 0;
         generated = 0; warned = 0; havePrev = 0;
@@ -372,6 +372,7 @@ struct ProviderStreamline : IFgProvider
 
         // Main-thread pacing: Reflex stays eOff until the first paced FrameBegin (frames flow); this also is the "at
         // least once" slReflexSetOptions of Reflex.md:177. Render-thread pacing (diagnostic) sleeps in Prepare: on now.
+        g_sl.reflex.NewChain();                         // a refusal / back-off of the previous chain does not gate this one
         if (mainPacing) ReflexApply(sl::ReflexMode::eOff, 0);
         else ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
         *out = proxy;
@@ -419,20 +420,23 @@ struct ProviderStreamline : IFgProvider
     bool IssueOptions(unsigned w, unsigned h)
     {
         if (wantOn == isOn && (!wantOn || (w == sentW && h == sentH))) return true;
-        if (optSkip) { --optSkip; return false; }
+        // The back-off belongs to the REQUEST that was refused: another one (the size switched back, or on again
+        // after Idle) is issued at once instead of waiting out a refusal that is not about it.
+        if (optSkip && wantOn == failOn && w == failW && h == failH) { --optSkip; return false; }
         sl::DLSSGOptions op{};
         Options(op, wantOn ? (unsigned)sl::DLSSGMode::eOn : (unsigned)sl::DLSSGMode::eOff);
         sl::ViewportHandle vp(0u);
         const sl::Result r = FgTestSdkFail("sl_options") ? sl::Result::eErrorInvalidParameter : g_sl.fgSetOptions(vp, op);
         if (r == sl::Result::eOk || r == sl::Result::eWarnOutOfVRAM) {
-            isOn = wantOn; sentW = w; sentH = h; failRc = 0;
+            isOn = wantOn; sentW = w; sentH = h; failRc = 0; optSkip = 0;
             FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u, options %ux%u -> %ux%u fmt %u%s", wantOn ? "eOn" : "eOff", framesToGen, w, h, outW, outH, (unsigned)backFmt,
                   r == sl::Result::eWarnOutOfVRAM ? " (eWarnOutOfVRAM: DXGI budget exhausted)" : "");
             return true;
         }
         optSkip = kOptRetry;
-        if (failRc != (int)r || failW != w || failH != h) {
-            failRc = (int)r; failW = w; failH = h;
+        const bool news = failRc != (int)r || failW != w || failH != h || failOn != wantOn;
+        failRc = (int)r; failW = w; failH = h; failOn = wantOn;
+        if (news) {
             FgLog("sl: slDLSSGSetOptions(%d) REFUSED %d for %ux%u - DLSS-G stays %s (%ux%u), frames are not prepared, retry every %d prepares", wantOn, (int)r, w, h,
                   isOn ? "eOn" : "eOff", sentW, sentH, (int)kOptRetry);
         }
@@ -453,7 +457,7 @@ struct ProviderStreamline : IFgProvider
     {
         limitFps = presentedFps;
         if (proxy && (paced || !mainPacing)) ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
-        return !g_sl.reflexBad;
+        return !g_sl.reflex.bad;
     }
 
     // Main thread, start of every frame: a fresh index, the Reflex sleep, SIMULATION_START (Reflex guide: sleep at the
@@ -519,7 +523,7 @@ struct ProviderStreamline : IFgProvider
         double k = n ? 1.0 / (1000.0 * n) : 0.0;
         _snprintf_s(buf, cap, _TRUNCATE, "reflex: lowLatency=%d report=%d frames=%u simMs=%.2f simToPresentEndMs=%.2f simToGpuEndMs=%.2f gpuActiveMs=%.2f mode=%d frameLimitUs=%u pacing=%s",
                     st.lowLatencyAvailable ? 1 : 0, st.latencyReportAvailable ? 1 : 0, n, sim * k, toPresent * k, toGpuEnd * k, gpu * k,
-                    g_sl.reflexMode, g_sl.reflexUs, mainPacing ? "main" : "render");
+                    g_sl.reflex.mode, g_sl.reflex.us, mainPacing ? "main" : "render");
     }
 
     // Render thread, DLSS_EV_FG_PREPARE (after the upscaler list wrote the owned twins, same Unity queue order).
@@ -532,7 +536,7 @@ struct ProviderStreamline : IFgProvider
         if (f.epoch != epoch) return false;                // a block of another chain generation (the host drops these first)
         // SDK RESULTS: a provider whose inputs the SDK kept refusing, or whose Reflex low-latency mode was refused,
         // prepares nothing - the starvation watchdog sees it.
-        if (dead || g_sl.reflexBad) return false;
+        if (dead || g_sl.reflex.bad) return false;
         // Main-thread pacing: this frame's index was opened by FrameBegin. None = the frame was fed before the pacer
         // started (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same
         // index twice = a second prepare event inside one frame: one set of constants per index.
