@@ -180,7 +180,7 @@ bool ReflexApply(sl::ReflexMode mode, unsigned frameLimitUs)
         ro.mode = mode;
         ro.frameLimitUs = frameLimitUs;
         r = ReflexTestRefuse(frameLimitUs) ? sl::Result::eErrorInvalidParameter : g_sl.reflexSetOptions(ro);
-        return r == sl::Result::eOk;
+        return SlTookEffect(r);                          // 39 = applied under an exhausted DXGI budget, not a refusal
     });
     if (step == FgReflexLatch::kAccepted) FgLog("sl: Reflex mode %d frameLimitUs %u -> %d", (int)mode, frameLimitUs, (int)r);
     else if (step == FgReflexLatch::kRefused && (l.fails <= 8 || l.fails % 64 == 0))
@@ -382,8 +382,11 @@ struct ProviderStreamline : IFgProvider
         sl::DLSSGState st{};
         sl::ViewportHandle vp(0u);
         r = g_sl.fgGetState(vp, st, NULL);
-        const bool measured = r == sl::Result::eOk && st.numFramesToGenerateMax;
-        unsigned maxGen = measured ? st.numFramesToGenerateMax : 1;
+        // eWarnOutOfVRAM answers the query all the same (SlTookEffect). A query that failed is not a measurement: the
+        // value an earlier chain measured stands (0 = never measured: 2x only), or a 3x/4x rebuild under memory
+        // pressure would be refused as unsupported and the picker would lose 3x/4x.
+        const bool measured = SlTookEffect(r) && st.numFramesToGenerateMax;
+        unsigned maxGen = measured ? st.numFramesToGenerateMax : (g_sl.maxGen ? g_sl.maxGen : 1);
         if (measured) g_sl.maxGen = maxGen;            // a failed query is not a measurement: asked again with the next chain
         caps = CapsFor(maxGen);
         FgLog("sl: numFramesToGenerateMax=%u (rc %d, minWidthOrHeight %u, vsync %d) -> caps 0x%X", maxGen, (int)r, st.minWidthOrHeight, (int)st.bIsVsyncSupportAvailable, caps);
@@ -443,6 +446,12 @@ struct ProviderStreamline : IFgProvider
     // what ends the Streamline frame; the set goes out with the next prepare. Refusing the frame instead would
     // deadlock: an unprepared frame bypasses the proxy, the Streamline frame never ends. Cost: the first frame of a
     // chain / after an idle stretch is not interpolated.
+    // The hold also covers isOn == wantOn == 1 with only the SIZE changed (review 5 #10): that state is reached when
+    // the resize set of this very Streamline frame was REFUSED (the stamp is taken, isOn / sentW / sentH still describe
+    // the old size, the refused frame went out unprepared and ended no Streamline frame). One frame is then tagged at
+    // the new size against the old-size options - DLSS-G skips or mis-scales that one frame - and its Present is what
+    // lets the retry go out. Refusing instead would leave the frame to Idle(), which turns DLSS-G off with a second
+    // set inside the same Streamline frame: a repeated call AND an off/on cycle for the same one frame.
     enum { kOptRefused = 0, kOptReady = 1, kOptHold = 2 };
     int IssueOptions(unsigned w, unsigned h)
     {
@@ -456,7 +465,7 @@ struct ProviderStreamline : IFgProvider
         sl::ViewportHandle vp(0u);
         sl::Result r = sl::Result::eErrorInvalidParameter;
         if (!FgTestSdkFail("sl_options")) { r = g_sl.fgSetOptions(vp, op); SlOptionsIssued(); }
-        if (r == sl::Result::eOk || r == sl::Result::eWarnOutOfVRAM) {
+        if (SlTookEffect(r)) {
             isOn = wantOn; sentW = w; sentH = h; failRc = 0; optSkip = 0;
             FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u, options %ux%u -> %ux%u fmt %u%s", wantOn ? "eOn" : "eOff", framesToGen, w, h, outW, outH, (unsigned)backFmt,
                   r == sl::Result::eWarnOutOfVRAM ? " (eWarnOutOfVRAM: DXGI budget exhausted)" : "");
@@ -551,7 +560,7 @@ struct ProviderStreamline : IFgProvider
         static sl::ReflexState st;                       // ~10 KB: not on the stack
         st = sl::ReflexState();
         sl::Result r = g_sl.reflexGetState(st);
-        if (r != sl::Result::eOk) { _snprintf_s(buf, cap, _TRUNCATE, "reflex: slReflexGetState %d", (int)r); return; }
+        if (!SlTookEffect(r)) { _snprintf_s(buf, cap, _TRUNCATE, "reflex: slReflexGetState %d", (int)r); return; }
         unsigned n = 0;
         double sim = 0, toPresent = 0, toGpuEnd = 0, gpu = 0;
         for (int i = 0; i < sl::kReflexFrameReportCount; ++i) {
@@ -657,7 +666,7 @@ struct ProviderStreamline : IFgProvider
         }
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.setConstants(c, *t, vp);
-        bool inputBad = r != sl::Result::eOk;
+        bool inputBad = !SlTookEffect(r);                  // 39 (eWarnOutOfVRAM) = taken, not a refused input
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetConstants %d", (int)r); }
 
         // The host's flipped copies rest in COMMON (FgTwins.h); SL copies them on `list` (eOnlyValidNow, ManualHooking.md:501-517).
@@ -673,7 +682,7 @@ struct ProviderStreamline : IFgProvider
             sl::ResourceTag(&rHud,   sl::kBufferTypeHUDLessColor,  sl::ResourceLifecycle::eOnlyValidNow, &eOut),
         };
         r = g_sl.setTag(*t, vp, tags, hud ? 3 : 2, list);
-        if (r != sl::Result::eOk) inputBad = true;
+        if (!SlTookEffect(r)) inputBad = true;
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetTagForFrame %d", (int)r); }
         // One refused constants/tag call stays warn-only: the token is in the FIFO and only a Present pops it
         // (BeforePresent), and DLSS-G skips a frame it has no valid inputs for (DLSSGStatus). Refused kInputFailMax
@@ -731,9 +740,14 @@ struct ProviderStreamline : IFgProvider
     }
 
     // Main thread. True once DLSS-G is eOff (or was never on).
+    // Deliberately NOT gated on SlOptionsIssuedThisFrame (review 5 #11): Off runs for a disable / teardown, where no
+    // Present of this chain follows that could end the Streamline frame, and DLSS-G must be eOff before the chain is
+    // released (DLSS_G.md:745-748). If the eOn of the same frame is still out, Streamline logs "Repeated
+    // slDLSSGSetOptions() call" once - the line below says so - and the later call (eOff) is the one that stands.
     bool Off()
     {
         if (!proxy || !isOn) return true;
+        if (SlOptionsIssuedThisFrame()) FgLog("sl: slDLSSGSetOptions(off) follows a set of the same Streamline frame (teardown before its Present) - a 'Repeated slDLSSGSetOptions' warning from Streamline is expected here");
         sl::DLSSGOptions o{};
         Options(o, (unsigned)sl::DLSSGMode::eOff);
         sl::ViewportHandle vp(0u);
