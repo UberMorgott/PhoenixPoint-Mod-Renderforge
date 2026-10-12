@@ -702,6 +702,15 @@ stage, same early-out when all eight uniforms are zero.
   fps, no shadows 368, no per-pixel 377, unlit 369, no aircraft 337 (a loaded sample), overlay off 363 / 355 -
   nothing in the lighting, the shadows or the aircraft costs a measurable frame; the overlay is not slower than
   markers through the upscaler.
+- **Geoscape frame rate across the overlay commits (2026-10-12).** A "116 fps instead of 330" reading was the test
+  route, not the overlay: after PPCLI `start-mission` → `end-mission {lobby}` → `start-campaign` the process stays
+  CPU-bound - WITHOUT Renderforge (D3D11, TFTV + PPBridge only, `targetFrameRate=-1`) menu 1238 → 135 fps, geoscape
+  378 → 115; with it 324 → 114, the same with the overlay off or the upscaler off. Fresh geoscape (`start-campaign`
+  from the menu), one launch per build and API, 3x10 s, foreign CPU load 1-11 cores, DLSS Quality with the overlay
+  on / off: D3D12 `02560d9` 331 / 327, `a9d21b4` 329 / 324, `14f4204` 322 / 306, overlay fixes 319 / 334; D3D11 353 /
+  333, 333 / 342, 378 / 323, 312 / 366; DLAA 267-343, upscaler off 326-397. No build is outside the others' spread.
+  One launch per cell only - the repeat pass and the final native build were taken with another game sharing the GPU
+  and are not counted; the perf verdict for the final build is open until a re-run on an idle machine.
 - **D3D12 draws the layer one frame late (`PoseLag`).** The outRT the present camera blits in frame N holds what
   GeoscapeCamera rendered in frame N-1 ("D3D12 frame pairing" below). Drawn with frame N's camera the markers led
   the globe by one frame of camera motion. Measured with `DumpScreen` pairs under an orbit at 30 fps (template match
