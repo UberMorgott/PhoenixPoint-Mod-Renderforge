@@ -53,6 +53,7 @@ struct FgSetup
     DXGI_SWAP_CHAIN_DESC1 desc;        // FLIP_DISCARD, app format, app size, >= 3 buffers
     unsigned              multiplier;  // 2, 3 or 4 (total frames presented per rendered frame)
     const wchar_t*        dllDir;      // mod folder: where the vendor DLLs live
+    unsigned              epoch;       // the chain generation being built (FgFrame::epoch of every frame fed to it)
 };
 
 // One rendered frame's inputs. Filled on the main thread by Fg_SetFrame, read on the render thread.
@@ -87,6 +88,12 @@ struct FgFrame
     // The pacing frame this block was fed in: what IFgProvider::FrameBegin returned on the main thread at the start of
     // the frame (FgHostSetFrame stamps it). 0 = that frame was not paced on the main thread.
     unsigned paceId;
+    // CHAIN EPOCH (docs\DESIGN.md "FG chain epoch"): the generation of the chain this block was fed to, stamped by
+    // FgHostSetFrame under the host lock; 0 = no live chain then. A block travels to the render thread as the data of a
+    // QUEUED plugin event, and the chain can be destroyed and rebuilt (multiplier change, resize) before that event
+    // runs: its paceId / frameId then belong to a chain that no longer exists. The host drops such an event before it
+    // touches anything (FgHostPrepare); the providers refuse a foreign epoch as a backstop.
+    unsigned epoch;
 };
 
 struct IFgProvider

@@ -237,6 +237,7 @@ struct ProviderStreamline : IFgProvider
     unsigned            sentW, sentH;  // mvecDepthWidth/Height last issued via slDLSSGSetOptions (re-issued on a quality switch)
     unsigned            failW, failH;  // last refused options size + result: logged once, retried every frame
     int                 failRc;
+    unsigned            epoch;         // the host's chain generation this provider was created for (FgSetup::epoch)
     unsigned            frames;        // Prepare calls on this chain
     // Frame indices awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent
     // pops exactly one per Present so the PRESENT_START/END markers name the frame whose inputs were tagged (DLSS_G.md:933).
@@ -266,6 +267,7 @@ struct ProviderStreamline : IFgProvider
         for (unsigned i = 0; i < kTokens; ++i) fifo[i] = 0;
         head = tail = 0; mainPacing = 1; paced = 0; lastPrepared = 0; limitFps = 0;
         generated = 0; warned = 0; havePrev = 0;
+        epoch = 0;
     }
 
     int Id() const { return FG_PROVIDER_DLSS; }
@@ -282,6 +284,7 @@ struct ProviderStreamline : IFgProvider
         outW = s.desc.Width; outH = s.desc.Height; backFmt = s.desc.Format; buffers = s.desc.BufferCount;
         framesToGen = s.multiplier - 1;
         mainPacing = FgMainPacing() ? 1 : 0;
+        epoch = s.epoch;
         if (g_sl.maxGen) {                             // known from an earlier chain: refuse before building anything
             caps = CapsFor(g_sl.maxGen);
             if (framesToGen > g_sl.maxGen) return FG_ERR_UNSUPPORTED_MULTIPLIER;
@@ -483,6 +486,7 @@ struct ProviderStreamline : IFgProvider
         ID3D12Resource* depth = FgDepth12();
         ID3D12Resource* mv = FgMv12();
         if (!proxy || !o || !depth || !mv) return false;
+        if (f.epoch != epoch) return false;                // a block of another chain generation (the host drops these first)
         // Main-thread pacing: this frame's index was opened by FrameBegin. None = the frame was fed before the pacer
         // started (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same
         // index twice = a second prepare event inside one frame: one set of constants per index.

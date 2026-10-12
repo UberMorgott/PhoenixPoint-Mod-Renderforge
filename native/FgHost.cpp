@@ -23,6 +23,10 @@
 // owns it: the provider's on/off on the main thread under PinMain (ApplyEnabled, retried by FgHostPump), an SDK call
 // that needs the GPU idle on the presenting thread inside the Present hook (ServeQuiescent).
 //
+// CHAIN EPOCH (docs\DESIGN.md "FG chain epoch"): H.epoch names the generation of the chain in H.c. Every frame block
+// carries the epoch it was fed to (FgFrame::epoch), and whatever crosses a thread boundary with a delay - a queued
+// prepare event, an armed capture, the result of Unity's own Present - acts only on the generation it belongs to.
+//
 // Two D3D12Ring instances (D3D12Ring.h, the ring every D3D12 backend uses): `prep` submits through
 // IUnityGraphicsD3D12v5::ExecuteCommandList with the resource states Unity must know about (its state
 // arrays outlive the call, which a stack array would not); `copy` submits straight on Unity's queue inside
@@ -120,7 +124,12 @@ struct Host
     // quiescent points served / refused for lack of a retirement proof (status line).
     int                   quiesceSkip;
     volatile LONG         nQuiesce, nQuiesceFail;
-    char                  status[768];
+    // CHAIN EPOCH (docs\DESIGN.md "FG chain epoch"): the generation of the chain in H.c, under g_lock; the main thread
+    // bumps it in the critical section that publishes a new chain (FgHostInit) and nothing else writes it. Never 0
+    // once a chain was built. nStale: queued prepare events dropped because their block belongs to another generation.
+    unsigned              epoch;
+    volatile LONG         nStale;
+    char                  status[1024];
 };
 
 Host H;
@@ -218,11 +227,14 @@ bool DestroyChain(Chain& c, const char* why, bool force)
 }
 
 // Any thread, lock only. A live chain stops being pinnable; the main thread destroys it on its next pump.
-void Detach(const char* why)
+// `epoch` != 0 = the caller means THAT generation (a result that came back from a call made unpinned): a chain built
+// since is not its business.
+void Detach(const char* why, unsigned epoch = 0)
 {
     {
         Locked lk;
         if (H.state != kLive) return;
+        if (epoch && epoch != H.epoch) return;
         H.state = kDetached;
         H.enabled = 0;
         H.destroyTries = 0;
@@ -265,13 +277,18 @@ bool DestroyDetached(DWORD waitMs)
 // A Present that never comes (the window stopped presenting) costs one timeout: `presentStalled` then lets prepares
 // supersede at once until a Present shows up again.
 // True with H.c pinned (stable until Unpin) and H.cur refreshed from the slot.
-bool Pin(bool forPrepare)
+// `epoch` != 0 = the caller carries a queued event of THAT chain generation: the pin is refused (*stale = true) the
+// moment the chain in H.c is another one - checked on entry and again after every wake of the wait, in the same
+// critical section that takes the pin. INVARIANT: a thread that holds the pin sees one generation until it unpins
+// (a new chain is published only after DestroyDetached saw nobody pinned, and FgHostInit runs on one thread).
+bool Pin(bool forPrepare, unsigned epoch = 0, bool* stale = NULL)
 {
     Locked lk;
     const ULONGLONG start = GetTickCount64();
     const ULONGLONG until = start + kPinWaitMs;
     bool waited = false;
     for (;;) {
+        if (epoch && epoch != H.epoch) { if (stale) *stale = true; return false; }
         if (H.state != kLive || !H.enabled) return false;
         if (!H.pinned && !(forPrepare && H.prepared && !H.presentStalled)) break;
         ULONGLONG now = GetTickCount64();
@@ -336,6 +353,7 @@ struct Capture
     wchar_t dir[MAX_PATH];
     char    notes[16384];
     int     len;
+    unsigned epoch;             // the chain generation it was armed on: another chain neither notes nor writes it
 };
 Capture g_cap;
 
@@ -531,6 +549,20 @@ int FgHostCreateChildSwapChain(const FgSetup& s, IDXGISwapChain4** out)
 
 // ---------------------------------------------------------------- host
 
+// Main thread, the last step of FgHostInit: the chain built in H.c becomes generation `epoch` and pinnable.
+// The epoch moves in the SAME critical section that makes the chain pinnable, and so does everything a queued event
+// of the previous generation could still have written without a pin (EventRan -> evDone) or reads before it pins
+// (lastEvPace): an event sees either the old generation, unpinnable, or the new one with a clean slate - never the
+// new chain with the old one's ids.
+static void PublishChain(IFgProvider* p, unsigned epoch)
+{
+    Locked lk;
+    H.epoch = epoch;
+    H.evDone = 0; H.lastEvPace = 0;
+    H.c.prov = p;                                          // publish: the render thread may pin from here on
+    H.state = kLive;
+}
+
 int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
 {
     if (!DestroyDetached(2000)) return FG_ERR_NO_SWAPCHAIN;   // the previous chain is still going: caller retries
@@ -569,6 +601,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     s.device = H.device; s.queue = H.queue; s.factory = c.factory; s.hwnd = hwnd;
     s.multiplier = multiplier < 2 ? 2 : (multiplier > 4 ? 4 : multiplier);
     s.dllDir = dllDir;
+    s.epoch = H.epoch + 1 ? H.epoch + 1 : 1;               // this thread is the only writer (published below); never 0
     s.desc = ad1;
     s.desc.SampleDesc.Count = 1; s.desc.SampleDesc.Quality = 0;
     s.desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -604,18 +637,15 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.reason = NULL;
     H.lastPresentHr = 0;
     H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0; H.havePaired = 0; H.haveSent = 0; H.twinsOk = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
-    H.paceId = 0; H.simId = 0; H.fed = 0; H.lastEvPace = 0; H.maxWaitMs = 0;
+    H.paceId = 0; H.simId = 0; H.fed = 0; H.maxWaitMs = 0;
     H.nPrepare = H.nPrepared = H.nPresent = H.nIdle = H.nWaited = H.nDup = H.nStall = 0;
     H.hudless = -1;
     H.presentStalled = 0; H.tidLogged = 0;
-    H.evDone = 0; H.provWant = -1; H.provOn = -1; H.quiesceSkip = 0; H.nQuiesce = H.nQuiesceFail = 0;
-    {
-        Locked lk;
-        c.prov = p;                                        // publish: the render thread may pin from here on
-        H.state = kLive;
-    }
-    FgLog("host: provider=%s multiplier=%u shadow=%p %ux%u flags=0x%X caps=0x%X",
-          p->Name(), H.multiplier, (void*)c.shadow, H.outW, H.outH, c.scFlags, p->Caps());
+    H.provWant = -1; H.provOn = -1; H.quiesceSkip = 0; H.nQuiesce = H.nQuiesceFail = 0;
+    H.nStale = 0;
+    PublishChain(p, s.epoch);
+    FgLog("host: provider=%s multiplier=%u epoch=%u shadow=%p %ux%u flags=0x%X caps=0x%X",
+          p->Name(), H.multiplier, H.epoch, (void*)c.shadow, H.outW, H.outH, c.scFlags, p->Caps());
     return FG_OK;
 }
 
@@ -771,6 +801,7 @@ const FgFrame* FgHostSetFrame(const FgFrame& f)
         oh = H.slot.hudless; od = H.slot.depth; om = H.slot.mv;
         H.slot = f;
         H.slot.paceId = H.paceId;       // the frame the main thread is in (FgHostFrameBegin)
+        H.slot.epoch = H.state == kLive ? H.epoch : 0;   // the chain this frame is fed to; none = no event of it may act
         H.fed = 1;
         r = &H.ring[H.ringIdx++ % kFrameRing];
         *r = H.slot;
@@ -812,13 +843,13 @@ FgFrame PairFrame(const FgFrame& ev, bool* paired)
 // idle stretch once the feed ended. Plain data, no pin needed; the provider hears of it from a pinned thread
 // (FgHostPrepare's own tail, FgHostOnPresent). Written BEFORE the pin is dropped on the pinned path: a Present that
 // pins next must already see it, and must never see it while the event can still prepare the frame.
-static void EventRan(unsigned id)
+// INVARIANT (chain epoch): an id is recorded only for the generation that issued it - under the lock the epoch moves
+// under, so an event of a destroyed chain can never declare ids of the next one settled (their numbering restarts).
+static void EventRan(unsigned epoch, unsigned id)
 {
-    for (LONG seen = H.evDone; (LONG)id > seen; ) {
-        const LONG was = InterlockedCompareExchange(&H.evDone, (LONG)id, seen);
-        if (was == seen) break;
-        seen = was;
-    }
+    Locked lk;
+    if (!epoch || epoch != H.epoch) return;
+    if ((LONG)id > H.evDone) H.evDone = (LONG)id;
 }
 
 void FgHostPrepare(const FgFrame* ev)
@@ -828,10 +859,34 @@ void FgHostPrepare(const FgFrame* ev)
     // Checked BEFORE the pin and the reset below - Pin(true) would wait its full timeout for a Present that cannot
     // come before this event returns, and the reset would throw the prepared frame away (the provider then refuses
     // the duplicate id and the frame is presented the idle way).
-    const unsigned evPace = ev ? ev->paceId : 0;
-    if (evPace && evPace == H.lastEvPace) { InterlockedIncrement(&H.nDup); return; }   // its first event settled it
-    if (!Pin(true)) { EventRan(evPace); return; }
-    H.lastEvPace = ev ? ev->paceId : 0;
+    // CHAIN EPOCH first of all: this event was queued on the main thread and the chain it was queued for may be gone -
+    // FrameGen.Apply releases and rebuilds the chain on a multiplier change without waiting for the render thread's
+    // queue. Its pace id then numbers frames of a provider that no longer exists, and the new chain's ids start again
+    // at 1. INVARIANT: an event whose block carries another generation than H.epoch touches NOTHING - not the
+    // duplicate filter, not the pin, not `prepared`, not EventRan, not the provider. The block is copied under the
+    // lock the main thread writes the ring under, so a slot being overwritten is never read half-way.
+    FgFrame e;
+    unsigned epochNow;
+    bool dup = false;
+    {
+        Locked lk;
+        e = ev ? *ev : H.slot;
+        epochNow = H.epoch;
+        dup = e.epoch && e.epoch == epochNow && e.paceId && e.paceId == H.lastEvPace;
+    }
+    const unsigned evPace = ev ? e.paceId : 0;
+    bool stale = !e.epoch || e.epoch != epochNow;
+    if (!stale) {
+        if (dup && ev) { InterlockedIncrement(&H.nDup); return; }   // its first event settled it
+        // The wait for the pin can outlast a teardown + rebuild: Pin re-checks the generation after every wake.
+        if (!Pin(true, e.epoch, &stale) && !stale) { EventRan(e.epoch, evPace); return; }
+    }
+    if (stale) {
+        const LONG n = InterlockedIncrement(&H.nStale);
+        if (n <= 8 || n % 64 == 0) FgLog("host: stale prepare event dropped (#%ld): block of chain epoch %u (pace id %u, frame %llu), live epoch %u", n, e.epoch, e.paceId, e.frameId, epochNow);
+        return;
+    }
+    H.lastEvPace = evPace;
     if (!(H.tidLogged & 1)) { H.tidLogged |= 1; FgLog("host: first prepare tid=%u", (unsigned)GetCurrentThreadId()); }
     // A new frame supersedes whatever is still unpresented: an earlier success nobody presented, or a token a skipped
     // Present (GetBuffer/copy failed) left behind. Reset BEFORE the input checks, so a frame with a missing input or a
@@ -843,7 +898,7 @@ void FgHostPrepare(const FgFrame* ev)
     // The pass-through provider has nothing to prepare. Nothing is declared to Unity: providers read the
     // shim-owned twins (COMMON at rest), never the Unity RTs - declaring those as NON_PIXEL_SHADER_RESOURCE made
     // Unity transition them under the upscaler's own barriers (debug layer id=527 on every frame).
-    if (H.cur.hudless && H.cur.depth && H.cur.mv) {
+    if (H.cur.hudless && H.cur.depth && H.cur.mv && H.cur.epoch == H.epoch) {   // the slot's block is of THIS chain too
         // The frame counts as prepared only once the provider's tags/constants are recorded AND the list reached the
         // queue: a failed Begin/Prepare/End leaves prepared = 0, so the next Present takes the idle path (Unity presents
         // its own frame) instead of feeding the generator the previous frame's data.
@@ -857,7 +912,7 @@ void FgHostPrepare(const FgFrame* ev)
                 const OwnedSet12* o = FgOwned12();
                 if (o && H.c.twins.Ensure(H.device, H.c.prep, *o, H.c.backFmt)) { H.c.twins.Run(l, *o, H.c.prep.ringIdx); H.twinsOk = 1; }
                 bool paired = false;
-                const FgFrame f = PairFrame(ev ? *ev : H.cur, &paired);
+                const FgFrame f = PairFrame(ev ? e : H.cur, &paired);
                 if (FgCaptureArmed()) {
                     FgCaptureNote("provider=%s", H.c.prov->Name());
                     FgCaptureNote("frameId=%llu", f.frameId);
@@ -890,7 +945,7 @@ void FgHostPrepare(const FgFrame* ev)
         H.prepared = ok;
         if (ok) InterlockedIncrement(&H.nPrepared);
     }
-    EventRan(evPace);
+    EventRan(e.epoch, evPace);
     if (H.evDone) H.c.prov->PrepareDone((unsigned)H.evDone);   // this event's id and any that gave up without the pin
     Unpin(NULL);
 }
@@ -907,7 +962,9 @@ ID3D12Resource* FgHudless12(DXGI_FORMAT* fmt)
 ID3D12Resource* FgDepth12(void) { return H.twinsOk ? H.c.twins.tex[FgTwins::kDepth] : NULL; }
 ID3D12Resource* FgMv12(void)    { return H.twinsOk ? H.c.twins.tex[FgTwins::kMv] : NULL; }
 
-bool FgCaptureArmed(void) { return InterlockedCompareExchange(&g_cap.state, 1, 1) == 1; }
+// Pinned threads (Prepare): armed, and armed on the chain this thread has pinned - a capture armed on a chain that was
+// rebuilt since is nobody's (FgHostCapture may arm a new one at once).
+bool FgCaptureArmed(void) { return InterlockedCompareExchange(&g_cap.state, 1, 1) == 1 && g_cap.epoch == H.epoch; }
 
 void FgCaptureNote(const char* fmt, ...)
 {
@@ -951,9 +1008,10 @@ int FgHostCapture(const wchar_t* dir)
         SleepConditionVariableSRW(&g_unpinned, &g_lock, (DWORD)(until - now), 0);
     }
     LONG s = InterlockedCompareExchange(&g_cap.state, 0, 0);
-    if ((s == 1 || s == 2) && GetTickCount64() - g_cap.armedAt < kCaptureStaleMs) return 0;
+    if ((s == 1 || s == 2) && g_cap.epoch == H.epoch && GetTickCount64() - g_cap.armedAt < kCaptureStaleMs) return 0;
     wcsncpy_s(g_cap.dir, MAX_PATH, dir, _TRUNCATE);
     g_cap.len = 0;
+    g_cap.epoch = H.epoch;
     g_cap.armedAt = GetTickCount64();
     InterlockedExchange(&g_cap.state, 1);
     return 1;
@@ -970,6 +1028,11 @@ static void TestPresentDelay()
     if (ms < 0) { char v[32] = {}; ms = 0; if (GetEnvironmentVariableA("RENDERFORGE_FG_TEST_PRESENT_DELAY", v, sizeof(v)) && sscanf_s(v, "%d,%d", &ms, &every) == 2 && ms > 0 && every > 0) FgLog("host: TEST RENDERFORGE_FG_TEST_PRESENT_DELAY=%d ms every %d presents", ms, every); else ms = 0; }
     if (ms > 0 && FgHostAlive() && ++n % (unsigned)every == 0) Sleep((DWORD)ms);
 }
+
+// The generation of the chain whose shadow Present this thread just made (FG_PRESENT_SHADOW): the hook reports the
+// result of Unity's own Present after the pin is gone, and a chain built meanwhile must not be detached for it.
+// Per thread: nothing here assumes there is only one presenting thread.
+static thread_local unsigned t_presentEpoch;
 
 int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 {
@@ -1014,7 +1077,9 @@ int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     ID3D12Resource* src = NULL;
     if (FAILED(c.app->GetBuffer(c.app->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&src)) || !src) { Unpin(NULL); return FG_PRESENT_FORWARD; }
 
-    if (InterlockedCompareExchange(&g_cap.state, 2, 2) == 2) InterlockedExchange(&g_cap.state, CaptureWrite(src) ? 3 : -1);
+    // Constants noted by a Prepare of THIS chain only: the notes of a chain that was rebuilt since describe frames
+    // this Present does not carry.
+    if (InterlockedCompareExchange(&g_cap.state, 2, 2) == 2) InterlockedExchange(&g_cap.state, g_cap.epoch == H.epoch && CaptureWrite(src) ? 3 : -1);
 
     // Generated frame(s) first - they sit between the previous real frame and this one - then the real one.
     // The provider presents its own frames on the shadow chain, so the current back buffer is fetched after.
@@ -1068,6 +1133,7 @@ int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     // Present. Skipping it made Unity write to a non-current back buffer (debug layer id=907) and DXGI removed
     // the device with DXGI_ERROR_ACCESS_DENIED (0x887A002B) on the second frame.
     FgPresentedAdd(1 + (generated < 0 ? 0 : generated));
+    t_presentEpoch = H.epoch;                          // still pinned: the generation this Present belonged to
     Unpin(NULL);
     return FG_PRESENT_SHADOW;
 }
@@ -1078,7 +1144,7 @@ void FgHostAfterUnityPresent(HRESULT hr)
         char why[64];
         _snprintf_s(why, sizeof(why), _TRUNCATE, "unity Present 0x%08X", (unsigned)hr);
         H.lastError = FG_ERR_NO_SWAPCHAIN;
-        Detach(why);
+        Detach(why, t_presentEpoch);                   // that chain only: one built since is not detached for it
     }
 }
 
@@ -1143,7 +1209,7 @@ const char* FgHostStatus(void)
         caps = H.state == kLive ? H.c.prov->Caps() : H.lastCaps;
     }
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
-        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld maxWaitMs=%u stalls=%ld dup=%ld quiesce=%ld/%ld pendingEnable=%d%s%s",
+        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld maxWaitMs=%u stalls=%ld dup=%ld quiesce=%ld/%ld pendingEnable=%d epoch=%u stale=%ld%s%s",
         prov, H.enabled, H.multiplier,
         state == kNone ? "-" : "child", child, (unsigned)H.childHr, w->hit, focus,
         w->foreground == game ? 1 : 0,
@@ -1151,6 +1217,7 @@ const char* FgHostStatus(void)
         caps, H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
         frameId, state == kLive ? H.idle : 0LL, (long)H.nPrepared, (long)H.nPrepare, (long)H.nPresent, (long)H.nIdle, (long)H.nWaited,
         H.maxWaitMs, (long)H.nStall, (long)H.nDup, (long)H.nQuiesce, (long)H.nQuiesceFail, H.provWant,
+        H.epoch, (long)H.nStale,
         H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;
 }

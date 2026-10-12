@@ -62,6 +62,7 @@ struct ProviderFsr : IFgProvider
     unsigned long long  generatedId;   // frameID of the last generated frame
     long long           generated;     // frames the proxy's callback generated (chain=child)
     int                 hudlessWarned;
+    unsigned            epoch;         // the host's chain generation this provider was created for (FgSetup::epoch)
     char                version[64];
     char                scVersion[64];
 
@@ -79,7 +80,7 @@ struct ProviderFsr : IFgProvider
     {
         fn = NULL; fgCtx = NULL; scCtx = NULL; proxy = NULL; device = NULL; queue = NULL;
         backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; enabled = 0; lastRc = 0;
-        preparedId = generatedId = ~0ull; generated = 0; hudlessWarned = 0; version[0] = 0; scVersion[0] = 0;
+        preparedId = generatedId = ~0ull; generated = 0; hudlessWarned = 0; epoch = 0; version[0] = 0; scVersion[0] = 0;
         memset(&descFg, 0, sizeof(descFg)); memset(&descVer, 0, sizeof(descVer));
         memset(&descBackend, 0, sizeof(descBackend)); memset(&descOverride, 0, sizeof(descOverride));
         memset(&descSc, 0, sizeof(descSc)); memset(&descScVer, 0, sizeof(descScVer)); memset(&scDesc, 0, sizeof(scDesc));
@@ -162,6 +163,7 @@ struct ProviderFsr : IFgProvider
         if (s.multiplier > 2) { FgLog("fsr: %ux asked, 2x supported", s.multiplier); return FG_ERR_UNSUPPORTED_MULTIPLIER; }
         device = s.device; queue = s.queue;
         outW = s.desc.Width; outH = s.desc.Height; backFmt = s.desc.Format;
+        epoch = s.epoch;
 
         proxy = CreateProxy(s);
         if (!proxy) return FG_ERR_NO_SWAPCHAIN;
@@ -226,6 +228,7 @@ struct ProviderFsr : IFgProvider
         ID3D12Resource* depth = FgDepth12();
         ID3D12Resource* mv = FgMv12();
         if (!fgCtx || !o || !depth || !mv) return false;
+        if (f.epoch != epoch) return false;                // a block of another chain generation (the host drops these first)
 
         ffxConfigureDescFrameGeneration cfg = {};
         cfg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;

@@ -155,6 +155,7 @@ struct ProviderXess : IFgProvider
     int                     warned;
     unsigned                modeDeferred;  // sleep-mode changes put off because the sleeping thread did not leave xellSleep (log throttle)
     enum { kSleepWaitMs = 100 };           // the longest Quiescent waits for the sleeping thread to leave xellSleep
+    unsigned                epoch;         // the host's chain generation this provider was created for (FgSetup::epoch)
     // XeLL sleep mode: low latency on + minimumIntervalUs for the PRESENTED rate (XeLL halves the rendered rate itself
     // with XeSS-FG, xell guide :210-214). Main thread writes `wantUs` (SetFrameLimit); the presenting thread issues
     // it from Quiescent() and records it in `appliedUs` (-1 = no xellSetSleepMode on this context yet).
@@ -181,6 +182,7 @@ struct ProviderXess : IFgProvider
         for (int i = 0; i < kOpen; ++i) unfedId[i] = 0;
         fg = NULL; ll = NULL; proxy = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; caps = 0; maxInterp = 0;
         enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = -1; fgOn = 0; modeDeferred = 0;
+        epoch = 0;
     }
 
     int Id() const { return FG_PROVIDER_XESS; }
@@ -200,6 +202,7 @@ struct ProviderXess : IFgProvider
         }
         outW = s.desc.Width; outH = s.desc.Height; backFmt = s.desc.Format;
         mainPacing = FgMainPacing() ? 1 : 0;
+        epoch = s.epoch;
         // The managed driver retries a refused Init 4x/s: once the GPU's maximum is known, refuse before any context.
         if (g_maxInterp) {
             caps = CapsFor(g_maxInterp);
@@ -413,6 +416,7 @@ struct ProviderXess : IFgProvider
         ID3D12Resource* depth = FgDepth12();
         ID3D12Resource* mv = FgMv12();
         if (!fg || !o || !depth || !mv) return false;
+        if (f.epoch != epoch) return false;                // a block of another chain generation (the host drops these first)
         // Frame generation is not on yet: the chain's first Present switches it on behind the XeLL sleep mode
         // (Quiescent). Nothing is tagged to a disabled chain; the frame goes out the idle way, its id is closed there.
         if (!fgOn) return false;
