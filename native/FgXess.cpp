@@ -356,6 +356,9 @@ struct ProviderXess : IFgProvider
             InterlockedExchange(&appliedUs, us);
             FgLog("xess: XeLL sleep mode: low latency on, frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
         }
+        // The cap wanted IS the accepted one (a refused change was taken back): nothing stands refused, so the run of
+        // refusals is over - "in a row" must not add up across cap changes into GiveUp.
+        else modeFails = 0;
         if (enabled && !fgOn && !EnableFg()) return false;
         return true;
     }
@@ -578,6 +581,7 @@ struct ProviderXess : IFgProvider
         enabled = on ? 1 : 0;
         if (!fg) return;
         if (!on) {
+            enableFails = 0;                               // the "on" request is withdrawn: its run of refusals ends with it
             const xefg_swapchain_result_t r = xefgSwapChainSetEnabled(fg, 0u);   // thread-safe (guide :1098-1107)
             if (XefgOk(r)) fgOn = 0;
             else FgLog("xess: xefgSwapChainSetEnabled(0) REFUSED %d - the SDK still has frame generation on (fgOn %d); nothing is fed to it", (int)r, fgOn);
