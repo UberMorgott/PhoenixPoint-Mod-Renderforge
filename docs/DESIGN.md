@@ -728,7 +728,11 @@ stage, same early-out when all eight uniforms are zero.
   GeoscapeCamera's pre-cull of frame N, while the picture under the markers is frame N-1's - a marker crossing the
   limb was missing for one frame on its way out and drawn twice on its way in. With `PoseLag` the side changes of
   the frame are recorded (`flips`), undone for the present camera's render and re-applied after it (`BeginPresent` /
-  `EndPresent`).
+  `EndPresent`). The shift follows the same split: `ShiftCrafts` moves what the present camera draws in this frame,
+  i.e. what was near in frame N-1 (`Near != (FlipFrame == frame)`), and a loose item that crosses near -> far takes
+  its previous pose at the flip (`CapturePose`). Before, such an item was back on the marker layer for that one
+  render but skipped by the pose capture and the shift (both keyed on the NEW side): drawn at frame N's position
+  over frame N-1's picture, one frame of its own motion at the limb (Codex review 2, static; in-game check pending).
 - **`MotionVectorFilter` and the layer.** The filter keys on `Renderer`, the overlay on `Transform` layers; the
   `Rotator`s on `Selected_Circle` / `Quad_2` stay in the filter's map (mode Camera) while their objects are on the
   marker layer, where no camera with a motion-vector pass draws them. Either can be released first. After
@@ -1313,7 +1317,8 @@ The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer
   states (`ProgrammingGuideReflex.md:171,247`: "must always be called even when Reflex Low Latency mode is Off");
   `slReflexSetOptions` only when mode or cap change. `Create` starts `eOff`, `Destroy` ends `eOff`. XeLL is left
   alone while unfed (no `xellSleep`, no markers: its ids must be consecutive and each needs all six markers - see
-  "Every XeLL frame id" below); its sleep mode is only touched by the sleeping thread.
+  "Every XeLL frame id" below); its sleep mode is only set at the host's quiescent point ("FG host threading and
+  retirement" below).
 - **XeLL calls are serialised** (`FgXess.cpp` `XellLock`): markers come from three threads (main, render, presenting)
   and neither the XeLL guide nor `xell.h` states thread safety. One lock around every XeLL call except `xellSleep`,
   which blocks for the pacing interval and is never called under it.
@@ -1342,29 +1347,25 @@ The FPS LIMIT setting is the **presented** ceiling for every provider. One pacer
   FSR-FG copies depth / motion vectors in its prepare dispatch on the list, but reads `HUDLessColor` from inside its
   Present (the latest `Configure`), queued after the list that wrote it: `FgTwins::Ensure` therefore releases the old
   twins on a size / format change only after the prep ring AND Unity's queue have drained (`D3D12Ring::DrainQueue`).
-- **`xellSetSleepMode` with the chain quiesced.** "application must ensure any GPU activity is finished before
-  `xellSetSleepMode` is called" (`xell_developer_guide_english.md:131`). A cap change is applied on the main thread at
-  the start of a frame, with the chain pinned by that thread (no Prepare, no Present inside it) and Unity's queue
-  drained (`FgHostQuiesce` / `FgHostResume`); a quiesce that does not come through in 200 ms leaves the cap for the
-  next frame. `Create` drains the queue before its own call. Out of reach from native code: what Unity's render
-  thread still has to submit of the frame in flight.
+- **`xellSetSleepMode` only at the quiescent point.** "application must ensure any GPU activity is finished before
+  `xellSetSleepMode` is called" (`xell_developer_guide_english.md:131`). Every call - the first one (low latency on)
+  and each cap change - is issued by the presenting thread inside the Present hook, behind a proven drain of Unity's
+  queue; see "FG host threading and retirement" below. (Until review 2 it ran on the main thread under a pin plus a
+  drain whose failure was only logged, and `Create` issued the first one while Unity was rendering.)
 - **Every XeLL frame id gets all six markers** (`xell.h:74-79` "required"; guide "Markers": "must be delivered each
   frame for XeLL to correctly calculate and execute the `xellSleep` API call"). `FrameBegin` opens an id for every
   paced frame, and some never reach Prepare: the frames of the grace period after the feed stops (`FrameGen`
-  `IdleAfter`), a refused, failed or superseded prepare. The presenting thread closes them in id order
-  (`ProviderXess::CloseSkipped`): before a prepared frame's own markers every lower id, and on a Present without a
-  prepared frame (`IFgProvider::UnpreparedPresent`) every id that can no longer be prepared - nothing was fed in its
-  frame (`FrameUnfed`, told by the host at the next `FgHostFrameBegin`) or its prepare event has run (`PrepareDone`).
-  An id whose event is still to come stops the walk (an age-in-presents rule closed ids too early when the
-  presenting thread fell behind: 467 prepares refused in a 150 ms-delay run). `xess: destroyed (... XeLL ids N,
-  closed without a prepared frame M)` reports it: 9482 ids / 942 closed in a run with every 20th Present delayed
-  150 ms (941 idle presents), prepares 9460 of 9461 events.
-- **The provider's on/off runs under the pin.** `slDLSSGSetOptions` "is NOT thread safe" (`sl_dlss_g.h:207`) and has
-  to be ordered against Present (`ProgrammingGuideDLSS_G.md:486-494`); the render thread issues it from Prepare and
-  `SetEnabled(false)` issued it from the main thread with a Prepare or Present possibly in flight. `FgHostSetEnabled`
-  now closes the gate, takes the pin on the main thread (`PinMain`, ≤ 500 ms), switches the provider and unpins.
-- **`Fg_Capture` never frees what the queue may still use:** a readback list that did not retire in 5 s keeps its
-  allocator and buffers (leaked once, logged).
+  `IdleAfter`), a refused, failed or superseded prepare, a prepare event that never got the pin. The presenting
+  thread closes them in id order (`ProviderXess::OpenSkipped` / `EndSkipped`): before a prepared frame's own markers
+  every lower id, and on a Present without a prepared frame (`IFgProvider::UnpreparedPresent`) every id that can no
+  longer be prepared - nothing was fed in its frame (`FrameUnfed`, told by the host at the next `FgHostFrameBegin`)
+  or its prepare event has run (`PrepareDone`). An id whose event is still to come stops the walk (an
+  age-in-presents rule closed ids too early when the presenting thread fell behind: 467 prepares refused in a 150
+  ms-delay run). `xess: destroyed (... XeLL ids N, closed without a prepared frame M)` reports it: 9482 ids / 942
+  closed in a run with every 20th Present delayed 150 ms (941 idle presents), prepares 9460 of 9461 events (measured
+  before review 2; to be re-measured).
+- **The provider's on/off runs under the pin, or not yet** - see "FG host threading and retirement" below.
+- **`Fg_Capture` never frees what the queue may still use** - same section.
 - Test lever `RENDERFORGE_FG_TEST_PRESENT_DELAY=ms,every` (env): every `every`-th hooked Present is held back `ms`
   before it pins - above 100 ms the next prepare times out and supersedes the unpresented frame.
 - Diagnostics (PPCLI): `FrameStats(true|false)` (base-frame count, fps, p50 / p99 / max ms), `FgLatency()` (Reflex /
@@ -1408,6 +1409,92 @@ simulation. What can be compared is pacing: DLSS-G 2x limit 240 generating, rend
 - **Open:** a Present of an unprepared frame that arrives after the next frame's prepare event consumes that
   prepare's constants (one frame early) — only around idle transitions, unchanged from before; exact pairing needs a
   per-frame id on the Present side.
+
+### FG host threading and retirement (2026-10-12, review 2)
+
+Rule: **a call that needs a synchronisation it did not get is not issued.** The wish is stored and applied at the
+next proven-safe point of the thread that owns it. No "log and proceed", no longer waits, no lock held across an SDK
+sleep. Three threads: main (PlayerLoop, `Fg_*` API), Unity's render thread (`DLSS_EV_FG_PREPARE`), Unity's D3D12
+submission thread (it executes Unity's command lists - ours handed to `ExecuteCommandList` included - and calls
+Present, so the Present hook runs on it: `host: first prepare tid` ≠ `first hooked present tid`).
+
+| # | Invariant | Enforced at | Deferred request, safe point |
+|---|---|---|---|
+| 1 | A fence wait reports "retired" only after `GetCompletedValue() >= value` was read - never on the event alone. | `D3D12Ring::WaitOn` (`native\D3D12Ring.h`) | – (the wait runs to its original deadline) |
+| 2 | `xellSetSleepMode` is issued only behind a successful `DrainQueue` made in the same Present hook, on the submission thread, with the chain pinned and nothing of that Present queued yet; never while a thread is inside `xellSleep`. | `ServeQuiescent` (`native\FgHost.cpp`) → `ProviderXess::Quiescent`, `SleepGate` (`native\FgXess.cpp`) | `wantUs` (main, `SetFrameLimit`) → next Present; no proof = no call, retried 30 presents later |
+| 3 | `xefgSwapChainSetEnabled(1)` only once a low-latency sleep mode is set on that XeLL context. | `ProviderXess::Quiescent` / `SetEnabled`; `Prepare` refuses until then | `enabled && !fgOn` → the first quiescent point of the chain |
+| 4 | `IFgProvider::SetEnabled` runs on a live chain only between a successful `PinMain` and its `Unpin` (no Prepare, no Present inside). | `ApplyEnabled` (`native\FgHost.cpp`) | `H.provWant`, gate `H.enabled = 0` meanwhile → `FgHostPump`, every frame, no wait |
+| 5 | No pace id a prepare event was issued for stays "event still to come" after that event returned. | `EventRan` on every exit of `FgHostPrepare`; `PrepareDone(H.evDone)` from the next pinned thread | – |
+| 6 | Every skipped XeLL id's `PRESENT_START` / `PRESENT_END` bracket one real Present call. | `ProviderXess::OpenSkipped` / `EndSkipped`; `FG_PRESENT_HELD` + `FgHostAfterForwardedPresent` (`native\FgHook.cpp`) | – |
+| 7 | What a timed-out capture list touches of ours outlives it: allocator, list, readback buffers, wait event, a reference on each twin it reads. | `CapPending` / `CapturePendingRetire` (`native\FgHost.cpp`) | released by the next capture or the chain's `ReleaseGpu` once its fence completed |
+
+- **1 - stale fence registrations (blocker).** A ring has one auto-reset event for all its waits, and
+  `SetEventOnCompletion` cannot be withdrawn. A wait for value 1 that timed out left its registration armed; when 1
+  retired later the event was set, and the next wait - for value 2, or for a value on Unity's frame fence - returned
+  `WAIT_OBJECT_0` at once with 2 still executing. Consumers: allocator reuse (`Begin` → `WaitSlot`), `WaitIdle` before
+  resources are released, `DrainQueue` (`FgTwins::Ensure`, the quiescent point), the DLSS-G copy wait. Now a wake only
+  means "read the fence again" and the wait continues until the deadline it was given. Proof without the game:
+  `native\probe\retirement_probe.cpp` reproduces the old result on a WARP fence (`defect reproduced: the da602a4 wait
+  reports 2 retired on the stale wake for 1`) and checks the new one (times out at its deadline; keeps waiting past a
+  stale wake until the value retires).
+- **2 - the quiescent point.** `xellSetSleepMode` used to run on the main thread at the start of a frame, under
+  `PinMain` + `DrainQueue`: (a) a failed or timed-out drain was logged and the call made anyway, (b) even a good drain
+  proved little - a `Signal` from the main thread covers what is on the queue at that instant, not what Unity's
+  submission thread queues a moment later (`D3D12Ring.h` `unityVal`), and the pin keeps out our Prepare / Present, not
+  Unity's submission, (c) `Create` made the first call while Unity was rendering. The call moved to where the proof
+  exists: `FgHostOnPresent`, right after the pin, on the submission thread - Unity's frame is on the queue and nothing
+  else gets there while that thread sits in the hook. `ServeQuiescent` asks `IFgProvider::WantsQuiescent`, drains
+  with the copy ring's fence (`DrainQueue`, ≤ 100 ms) and only then calls `Quiescent`. A refused drain (timeout,
+  failed `Signal`, quarantined ring) = no call; the request stays with the provider and is retried 30 presents later,
+  so a stuck GPU costs one bounded wait per retry, not one per Present. Cost when served: the presenting thread waits
+  for the GPU to finish the frame it just submitted, once per cap change and once per chain start.
+  `xellSleep` (main thread, not under `XellLock`) and `xellSetSleepMode` exclude each other through `SleepGate`, a
+  state word under a lock that is never held across either call: the mode setter waits ≤ 100 ms for the sleeper to
+  leave (one pacing interval at most; the submission thread stays in the hook meanwhile, so the proof holds), a
+  sleeper arriving during the mode call waits for that call (microseconds). The main thread never waits on the GPU.
+  Not covered, and not coverable from the application: what the XeSS-FG proxy's own present thread still does with
+  the previous frame. Assumption the proof rests on: Present is called by the thread that executes Unity's lists
+  (evidence: the tids above; `ExecuteCommandList` "executes a given command list on a worker thread",
+  `IUnityGraphicsD3D12.h`; the back-buffer copy and `Fg_Capture` already run on Unity's queue from this hook and
+  the debug layer names no state error on our resources). The served log line carries Unity's frame-fence values
+  for the regression run to look at.
+- **3 - XeSS-FG chain start.** `Create` issues no sleep mode. XeLL runs in pass-through (`xellSleep` and markers
+  still go out - the guide's own "disabled" shape, `:112-115`) and the proxy presents the application's frames
+  (`xess_fg_developer_guide_english.md:652`) until the chain's first Present: sleep mode on, then
+  `xefgSwapChainSetEnabled(1)` (`:237`, `:648`). `Prepare` returns false until then - nothing is tagged to a disabled
+  chain; that frame goes out the idle way and its id is closed there. If the quiescent point can never be served, no
+  frame is ever prepared and the managed starvation watchdog (`Starved`) drops the provider.
+- **4 - the provider's on/off.** `slDLSSGSetOptions` "is NOT thread safe" (`sl_dlss_g.h:207`) and has to be ordered
+  against Present (`ProgrammingGuideDLSS_G.md:486-494`); the render thread issues it from Prepare. `FgHostSetEnabled`
+  closes the gate (`H.enabled = 0`: no Prepare and no Present enters any more), records the wish and tries
+  `PinMain` (≤ 100 ms). No pin = the switch is NOT issued (before: logged and issued next to the thread inside);
+  `FgHostPump` retries every frame without waiting, and the gate opens only behind the provider's own switch. A chain
+  that went away meanwhile needs nothing: `DestroyChain` switches its provider off detached and unpinned.
+  `Fg_Status`: `pendingEnable=` (-1 none, 0 / 1 the deferred wish).
+- **5 - prepare events that never got the pin.** `Pin(true)` can time out behind a Present (or find the gate
+  closed) and the event returned before `PrepareDone`: with the feed stopping right after, that id stayed unsettled
+  and `OpenSkipped` stalled on it until 16 newer ids existed - i.e. for the whole idle stretch. `EventRan` now records
+  the id on every exit (plain data, no pin), and the next pinned thread - the event's own tail or the Present hook -
+  hands the provider the highest one.
+- **6 - present markers around the Present.** "`XELL_PRESENT_START` and `XELL_PRESENT_END` markers delimit
+  `IDXGISwapChain::Present`" (`xell_developer_guide_english.md:339`). Skipped ids got all four markers back to back
+  before the call. Now `PRESENT_START` before and `PRESENT_END` after: the proxy's Present next to a prepared frame
+  (`BeforePresent` / `AfterPresent`), Unity's own forwarded Present otherwise - `FgHostOnPresent` returns
+  `FG_PRESENT_HELD`, the hook forwards and calls `FgHostAfterForwardedPresent`, and the pin stays with the presenting
+  thread across that one call (as it already does across the shadow Present). Only a provider that opened something
+  asks for it (XeSS); DLSS-G and FSR-FG take the old path.
+- **7 - `Fg_Capture`.** A readback list that did not retire in 5 s kept its allocator and buffers, but not the twins
+  it reads: `FgTwins::Ensure` / `ReleaseGpu` release those on the prep and copy rings' fences, which know nothing of
+  that list. They are referenced now, together with the wait event its fence still holds registered, and everything
+  is released when the fence completes (next capture or teardown); a new capture is refused while one is in flight.
+  Unity's back buffer is deliberately not referenced - an outstanding reference makes Unity's `ResizeBuffers` fail,
+  and Unity resizes behind a flush of the same queue.
+- **Counters:** `Fg_Status` `quiesce=served/refused pendingEnable=`; log lines `host: quiescent point #n served …`,
+  `host: quiescent point refused …`, `host: enabled=N deferred …`, `xess: XeLL sleep mode: low latency on, frame cap …`,
+  `xess: frame generation on (behind the XeLL sleep mode)`.
+- **Status:** built and probed without the game (`retirement_probe`: 360 checks, WARP); in-game regression pending -
+  scenarios in the session's `regression-checklist.md`.
+
 ### HUD
 
 The present path gives every SDK what it needs: the upscaler's `out` twin = upscaled scene WITHOUT the HUD, back
@@ -1451,7 +1538,13 @@ Real fps counted in `Update`; presented fps counted in the Present hook (`FgPres
 - NVIDIA focus gate: unfocused window -> real frames only, no error, no log. Production plugin requires
   the window in the foreground — the normal state when a player plays.
 - Frame-pacing metric (CoV of `MsBetweenDisplayChange` via PresentMon) unmeasured.
-- Debug layer: 0 mismatches on our lists/resources; remaining `id=527/538/1315` are Unity's own.
+- Debug layer: no message names one of OUR lists or resources (`Renderforge ring N`, `Renderforge fg *`). The
+  remaining `id=527/538` (resource state mismatch) and `id=1315` (descriptor heap not shader-visible) come from
+  unnamed lists and 10–21 of them name `BackBufferN_0`, mostly with FSR-FG, also before the review fixes. **Not
+  attributed:** "Unity's own" was an assumption, never shown. Our only back-buffer access is `CopyBackBuffer`
+  (`FgHost.cpp`, PRESENT → COPY_SOURCE → PRESENT on a named ring list) and the `FgTwins` heap is shader-visible; a
+  link to the one XeSS-FG `DEVICE_REMOVED` / `INVALID_CALL` (seen once at `dc5a881`) is neither shown nor excluded.
+  Needs the full messages (`RENDERFORGE_D3D12_DEBUG`) and DRED breadcrumbs.
 - Full contract note: `E:\DEV\PhoenixPoint\docs\research\framegen-d3d12-contract.md`.
 
 ## Packaging (Phase 6, 2026-09-02)
