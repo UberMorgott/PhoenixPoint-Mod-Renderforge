@@ -95,11 +95,17 @@ struct Host
     int                   haveSent;
     int                   twinsOk;      // render thread: this Prepare's list wrote the flipped copies (FgTwins.h)
     unsigned              paceId;       // main thread: what the provider's FrameBegin returned for the frame in progress
+    // Totals of the live chain (status line): prepare events, prepared frames, presents seen, presents taken the idle way.
+    volatile LONG         nPrepare, nPrepared, nPresent, nIdle, nWaited;
+    int                   presentStalled; // a prepared frame's Present did not come within kPinWaitMs: prepares stop waiting until one does
+    int                   tidLogged;
     char                  status[512];
 };
 
 Host H;
 SRWLOCK g_lock = SRWLOCK_INIT;
+CONDITION_VARIABLE g_unpinned = CONDITION_VARIABLE_INIT;   // Unpin: the other thread left the chain
+enum { kPinWaitMs = 100 };
 bool g_mainPacing = true;   // FgMainPacing(): main thread writes, the providers read it at Create
 
 struct Locked
@@ -219,11 +225,36 @@ bool DestroyDetached(DWORD waitMs)
     return true;
 }
 
-// Render thread. True with H.c pinned (stable until Unpin) and H.cur refreshed from the slot.
-bool Pin()
+// The prepare event runs on Unity's render thread; Present is issued by ANOTHER thread (Unity's D3D12 backend submits
+// from its own: the log's "first prepare tid" / "first hooked present tid" differ), and it trails the render thread:
+// frame N+1's prepare event can arrive while frame N's Present has not run yet, or sits inside the vendor chain's
+// pacing wait. Left alone such a prepare was refused (pinned) or superseded frame N's inputs, and frame N+1 was then
+// presented the idle way - each one costs the generator its history. Measured 2026-10-12, tactical, uncapped ~100 fps:
+// FSR-FG 124 of 2901 prepares overlapped a Present; XeSS-FG with the window occluded (Windows 11 then ignores the
+// process's timer resolution and the proxy's pacing wait stretches) 1003 prepare events against 1324 presents, 322 of
+// them idle, presented/base 1.4, base frames hitching to 24 ms. So the two are SERIALISED here: a prepare waits
+// (bounded) until the previous prepared frame has been presented, a Present waits (bounded) for a prepare in flight.
+// A Present that never comes (the window stopped presenting) costs one timeout: `presentStalled` then lets prepares
+// supersede at once until a Present shows up again.
+// True with H.c pinned (stable until Unpin) and H.cur refreshed from the slot.
+bool Pin(bool forPrepare)
 {
     Locked lk;
-    if (H.state != kLive || !H.enabled || H.pinned) return false;
+    const ULONGLONG until = GetTickCount64() + kPinWaitMs;
+    bool waited = false;
+    for (;;) {
+        if (H.state != kLive || !H.enabled) return false;
+        if (!H.pinned && !(forPrepare && H.prepared && !H.presentStalled)) break;
+        ULONGLONG now = GetTickCount64();
+        if (now >= until) {
+            if (H.pinned) return false;                // never two threads inside the chain
+            H.presentStalled = 1;                      // supersede the unpresented frame, as before
+            break;
+        }
+        waited = true;
+        SleepConditionVariableSRW(&g_unpinned, &g_lock, (DWORD)(until - now), 0);
+    }
+    if (waited && forPrepare) InterlockedIncrement(&H.nWaited);
     H.pinned = 1;
     H.cur = H.slot;
     if (H.cur.hudless) H.cur.hudless->AddRef();
@@ -239,6 +270,7 @@ void Unpin(const char* tearWhy)
       SafeRelease(H.cur.hudless); SafeRelease(H.cur.depth); SafeRelease(H.cur.mv);
       H.pinned = 0;
     }
+    WakeAllConditionVariable(&g_unpinned);
     if (tearWhy) Detach(tearWhy);
 }
 
@@ -472,6 +504,8 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.lastPresentHr = 0;
     H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0; H.havePaired = 0; H.haveSent = 0; H.twinsOk = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
     H.paceId = 0;
+    H.nPrepare = H.nPrepared = H.nPresent = H.nIdle = H.nWaited = 0;
+    H.presentStalled = 0; H.tidLogged = 0;
     {
         Locked lk;
         c.prov = p;                                        // publish: the render thread may pin from here on
@@ -589,12 +623,14 @@ FgFrame PairFrame(const FgFrame& ev, bool* paired)
 
 void FgHostPrepare(const FgFrame* ev)
 {
-    if (!Pin()) return;
+    if (!Pin(true)) return;
+    if (!(H.tidLogged & 1)) { H.tidLogged |= 1; FgLog("host: first prepare tid=%u", (unsigned)GetCurrentThreadId()); }
     // A new frame supersedes whatever is still unpresented: an earlier success nobody presented, or a token a skipped
     // Present (GetBuffer/copy failed) left behind. Reset BEFORE the input checks, so a frame with a missing input or a
     // failing Prepare leaves prepared = 0 and no stale DLSS-G token that a later Present would pop for the wrong frame.
     H.prepared = 0;
     H.twinsOk = 0;
+    InterlockedIncrement(&H.nPrepare);
     H.c.prov->DropPrepared();
     // The pass-through provider has nothing to prepare. Nothing is declared to Unity: providers read the
     // shim-owned twins (COMMON at rest), never the Unity RTs - declaring those as NON_PIXEL_SHADER_RESOURCE made
@@ -643,6 +679,7 @@ void FgHostPrepare(const FgFrame* ev)
             } else if (H.prepFails++ < 8) FgLog("host: prep list Begin failed (code %d) - frame not prepared", H.c.prep.failCode);
         }
         H.prepared = ok;
+        if (ok) InterlockedIncrement(&H.nPrepared);
     }
     Unpin(NULL);
 }
@@ -700,13 +737,17 @@ int FgHostCaptureStatus(void) { return (int)InterlockedCompareExchange(&g_cap.st
 
 bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 {
-    if (!Pin()) return false;
+    if (!Pin(false)) return false;
+    H.presentStalled = 0;
+    if (!(H.tidLogged & 2)) { H.tidLogged |= 2; FgLog("host: first hooked present tid=%u", (unsigned)GetCurrentThreadId()); }
     Chain& c = H.c;
     if (app != (IDXGISwapChain*)c.app || !c.shadow) { Unpin(NULL); return false; }
 
     // No frame prepared since the last present: the provider is not driven at all this frame (no copy, no shadow
     // Present, no vendor call), the hook forwards Unity's Present unchanged, and the child hides on the first such frame.
+    InterlockedIncrement(&H.nPresent);
     if (!H.prepared) {
+        InterlockedIncrement(&H.nIdle);
         if (++H.idle == 1) { H.hidden = 1; FgWndShow(false); FgLog("host: idle: no prepared frame - child hidden, provider untouched, Unity presents on its own"); }
         // A real idle stretch (a menu, a loading screen), not one skipped frame: tell the provider (DLSS-G goes eOff).
         if (H.idle == kIdleNotify) c.prov->Idle();
@@ -844,12 +885,13 @@ const char* FgHostStatus(void)
         caps = H.state == kLive ? H.c.prov->Caps() : H.lastCaps;
     }
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
-        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld%s%s",
+        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld%s%s",
         prov, H.enabled, H.multiplier,
         state == kNone ? "-" : "child", child, (unsigned)H.childHr, w->hit, focus,
         w->foreground == game ? 1 : 0,
         shadow, H.outW, H.outH, scFlags,
         caps, H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
-        frameId, state == kLive ? H.idle : 0LL, H.reason ? " reason=" : "", H.reason ? H.reason : "");
+        frameId, state == kLive ? H.idle : 0LL, (long)H.nPrepared, (long)H.nPrepare, (long)H.nPresent, (long)H.nIdle, (long)H.nWaited,
+        H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;
 }
