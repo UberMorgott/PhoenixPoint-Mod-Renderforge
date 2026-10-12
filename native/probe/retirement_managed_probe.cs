@@ -11,9 +11,15 @@ namespace UnityEngine {
  public class RenderTexture { public int Releases; public void Release() {Releases++;} }
  public enum KeyCode { LeftControl,RightControl,LeftAlt,RightAlt }
  public static class Input { public static bool GetKey(KeyCode k)=>false; public static bool GetKeyDown(KeyCode k)=>false; }
- public static class Time { public static float unscaledTime=1; }
+ public static class Time { public static float unscaledTime=1, unscaledDeltaTime=0.016f; public static int frameCount=1; }
+ public static class Screen { public static int width=2560, height=1440; }
  public static class GL { public static int Queued; public static void IssuePluginEvent(IntPtr f,int id) {Queued++;} }
 }
+namespace UnityEngine.LowLevel {
+ public struct PlayerLoopSystem { public Type type; public PlayerLoopSystem[] subSystemList; public UpdateFunction updateDelegate; public delegate void UpdateFunction(); }
+ public static class PlayerLoop { static PlayerLoopSystem cur=new PlayerLoopSystem{subSystemList=new[]{new PlayerLoopSystem{type=typeof(UnityEngine.PlayerLoop.Initialization)},new PlayerLoopSystem{type=typeof(UnityEngine.PlayerLoop.PreLateUpdate)}}}; public static PlayerLoopSystem GetCurrentPlayerLoop()=>cur; public static void SetPlayerLoop(PlayerLoopSystem l){cur=l;} }
+}
+namespace UnityEngine.PlayerLoop { public struct Initialization {} public struct PreLateUpdate {} }
 namespace UnityEngine.Rendering { public class CommandBuffer { public int Releases; public void Release() {Releases++;} } }
 namespace Renderforge {
  enum FrameGenMode { Off, X2, X3, X4 } enum Feature { FrameGen }
@@ -22,9 +28,10 @@ namespace Renderforge {
  static class Availability { public static bool IsD3D12=true,IsNvidia=true,IsIntel=false; public static string Reason(Feature f)=>null; }
  static class Upscalers { public static bool SlDllsPresent=true,XessFgDllsPresent=true,FsrFgDllPresent=true; }
  static class Overlay { public static int FgFps; }
- class Log { public void LogInfo(string s){} public void LogWarning(string s){} }
+ class Log { public void LogInfo(string s){} public void LogWarning(string s){} public void LogError(string s){} }
+ static class Diagnostics { public static bool Sampling=false; public static void SampleFrame(float dt){} }
  class RenderforgeMod { public static RenderforgeMod Instance=new RenderforgeMod(); public Log Logger=new Log(); public DlssConfig Cfg=new DlssConfig(); public static string ModDir=""; public static void ApplyFrameRate(){} public static void Toggle(){} public static void ToggleOverlay(){} }
- static class MipBias { public static void Reset(){} }
+ static class MipBias { public static void Reset(){} public static void Reapply(){} }
  static class Native {
  public const int FG_PROVIDER_NONE=0,FG_PROVIDER_DLSS=1,FG_PROVIDER_FSR=2,FG_PROVIDER_XESS=3,FG_ERR_NO_PROVIDER=-1,FG_ERR_PROVIDER_FAILED=-2,FG_OK=0,DLSS_EV_RELEASE=3;
  public static IntPtr Handle=(IntPtr)1; public static int ShutdownReady=1,Alive=0,InitCalls,Result=1;
@@ -32,7 +39,7 @@ namespace Renderforge {
  public static int Fg_Alive()=>Alive; public static int Fg_Provider()=>FG_PROVIDER_DLSS; public static uint Fg_Caps()=>1;
  public static int Fg_Init(int p,uint m,string dir){InitCalls++;Alive=1;return 0;} public static void Fg_SetEnabled(int on){}
  public static string Fg_Status()=>"mock"; public static int Fg_PacerState()=>0; public static string Fg_Reason()=>"mock";
- public static void Dlss_Passthrough(int i){} public static void Dlss_BeginRelease(){Result=0;} public static int Dlss_ReleaseStatus()=>Result;
+ public static int Dlss_Passthrough(int i)=>0; public static uint Fg_FrameBegin(int pace)=>1; public static void Fg_SimEnd(){} public static uint Fg_PreparedCount()=>prepared++; static uint prepared; public static void Fg_SetMainPacing(int on){} public static void Dlss_BeginRelease(){Result=0;} public static int Dlss_ReleaseStatus()=>Result;
  }
  partial class DlssDriver : MonoBehaviour {
  public static DlssDriver Instance {get;private set;}
@@ -41,7 +48,7 @@ namespace Renderforge {
  private Gen gen; private bool shutdownRequested,releaseQueued,broken; private static bool quitting; private static DlssDriver orphan;
  private RenderforgeMode wantMode; private UpscalerKind switchTo; private int genFrames;
  private RenderTexture colorRT,depthRT,mvRT,outRT; private CommandBuffer cbCopy,cbEval,cbPresent; private Camera present;
- private IntPtr colorPtr,depthPtr,mvPtr,outPtr,evFn;
+ private IntPtr colorPtr,depthPtr,mvPtr,outPtr,evFn; private int lastScreenW,lastScreenH; private float mipReapplyAt;
  private void Detach(){} private void OnCameraPostRender(Camera c){}
  private int stepCalls; private void Step(){stepCalls++;} private void Fail(string why){throw new Exception(why);}
  internal static void RunProbe() {
