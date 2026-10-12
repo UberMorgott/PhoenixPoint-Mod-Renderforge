@@ -47,15 +47,17 @@ Chain: `ffxCreateContextDescUpscale` → `ffxCreateContextDescUpscaleVersion` �
   (`super-resolution-ml.md:129`) — the same direction NGX wants, so the driver's `mvScale = (-renderW, -renderH)`
   (Unity's UV-space `current - previous`) is passed straight into `motionVectorScale`.
 - **Jitter**: unit pixel space, composited as `projX = 2*J.x/renderWidth`, `projY = -2*J.y/renderHeight`
-  (`super-resolution-ml.md:233`). **Y is negated relative to X, and relative to NGX.** Renderforge's driver applies
-  `proj[0,2] += 2*jx/w`, `proj[1,2] += 2*jy/h` and stores NGX's `(-jx, -jy)`, so the ffx dispatch gets
-  `jitterOffset = (jitterSignX * fp.jitterX, jitterSignY * fp.jitterY)` with defaults `(-1, +1)`. Getting this wrong
-  doubles thin edges instead of resolving them. **Measured 2026-09-02** (build `fd394fe`, ALN_PLT_Nest_48x48_A seed
-  12345, Ultra Performance 426x240 → 1280x720, 4 sign combos `-1,1 / 1,1 / -1,-1 / 1,-1`): all four
-  indistinguishable on stills — path dashes, health bars, unit diamonds, dashed cover outlines resolve equally
-  cleanly, no doubling/serration. Limitation: `start-mission` with same scene+seed lands a different camera/unit
-  each launch, so a still-frame A/B cannot separate the signs. Defaults `(-1, +1)` kept. To settle definitively:
-  fixed camera pose or moving-camera capture. Shots: `docs\shots\jitter-ab\fsr-{-1_1,1_1,-1_-1,1_-1}.png`.
+  (`super-resolution-ml.md:233`). Renderforge's driver applies `proj[0,2] += 2*jx/w`, `proj[1,2] += 2*jy/h` on
+  Unity's GL-style matrix (`w_clip = -z_view`) and stores NGX's `(-jx, -jy)`; the ffx dispatch gets
+  `jitterOffset = (jitterSignX * fp.jitterX, jitterSignY * fp.jitterY)` with defaults **`(+1, +1)`** — the same
+  values NGX and XeSS take (X: `Jx = -jx`; Y: the formula's minus is for a top-down target and Unity renders into a
+  RenderTexture bottom-up on D3D, so `Jy = -jy` as well). **Measured 2026-10-12** (D3D12 2560x1440, uncapped, vsync
+  off, geoscape, Quality, sharpen 0, constant jitter `±0.45` px): the previous `(+1, -1)` moved the output by
+  2.84 px in Y (a correct sign leaves it in place), `(+1, +1)` by 0.01 / 0.01 px. Halton convergence against a native
+  frame after the D3D12 frame-pairing fix: `(+1, +1)` 0.944 Quality / 0.942 Performance, X flipped 0.887 / 0.825,
+  Y flipped 0.910 / 0.847. Earlier A/Bs (2026-09-02 stills, 2026-09-03 shake 0.405 vs 0.248) ran while every D3D12
+  evaluate carried the next frame's jitter and compared combinations that were each wrong in one axis.
+  Details: `docs\DESIGN.md` "Scene depth, D3D12 frame pairing, jitter signs (2026-10-12)".
   Env override `RENDERFORGE_FSR_JITTER_SIGN` = `"sx,sy"` (each in {-1,1}), read once at
   `Fsr12::Init`, logged `FSR: jitterSign=%d,%d`.
 - **Jitter phase count**: `ffxQueryDescUpscaleGetJitterPhaseCount` / `...GetJitterOffset` are available (null-context

@@ -95,7 +95,7 @@ struct Fsr12 : IDevice
     {
         device = NULL; ffx = NULL; context = NULL;
         outW = outH = 0; version[0] = 0; dllDir[0] = 0; srgbViews = false;
-        jitterSignX = 1.0f; jitterSignY = -1.0f;    // see Evaluate: FSR wants J = (+fp.jitterX, -fp.jitterY)
+        jitterSignX = 1.0f; jitterSignY = 1.0f;    // see Evaluate: FSR wants J = (+fp.jitterX, +fp.jitterY), like NGX
         memset(&descUpscale, 0, sizeof(descUpscale));
         memset(&descVersion, 0, sizeof(descVersion));
         memset(&descBackend, 0, sizeof(descBackend));
@@ -308,9 +308,14 @@ struct Fsr12 : IDevice
 
             // Jitter. The driver applies proj[0,2] += 2*jx/w, proj[1,2] += 2*jy/h and hands us fp = (-jx,-jy) (NGX).
             // super-resolution-ml.md:233-236: "jitterX = 2*Jx/W; jitterY = -2*Jy/H; jittered = translate(jitterX,jitterY) * P";
-            // with P[3][2] = -1 that is proj[0,2] += -2*Jx/W, proj[1,2] += +2*Jy/H, so Jx = -jx = fp.jitterX, Jy = jy = -fp.jitterY.
-            // ffx_upscale.h:98 only says "The subpixel jitter offset applied to the camera" (no sign). Measured in-game
-            // 2026-09-03 (FSR Quality, static scene): the old (-X,+Y) shook 0.405, this (+X,-Y) 0.248.
+            // with P[3][2] = -1 that is proj[0,2] += -2*Jx/W, so Jx = -jx = fp.jitterX. The Y formula is written for a
+            // top-down target; Unity renders into a RenderTexture bottom-up on D3D, which flips it once more:
+            // Jy = -jy = fp.jitterY. FSR takes the SAME values as NGX and XeSS. ffx_upscale.h:98 gives no sign.
+            // Measured 2026-10-12 (D3D12 2560x1440, FSR Quality): a constant jitter of +-0.45 px moved the output by
+            // 2.84 px in Y with the old (+X,-Y) and by 0.01 px with (+X,+Y); with the Halton sequence (+X,+Y) is the
+            // best of the four combinations against a native reference. The 2026-09-03 shake figures that picked
+            // (+X,-Y) were taken while every D3D12 evaluate was paired with the wrong frame (RenderforgeNative.cpp
+            // PairD3D12), which made the comparison of two half-wrong combinations meaningless.
             d.jitterOffset.x = jitterSignX * fp.jitterX;
             d.jitterOffset.y = jitterSignY * fp.jitterY;
 
