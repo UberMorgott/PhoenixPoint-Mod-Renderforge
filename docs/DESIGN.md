@@ -178,7 +178,8 @@ non-zero = Intel XMX; `Dlss_ProviderVersion` reports `2.0.2 DP4a` / `2.0.2 XMX` 
 is 1), `Dlss_LastError() = DLSS_ERR_XESS` (-6). Observed on the dev RTX 5070 Ti (`dlss_probe --xess`, 2026-09-02):
 `xessGetVersion 2.0.2`, XeFX `0.0.0` (DP4a), 1920x1080 Quality → 1130x636, UQ+ → 1477x831, AA → 1920x1080, 3
 executes + NIS sharpen green. **The Intel XMX path is implemented but unverified — no Arc GPU here.** The jitter
-signs (`kJitterSignX/Y` in `Xess12.cpp`, `(-X, +Y)` like FSR) are derived, not yet measured in-game.
+signs (`kJitterSignX/Y` in `Xess12.cpp`) are `(+1, +1)` on the driver's NGX-convention offsets, measured 2026-10-12
+(`docs\research\xess-d3d12-contract.md` §5).
 
 Managed side: `UpscalerKind { Off, Auto, DLSS, FSR, XeSS }` (`src\Upscaler.cs`), config field `Upscaler`. Auto
 resolves from hardware facts before init (D3D11: NVIDIA → DLSS; D3D12: NVIDIA → DLSS, Intel → XeSS, else FSR when
@@ -215,10 +216,10 @@ Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xe
      grade / style) neither forces `Depth | MotionVectors` (the MV pass re-draws every skinned renderer) nor adds this
      buffer; it follows FG coming up or going mid-generation. Status: `mvCopy=`.
      `CopyTexture(BuiltinRenderTextureType.MotionVectors → mvRT RGHalf)` (same size/format,
-     no resample, no Y flip); depth: material-less `Blit(BuiltinRenderTextureType.Depth →
-     depthRT RFloat)` point-sampled, no conversion (`DepthInverted` flag from
-     `SystemInfo.usesReversedZBuffer`). If the material-less depth blit proves lossy, v1.1 embeds
-     a tiny copy shader as D3D11 bytecode — no AssetBundle in the package.
+     no resample, no Y flip); depth: material-less `Blit(<depth source> → depthRT RFloat)` point-sampled, no
+     conversion (`DepthInverted` flag from `SystemInfo.usesReversedZBuffer`). The source follows the camera's
+     `actualRenderingPath` (`DlssDriver.BuildCopy`): `ResolvedDepth` under deferred, `Depth` under forward — see
+     "Scene depth, D3D12 frame pairing, jitter signs (2026-10-12)".
   3. `CommandBuffer` at `CameraEvent.AfterEverything`: `IssuePluginEventAndData(evalAndDataFn, 2,
      frameSlotPtr)` → NGX writes `outRT` (native res, `enableRandomWrite=true` → UAV).
   4. `OnPostRender` (scene camera): `ResetProjectionMatrix()` so picking/UI raycasts see the
@@ -741,6 +742,84 @@ stage, same early-out when all eight uniforms are zero.
 - Diagnostics (PPCLI): `MvStats(path)` (whole-frame motion field + PNG), `SurveyMovers(path, frames)` (renderers
   whose transform moves on a still picture, with the vector at their centre), `GetMvFilterStatus`, `AuditMvModes`,
   `SetMvFilter(bool)` (A/B lever, runtime-only). Dumps: session scratchpad `mvfix\`.
+
+### Scene depth, D3D12 frame pairing, jitter signs (2026-10-12)
+
+Three independent defects behind "soft / stair-stepped on D3D12, XeSS bad in a different way". All measured at
+2560x1440 borderless, `targetFrameRate=-1`, `vSyncCount=0`, mod limiter off, 280–400 fps on the geoscape (60–100 in
+the tactical map), no other Phoenix Point process alive. Dumps + scripts: session scratchpad `xess\`.
+
+- **Depth was the colour buffer (D3D11 and D3D12, every provider, FG too).** `Blit(BuiltinRenderTextureType.Depth →
+  depthRT)` logged `built-in render texture type 3 not found while executing DLSS copy depth+mv (Blit source)` and
+  copied whatever `_MainTex` still held: `DepthStats` read `corrColorR=1.0000` on the geoscape and in
+  `ALN_PLT_Nest_48x48_A`, both APIs. Unity 2019.4 `BuiltinRenderTextureType`: `Depth` = "Camera's depth texture.",
+  `ResolvedDepth` = "Resolved depth buffer from deferred." — both cameras render `DeferredShading`, which has no camera
+  depth texture. Measured per path (D3D11 geoscape, `renderingPath` forced through PPCLI):
+
+  | path | `Depth` | `ResolvedDepth` |
+  |---|---|---|
+  | DeferredShading | colour (corr 1.0000) | real: centre 0.017413 vs 0.017372 predicted by a physics ray |
+  | Forward | real: centre 0.017397 | colour (corr 1.0000) |
+
+  Fix: `DlssDriver.BuildCopy` picks the source from `cam.actualRenderingPath` and `KeepCameraState` rebuilds the
+  buffer (with a history reset) when the path changes. Tactical after the fix: centre 0.005860 vs 0.005863 predicted.
+  **Contract for consumers (FG included):** `depthRT` is `RFloat` at render resolution, raw device depth, reversed-Z
+  on D3D (near = 1, far = 0; `DLSS_F_DEPTH_INVERTED` / `INVERTED_DEPTH` / `DEPTH_INVERTED` declare exactly that), same
+  size and row order as `colorRT` and `mvRT` (all three are written by the same camera, no flip between them).
+- **D3D12 evaluated frame N-1 with frame N's jitter.** A list handed to `IUnityGraphicsD3D12v5::ExecuteCommandList`
+  runs on the GPU before Unity's own still-open command list of that frame, and v5 (the only version 2019.4 has)
+  offers no flush. So what our list copies out of `colorRT` / `depthRT` / `mvRT` at frame N's event is what Unity
+  rendered in frame N-1. Evidence: `DumpPair` under an orbit at 20 fps — `outRT` of a passthrough copy trails
+  `colorRT` read back in the same frame by 5.70 px, then 1.09, 1.11 as the orbit decays; 0.00 standing still and 0.00
+  on D3D11. Reporting the previous frame's jitter (`SetJitterReportDelay 1`) lifted the high-pass correlation with a
+  native frame from 0.855 to 0.937 (DLSS), 0.773 to 0.919 (XeSS), 0.789 to 0.944 (FSR), Performance mode.
+  Fix: `PairD3D12` in `RenderforgeNative.cpp` — on D3D12 jitter, reset, frame time, pre-exposure and the camera
+  frustum come from the previous event's block; resources and everything applied to the output (sharpness, LUT,
+  style, grade, colour vision) stay this frame's. The first evaluate on a new colour RT is a reset.
+  **Remaining consequence:** the upscaled picture on D3D12 is one frame behind the scene Unity renders (3 ms at
+  330 fps). `Fg_SetFrame` still sends frame N's matrices and jitter next to twins that hold frame N-1 — for the FG fix.
+- **Jitter signs.** Every SDK takes the same value, the driver's NGX offsets `(-jx, -jy)`: XeSS was `(-X, +Y)`,
+  FSR `(+X, -Y)`, each with one axis wrong. Constant-jitter test (`SetJitterConst ±0.45`, sharpen 0, Quality; a
+  correct sign leaves the output where it was, a wrong one moves it by twice the input shift): DLSS 0.09 / 0.19 px,
+  XeSS 3.11 px in X before and 0.06 / 0.00 after, FSR 2.84 px in Y before and 0.01 / 0.01 after. With the Halton
+  sequence and the pairing fix the shipped signs beat the other combinations against a native frame in Quality and
+  Performance (XeSS 0.914 / 0.935 vs 0.817–0.866; FSR 0.944 / 0.942 vs 0.825–0.910; DLSS 0.950 / 0.942 vs 0.826 /
+  0.833 flipped). Before the pairing fix the same test favoured the *opposite* signs (the base-2 / base-3 Halton
+  values of consecutive frames are anti-correlated, so a flipped sign approximated the previous frame's jitter) —
+  which is why earlier still-frame and "shake" A/Bs could not settle it.
+- **XeSS `LDR_INPUT_COLOR` stays.** Guide "Color": LDR input sets the flag, exposure 1.0, no auto-exposure. A/B
+  without the flag (FP16 linear treated as HDR): 0.925 / 0.933 against 0.914 / 0.935 with it — no difference.
+
+Result, static geoscape, day side, crop 1500,700–1900,1100, Laplacian of the SDK input → output (`s0` = Sharpness 0,
+`s40` = default), consecutive-output pixels differing by more than 8/255:
+
+| API / provider / mode | before s40 | after s0 | after s40 | consecutive diff (after) | match with native, before → after |
+|---|---|---|---|---|---|
+| D3D12 DLSS Quality | 3.54 → 5.18 | 3.49 → 3.40 | 3.58 → **7.51** | 0.00 % / 0.16 % | 0.852 → 0.960 |
+| D3D12 DLSS Performance | — | 2.99 → 3.57 | 3.00 → 7.50 | 0.00 % / 1.34 % | 0.866 → 0.942 |
+| D3D12 XeSS Quality | 3.42 → 2.14 | 3.37 → 2.28 | 3.20 → 2.80 | 0.00 % / 0.11 % | 0.882 → 0.913 |
+| D3D12 XeSS Performance | 2.59 → 2.11 | 2.52 → 2.36 | 2.49 → 2.63 | 0.00 % / 0.27 % | 0.843 → 0.938 |
+| D3D12 FSR Quality | 3.49 → 3.72 | 3.63 → 3.37 | 3.69 → 4.39 | 0.00 % / 0.00 % | 0.869 → 0.948 |
+| D3D12 FSR Performance | — | 2.99 → 2.82 | 2.99 → 3.75 | 0.00 % / 0.00 % | 0.812 → 0.942 |
+| D3D11 DLSS Quality | 7.50 (earlier run) | 3.90 → 3.86 | 3.91 → 7.28 | 0.00 % / 0.06 % | 0.955 |
+
+- D3D12 DLSS now equals D3D11 (7.51 vs 7.28). The old "5.50 vs 7.50" was the pairing defect.
+- Sharpening: DLSS and XeSS use the shim pass (NIS, output resolution, same strength on both APIs — `Dlss_Sharpener`
+  = NIS in every row); FSR uses its own RCAS with the same 0..1 value. NIS is contrast-adaptive, so its gain follows
+  what the upscaler resolved: +121 % on DLSS, +23 % on XeSS at 40.
+- **Open: XeSS Quality stays below its own (aliased) input on this crop** (2.80 vs 3.20). The crop is a field of
+  1–2 px halftone dots; XeSS 2.0.2 DP4a reconstructs them regularly but at lower contrast than DLSS / FSR. No
+  integration error is left that the SDK documents: jitter registered (0.06 px), pairing fixed, depth real, flags per
+  guide. Coastlines at XeSS Performance are clean (`xess\_fin.png`); before, XeSS and FSR showed horizontal combing
+  on near-horizontal edges (`xess\_xp.png`, `xess\_xin.png`).
+- Tactical (`ALN_PLT_Nest_48x48_A`, D3D12, Quality, s40): DLSS 2.39 → 3.40, XeSS 2.14 → 2.64, FSR 2.41 → 2.39; the
+  12–14 % consecutive diff there is the scene (pulsing deployment zone, idle soldiers): native passthrough reads
+  12.99 %, the unlit 74 % of the crop 0.00–0.15 %.
+- Motion vectors under an orbit at 60 fps (1.2–1.3 px/frame): output/input Laplacian DLSS 0.53, XeSS 0.54, FSR 0.56,
+  the same ratios as standing still on that content — XeSS shows no smear of its own; scale `(-renderW, -renderH)`
+  unchanged (guide "Motion Vectors": pixels, current → previous).
+- Diagnostics (PPCLI, runtime-only): `DepthStats`, `SetDepthSource(0|1|2)`, `SetJitterReportDelay(-1|0|1)`,
+  `DumpPair(in, out)`; `DumpOut` / `DumpColorIn` now sRGB-encode an FP16 source, so D3D12 and D3D11 dumps compare 1:1.
 
 ### Data flow per frame
 
