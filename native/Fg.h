@@ -141,9 +141,12 @@ struct IFgProvider
     // The presenting thread (chain pinned), the kIdleNotify-th consecutive Present with no prepared frame (the host
     // forwards Unity's Present until frames resume): nothing goes through the provider's chain. Default no-op.
     virtual void     Idle() {}
-    // The presenting thread (chain pinned), EVERY Present with no prepared frame, before the host forwards Unity's:
-    // a latency SDK closes here the frames it opened in FrameBegin that never reached Prepare. Default no-op.
-    virtual void     UnpreparedPresent() {}
+    // The presenting thread (chain pinned), EVERY Present with no prepared frame, before the hook forwards Unity's:
+    // a latency SDK opens the present of the frames it opened in FrameBegin that never reached Prepare. True = it did,
+    // and the host then KEEPS THE PIN across the forwarded Present and calls AfterUnpreparedPresent right after it
+    // (the present markers bracket the real Present call). Default: nothing, false.
+    virtual bool     UnpreparedPresent() { return false; }
+    virtual void     AfterUnpreparedPresent() {}
     // What tells such a provider that an id FrameBegin returned will never be prepared. Main thread, at the next
     // FrameBegin: nothing was fed in the frame `id` paced (no prepare event will come). A pinned thread (the render
     // thread at the end of its event, the presenting thread before UnpreparedPresent): the prepare event of the frame
@@ -264,11 +267,16 @@ const char* FgHostStatus(void);
 const char* FgHostReason(void);              // why the last Init failed, static text or ""
 
 // Called from the Present hook BEFORE it forwards Unity's Present (the hook is the only place that presents
-// Unity's chain, exactly once per call, on every path). Returns true when the shadow chain carried this frame:
-// the hook then presents Unity's chain with sync 0 and only ALLOW_TEARING/RESTART kept, and reports the result
-// to FgHostAfterUnityPresent. False = the hook forwards the call unchanged. Never presents Unity's chain itself.
-bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags);
+// Unity's chain, exactly once per call, on every path). Never presents Unity's chain itself.
+//   FG_PRESENT_SHADOW   the shadow chain carried this frame: the hook presents Unity's chain with sync 0 and only
+//                       ALLOW_TEARING/RESTART kept, and reports the result to FgHostAfterUnityPresent;
+//   FG_PRESENT_FORWARD  the hook forwards the call unchanged;
+//   FG_PRESENT_HELD     the same, AND the chain is still pinned by this thread: the hook MUST call
+//                       FgHostAfterForwardedPresent right after the forwarded Present (it unpins).
+enum { FG_PRESENT_FORWARD = 0, FG_PRESENT_SHADOW = 1, FG_PRESENT_HELD = 2 };
+int  FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags);
 void FgHostAfterUnityPresent(HRESULT hr);    // hook, after the Unity Present of a handled frame (failure/occlusion detaches)
+void FgHostAfterForwardedPresent(void);      // hook, after the forwarded Present of an FG_PRESENT_HELD frame
 // Called from the ResizeBuffers hook before the original runs.
 void FgHostOnResize(unsigned w, unsigned h);
 // Add n presented frames to the counter (providers report their generated frames through this).

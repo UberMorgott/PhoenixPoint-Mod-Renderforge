@@ -937,13 +937,13 @@ static void TestPresentDelay()
     if (ms > 0 && FgHostAlive() && ++n % (unsigned)every == 0) Sleep((DWORD)ms);
 }
 
-bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
+int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 {
     TestPresentDelay();
-    if (!Pin(false)) return false;
+    if (!Pin(false)) return FG_PRESENT_FORWARD;
     if (!(H.tidLogged & 2)) { H.tidLogged |= 2; FgLog("host: first hooked present tid=%u", (unsigned)GetCurrentThreadId()); }
     Chain& c = H.c;
-    if (app != (IDXGISwapChain*)c.app || !c.shadow) { Unpin(NULL); return false; }
+    if (app != (IDXGISwapChain*)c.app || !c.shadow) { Unpin(NULL); return FG_PRESENT_FORWARD; }
     // Presents of OUR chain's app are arriving again: prepares may wait for them. Only here - a Present of some other
     // chain consumes nothing, and clearing the flag for it made every following prepare wait its full timeout.
     { Locked lk; H.presentStalled = 0; }
@@ -960,9 +960,11 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
         if (++H.idle == 1) { H.hidden = 1; FgWndShow(false); FgLog("host: idle: no prepared frame - child hidden, provider untouched, Unity presents on its own"); }
         // A real idle stretch (a menu, a loading screen), not one skipped frame: tell the provider (DLSS-G goes eOff).
         if (H.idle == kIdleNotify) c.prov->Idle();
-        c.prov->UnpreparedPresent();
+        // A latency SDK that opened the present of skipped frames gets their end right after the forwarded Present:
+        // the pin stays with this thread until FgHostAfterForwardedPresent.
+        if (c.prov->UnpreparedPresent()) return FG_PRESENT_HELD;
         Unpin(NULL);
-        return false;
+        return FG_PRESENT_FORWARD;
     }
     H.prepared = 0;
     if (H.hidden) { H.hidden = 0; FgWndShow(true); FgLog("host: frames resumed after %lld idle presents - child shown", H.idle); }
@@ -974,7 +976,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     if (pf && syncInterval) pf = 0;                    // tearing needs sync interval 0
 
     ID3D12Resource* src = NULL;
-    if (FAILED(c.app->GetBuffer(c.app->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&src)) || !src) { Unpin(NULL); return false; }
+    if (FAILED(c.app->GetBuffer(c.app->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&src)) || !src) { Unpin(NULL); return FG_PRESENT_FORWARD; }
 
     if (InterlockedCompareExchange(&g_cap.state, 2, 2) == 2) InterlockedExchange(&g_cap.state, CaptureWrite(src) ? 3 : -1);
 
@@ -986,7 +988,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     if (FAILED(c.shadow->GetBuffer(c.shadow->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&dst)) || !dst) {
         src->Release();
         Unpin(NULL);
-        return false;
+        return FG_PRESENT_FORWARD;
     }
     if (!c.logged) {
         c.logged = 1;
@@ -997,7 +999,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     bool copied = CopyBackBuffer(c, src, dst);
     src->Release(); dst->Release();
     // A queue/fence failure is the device going away: detach without presenting, the hook forwards Unity's frame.
-    if (!copied) { H.lastError = FG_ERR_NO_SWAPCHAIN; Unpin("back-buffer copy failed"); return false; }
+    if (!copied) { H.lastError = FG_ERR_NO_SWAPCHAIN; Unpin("back-buffer copy failed"); return FG_PRESENT_FORWARD; }
     // A provider presenting on its own queue (DLSS-G) reads the back buffer we just wrote on ITS queues right after
     // Present, and nothing fences that read against our copy (measured with the debug layer on, DLSS-G 2x/3x/4x:
     // ~35-48/s id=1047 "fake-swapchain-buffer still referenced by cmdQ.dlssg / cmdQ.game" without this wait, 0 with
@@ -1006,7 +1008,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     if (c.prov->PresentQueue() && c.copy.fence && c.copy.WaitOn(c.copy.fence, c.copy.fenceVal) != WAIT_OBJECT_0) {
         H.lastError = FG_ERR_NO_SWAPCHAIN;
         Unpin("copy fence wait failed");
-        return false;
+        return FG_PRESENT_FORWARD;
     }
     c.prov->BeforePresent();                           // the copy is the last write into the shadow back buffer
 
@@ -1023,7 +1025,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
         _snprintf_s(why, sizeof(why), _TRUNCATE, "shadow Present 0x%08X", (unsigned)hr);
         H.lastError = FG_ERR_NO_SWAPCHAIN;
         Unpin(why);                                    // detached; the hook presents Unity's frame as usual
-        return false;
+        return FG_PRESENT_FORWARD;
     }
     // Unity's chain MUST still be presented (by the hook, once): Unity 2019.4 tracks its own back-buffer index
     // and renders the next frame into buffer (i+1)%n, while a flip-model chain only advances its index on
@@ -1031,7 +1033,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     // the device with DXGI_ERROR_ACCESS_DENIED (0x887A002B) on the second frame.
     FgPresentedAdd(1 + (generated < 0 ? 0 : generated));
     Unpin(NULL);
-    return true;
+    return FG_PRESENT_SHADOW;
 }
 
 void FgHostAfterUnityPresent(HRESULT hr)
@@ -1042,6 +1044,14 @@ void FgHostAfterUnityPresent(HRESULT hr)
         H.lastError = FG_ERR_NO_SWAPCHAIN;
         Detach(why);
     }
+}
+
+// The presenting thread, still holding the pin FgHostOnPresent returned FG_PRESENT_HELD with: Unity's Present of an
+// unprepared frame has just returned. The pin was never dropped, so the provider is the one UnpreparedPresent ran on.
+void FgHostAfterForwardedPresent(void)
+{
+    H.c.prov->AfterUnpreparedPresent();
+    Unpin(NULL);
 }
 
 void FgHostOnResize(unsigned w, unsigned h)

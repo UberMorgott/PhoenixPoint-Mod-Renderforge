@@ -120,13 +120,14 @@ struct ProviderXess : IFgProvider
     volatile LONG           unfedId[kOpen];   // main thread: the id of an unfed frame in that slot (no prepare event will come)
     unsigned                startedId[kOpen]; // render thread: the id that got RENDERSUBMIT_START in that slot
     unsigned                closedId;      // presenting thread (read by Prepare, serialised by the host's pin)
+    unsigned                endFrom, endTo; // presenting thread
     unsigned                skippedClosed; // ids closed without a prepared frame, this chain
     char                    version[64];
 
     ProviderXess() { Zero(); }
     void Zero()
     {
-        simEnded = 0; settledId = 0; closedId = 0; skippedClosed = 0; memset(startedId, 0, sizeof(startedId));
+        simEnded = 0; settledId = 0; closedId = 0; endFrom = endTo = 0; skippedClosed = 0; memset(startedId, 0, sizeof(startedId));
         for (int i = 0; i < kOpen; ++i) unfedId[i] = 0;
         fg = NULL; ll = NULL; proxy = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; caps = 0; maxInterp = 0;
         enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = 0; capDeferred = 0;
@@ -269,32 +270,50 @@ struct ProviderXess : IFgProvider
     // The presenting thread. "All marker types ... must be delivered each frame for XeLL to correctly calculate and
     // execute the xellSleep API call" (xell guide "Markers", xell.h:74-79 "required"). FrameBegin opens an id for every
     // paced frame, and some never reach Prepare: the frames of the grace period after the feed stops (FrameGen.cs
-    // IdleAfter), a refused or failed prepare, a superseded one. Each of those gets its four missing markers here,
-    // in id order, so no id is left open: before a prepared frame's own markers (every id below it is settled - the
-    // prepare events come in id order), and on a Present without a prepared frame every id that can no longer be
-    // prepared - nothing was fed in its frame (FrameUnfed, main thread) or its prepare event has run (PrepareDone,
-    // render thread; a Present without a prepared frame means that event left it unprepared). An id whose event is
-    // still to come stops the walk. Prepare refuses an id closed this way (cannot happen by the above; a backstop).
-    void CloseSkipped(unsigned upTo, bool onlySettled)
+    // IdleAfter), a refused or failed prepare, a superseded one, a prepare event that never got the host's pin. Each of
+    // those gets its four missing markers around a Present, in id order, so no id is left open: before a prepared
+    // frame's own markers (every id below it is settled - the prepare events come in id order), and on a Present
+    // without a prepared frame every id that can no longer be prepared - nothing was fed in its frame (FrameUnfed,
+    // main thread) or its prepare event has run (PrepareDone; a Present without a prepared frame means that event left
+    // it unprepared). An id whose event is still to come stops the walk. Prepare refuses an id opened this way
+    // (cannot happen by the above; a backstop).
+    // "XELL_PRESENT_START and XELL_PRESENT_END markers delimit IDXGISwapChain::Present" (xell guide :339), so the
+    // walk is split around the real call: OpenSkipped issues RENDERSUBMIT_START (unless Prepare already did),
+    // RENDERSUBMIT_END and PRESENT_START before it, EndSkipped the PRESENT_END after it returned - the proxy's
+    // Present next to a prepared frame (BeforePresent / AfterPresent), Unity's own forwarded Present otherwise
+    // (UnpreparedPresent / AfterUnpreparedPresent; the host keeps its pin across that call).
+    // INVARIANT: every id in endFrom..endTo has PRESENT_START out and gets PRESENT_END after exactly one Present call.
+    // True = at least one id was opened: EndSkipped must follow that Present.
+    bool OpenSkipped(unsigned upTo, bool onlySettled)
     {
+        EndSkipped();                                      // backstop: a Present that never reported back
         const unsigned settled = (unsigned)InterlockedCompareExchange(&settledId, 0, 0);
+        const unsigned first = closedId + 1;
         while (closedId < upTo) {
             const unsigned id = closedId + 1;
             if (onlySettled && id > settled && (unsigned)unfedId[id % kOpen] != id && upTo - id < kOpen) break;
             if (startedId[id % kOpen] != id) Mark(ll, id, XELL_RENDERSUBMIT_START);   // a superseded frame already has it (Prepare)
             Mark(ll, id, XELL_RENDERSUBMIT_END);
             Mark(ll, id, XELL_PRESENT_START);
-            Mark(ll, id, XELL_PRESENT_END);
             closedId = id;
             ++skippedClosed;
         }
+        if (closedId < first) return false;
+        endFrom = first; endTo = closedId;
+        return true;
+    }
+    void EndSkipped()
+    {
+        for (unsigned id = endFrom; endFrom && id <= endTo; ++id) Mark(ll, id, XELL_PRESENT_END);
+        endFrom = endTo = 0;
     }
 
-    void UnpreparedPresent()
+    bool UnpreparedPresent()
     {
-        if (!ll || !fg || !mainPacing) return;
-        CloseSkipped((unsigned)InterlockedCompareExchange(&simEnded, 0, 0), true);
+        if (!ll || !fg || !mainPacing) return false;
+        return OpenSkipped((unsigned)InterlockedCompareExchange(&simEnded, 0, 0), true);
     }
+    void AfterUnpreparedPresent() { if (ll && fg) EndSkipped(); }
     void FrameUnfed(unsigned id) { if (id) InterlockedExchange(&unfedId[id % kOpen], (LONG)id); }
     void PrepareDone(unsigned id) { if ((LONG)id > settledId) InterlockedExchange(&settledId, (LONG)id); }
 
@@ -401,7 +420,7 @@ struct ProviderXess : IFgProvider
     {
         if (!fg || marked) return;
         marked = 1;
-        if (mainPacing && presentId) CloseSkipped(presentId - 1, false);
+        if (mainPacing && presentId) OpenSkipped(presentId - 1, false);   // their PRESENT_END: AfterPresent, in id order
         Mark(ll, presentId, XELL_RENDERSUBMIT_END);
         Mark(ll, presentId, XELL_PRESENT_START);
     }
@@ -409,6 +428,7 @@ struct ProviderXess : IFgProvider
     void AfterPresent(HRESULT)
     {
         if (!fg) return;
+        EndSkipped();
         if (marked == 1) { marked = 2; Mark(ll, presentId, XELL_PRESENT_END); if (mainPacing && presentId > closedId) closedId = presentId; }
         xefg_swapchain_present_status_t st = {};
         if (xefgSwapChainGetLastPresentStatus(fg, &st) != XEFG_SWAPCHAIN_RESULT_SUCCESS) return;

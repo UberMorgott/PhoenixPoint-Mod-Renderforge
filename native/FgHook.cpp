@@ -277,10 +277,11 @@ HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* self, UINT sync, UINT flag
     if (flags & kPassThrough) return g_origPresent(self, sync, flags);
     NoteApp(self);
     if (!IsApp(self)) return g_origPresent(self, sync, flags);
-    bool fg = FgHostOnPresent(self, sync, flags);
-    HRESULT hr = fg ? FwdApp(self, 0, UnityFlags(flags)) : FwdApp(self, sync, flags);
+    const int fg = FgHostOnPresent(self, sync, flags);
+    HRESULT hr = fg == FG_PRESENT_SHADOW ? FwdApp(self, 0, UnityFlags(flags)) : FwdApp(self, sync, flags);
     t_lastHr = hr;
-    if (fg) FgHostAfterUnityPresent(hr); else CountPresent();
+    if (fg == FG_PRESENT_HELD) FgHostAfterForwardedPresent();   // the host kept its pin across this Present (Fg.h)
+    if (fg == FG_PRESENT_SHADOW) FgHostAfterUnityPresent(hr); else CountPresent();
     return hr;
 }
 
@@ -291,10 +292,11 @@ HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* self, UINT sync, UINT fl
     if (flags & kPassThrough) return g_origPresent1(self, sync, flags, pp);
     NoteApp(self);
     if (!IsApp(self)) return g_origPresent1(self, sync, flags, pp);
-    bool fg = FgHostOnPresent((IDXGISwapChain*)self, sync, flags);
-    HRESULT hr = fg ? FwdApp1(self, 0, UnityFlags(flags), pp) : FwdApp1(self, sync, flags, pp);
+    const int fg = FgHostOnPresent((IDXGISwapChain*)self, sync, flags);
+    HRESULT hr = fg == FG_PRESENT_SHADOW ? FwdApp1(self, 0, UnityFlags(flags), pp) : FwdApp1(self, sync, flags, pp);
     t_lastHr = hr;
-    if (fg) FgHostAfterUnityPresent(hr); else CountPresent();
+    if (fg == FG_PRESENT_HELD) FgHostAfterForwardedPresent();   // the host kept its pin across this Present (Fg.h)
+    if (fg == FG_PRESENT_SHADOW) FgHostAfterUnityPresent(hr); else CountPresent();
     return hr;
 }
 
