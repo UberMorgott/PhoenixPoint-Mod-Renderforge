@@ -1701,6 +1701,11 @@ affinity, and `ID3D12CommandQueue::ExecuteCommandLists` is not hooked (no hook w
     DID NOT COMPLETE in 1 s, vram ...`. The probe is a fence of our own signalled on Unity's queue: COMPLETED = the
     queue retires work and the provider waits on something of its own; DID NOT COMPLETE = the queue itself stands still.
   - Test lever `RENDERFORGE_FG_TEST_VRAM_MB=<n>`: commits n MB of throwaway textures before the first chain.
+- **Stress under overcommit (2026-10-13, lever 12500 MB -> `vram local 15.9/14.9 GB OVER BUDGET`):** FSR-FG and
+  XeSS-FG 40 fast off/on each, no hang, watchdog silent. DLSS-G exposed a defect of ours: Streamline answers
+  `eWarnOutOfVRAM` (39, "applied, budget exhausted") there, and `Off()` / `Idle()` / `slDLSSGGetState` treated it as a
+  refusal - the teardown's eOff was "refused" 16781 times, the chain never destroyed, FG stuck off. All DLSS-G results
+  now go through `SlTookEffect` (eOk or eWarnOutOfVRAM), as `IssueOptions` already did.
 - **Residual risk:** the hang can recur under video-memory overcommit; the process then dies in Unity's 30 s fence
   timeout. Not mitigated: keeping the FSR proxy across off/on (Configure(off) instead of a rebuild), refusing FG over budget.
 
@@ -1739,8 +1744,13 @@ affinity, and `ID3D12CommandQueue::ExecuteCommandLists` is not hooked (no hook w
   `GeoscapeView.cs:912-914`), then `GeoMap.PickObjectOnPosition<T>(point, true)` - a ray from the globe's centre
   through that point vs the PICKING layer (`GeoMap.cs:822-851`). The old probe cast the camera ray against every
   layer and took the nearest collider, which near the limb belongs to another site than the game picks.
-- Every near-side site / aircraft on screen: `n / same / globeMiss / none / other`; PASS = `other == 0`
-  (globeMiss = the pixel is off the globe, none = no enabled actor under it: the game picks nothing either way).
+- Every near-side site / aircraft on screen: `n / same / globeMiss / none / other` (globeMiss = the pixel is off the
+  globe, none = no enabled actor under it: the game picks nothing either way).
+- `other` / `none` are not zero in the vanilla game either: a site's pivot floats above the surface, so near the limb
+  its pixel lies over another surface point and the centre ray meets a neighbour or nothing (measured D3D12 geoscape:
+  n=178 same=125 globeMiss=27 none=24 other=2). What the mod could change is the PIXEL a marker is drawn at, so the
+  site probe also picks at the pixel GeoscapeCamera itself projects the pivot to and counts `moved` = picks that
+  differ. PASS = `moved == 0`.
 
 ### HUD
 

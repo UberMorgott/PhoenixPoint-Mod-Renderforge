@@ -803,12 +803,16 @@ namespace Renderforge
         /// <summary>EVERY near-side site on screen: project its pivot through M and ask the game's pick path (GamePick)
         /// what a click on that pixel selects. n = sites probed; same = the game picks that site; globeMiss = the pixel
         /// is off the globe (nothing is picked, with or without the mod); none = on the globe, no enabled site under it;
-        /// other = the game picks a DIFFERENT site than the one drawn there. PASS = other == 0. The first few `other`
-        /// (and `none`) sites are listed.</summary>
+        /// other = the game picks a DIFFERENT site than the one drawn there. none / other also occur in the vanilla game:
+        /// the pivot floats above the surface, so near the limb its pixel lies over another surface point (parallax).
+        /// What the MOD could change is the pixel a marker is drawn at, so `moved` counts the sites whose pick at the
+        /// pixel drawn through M differs from the pick at the pixel GeoscapeCamera itself projects the pivot to.
+        /// PASS = moved == 0 (the mod changes no click); other == 0 is the stricter, geometry-dependent figure.
+        /// The first few `other` / `none` sites are listed.</summary>
         internal static string ProbeClick()
         {
             if (M == null || !geo) return "inactive";
-            int n = 0, same = 0, globeMiss = 0, none = 0, other = 0;
+            int n = 0, same = 0, globeMiss = 0, none = 0, other = 0, moved = 0;
             var sb = new System.Text.StringBuilder();
             foreach (var kv in near)
             {
@@ -821,6 +825,9 @@ namespace Renderforge
                 bool globeHit;
                 GeoSite got = GamePick<GeoSite>(sp, want.GeoLevel, out globeHit);
                 n++;
+                bool vanillaHit;
+                GeoSite vanilla = GamePick<GeoSite>(geo.WorldToScreenPoint(v.VisualsContainer.position), want.GeoLevel, out vanillaHit);
+                if (vanilla != got || vanillaHit != globeHit) moved++;
                 if (!globeHit) { globeMiss++; continue; }
                 if (got == want) { same++; continue; }
                 if (!got) none++; else other++;
@@ -828,7 +835,7 @@ namespace Renderforge
                     sb.Append(" | ").Append(v.name).Append(" screen=").Append(sp.x.ToString("F1")).Append(',').Append(sp.y.ToString("F1"))
                       .Append(got ? " picks " + got.name : " picks nothing").Append(" enabled=").Append(want.enabled);
             }
-            return "n=" + n + " same=" + same + " globeMiss=" + globeMiss + " none=" + none + " other=" + other + " pass=" + (other == 0) + sb;
+            return "n=" + n + " same=" + same + " globeMiss=" + globeMiss + " none=" + none + " other=" + other + " moved=" + moved + " pass=" + (moved == 0) + sb;
         }
 
         /// <summary>The vehicle selection quads' move (UIStateVehicleSelected.cs:724) with a stand-in: a renderer without a

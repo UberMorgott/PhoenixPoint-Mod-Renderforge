@@ -588,7 +588,12 @@ namespace Renderforge
         /// A test run is only about HEAD when both commits are HEAD and neither is dirty (docs\OPERATIONS.md).</summary>
         public static string BuildInfo()
         {
-            string m = Renderforge.BuildStamp.Value, n = Native.BuildStamp();
+            // The managed stamp is an assembly attribute written by build\stamp.ps1 (csproj target RfBuildStamp): read
+            // through reflection, so the sources compile without the generated file (analysers, the test project).
+            string m = "";
+            foreach (System.Reflection.AssemblyMetadataAttribute a in typeof(RenderforgeMod).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false))
+                if (a.Key == "RfStamp") m = a.Value;
+            string n = Native.BuildStamp();
             string mc = StampField(m, "commit"), nc = StampField(n, "commit");
             return "build stamp: managed=" + ShortStamp(m) + " native=" + ShortStamp(n)
                  + (mc.Length == 0 || mc != nc || StampField(m, "dirty") != StampField(n, "dirty") ? " MISMATCH (the two DLLs are not one build)" : "");
