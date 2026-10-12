@@ -244,7 +244,8 @@ struct ProviderFsr : IFgProvider
         ID3D12Resource* hud = FgHudless12(&hudFmt);
         if (hud && hudFmt == backFmt && o->outW == outW && o->outH == outH)
             cfg.HUDLessColor = ffxApiGetResourceDX12(hud, FFX_API_RESOURCE_STATE_COMMON);
-        else if (!hudlessWarned) { hudlessWarned = 1; FgLog("fsr: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
+        FgNoteHudless(cfg.HUDLessColor.resource != NULL);
+        if (!cfg.HUDLessColor.resource && !hudlessWarned) { hudlessWarned = 1; FgLog("fsr: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
         lastRc = (int)fn->Configure(&fgCtx, &cfg.header);
         if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: configure %d", lastRc); return false; }
 

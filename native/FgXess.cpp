@@ -278,6 +278,7 @@ struct ProviderXess : IFgProvider
             if (warned < 8) { ++warned; FgLog("xess: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
             hud = NULL;
         }
+        FgNoteHudless(hud != NULL);
         if (mainPacing) presentId = f.paceId;
         else {
             // Render-thread pacing (diagnostic): the simulation is not reachable from here, SIMULATION_* bracket this event.

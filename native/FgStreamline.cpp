@@ -497,6 +497,7 @@ struct ProviderStreamline : IFgProvider
             if (warned < 8) { ++warned; FgLog("sl: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
             hud = NULL;
         }
+        FgNoteHudless(hud != NULL);
         if (tail - head >= kTokens) { if (warned < 8) { ++warned; FgLog("sl: %u frames prepared without a Present - dropping the oldest token", kTokens); } ++head; }
         ++frames;
         const unsigned idx = mainPacing ? f.paceId : (unsigned)InterlockedIncrement(&g_sl.frameIdx);

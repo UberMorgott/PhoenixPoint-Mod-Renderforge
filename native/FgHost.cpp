@@ -96,6 +96,7 @@ struct Host
     FgFrame               sent;         // render thread: what the previous Prepare was handed (capture notes)
     int                   haveSent;
     int                   twinsOk;      // render thread: this Prepare's list wrote the flipped copies (FgTwins.h)
+    volatile LONG         hudless;      // the last provider Prepare of this chain: 1 = tagged a hud-less colour, 0 = did not, -1 = none yet
     unsigned              paceId;       // main thread: the pace id of the frame in progress (0 = this frame is not paced)
     unsigned              simId;        // main thread: the id FrameBegin opened this frame, paced or not (SimEnd closes it)
     // Totals of the live chain (status line): prepare events, prepared frames, presents seen, presents taken the idle way,
@@ -521,6 +522,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0; H.havePaired = 0; H.haveSent = 0; H.twinsOk = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
     H.paceId = 0; H.simId = 0; H.lastEvPace = 0; H.maxWaitMs = 0;
     H.nPrepare = H.nPrepared = H.nPresent = H.nIdle = H.nWaited = H.nDup = H.nStall = 0;
+    H.hudless = -1;
     H.presentStalled = 0; H.tidLogged = 0;
     {
         Locked lk;
@@ -567,6 +569,8 @@ void FgHostSimEnd(void)
 }
 
 unsigned FgHostPreparedCount(void) { return (unsigned)H.nPrepared; }
+void FgNoteHudless(bool tagged) { InterlockedExchange(&H.hudless, tagged ? 1 : 0); }
+int FgHostHudless(void) { return (int)H.hudless; }
 void FgHostTestFailPrepare(int on) { InterlockedExchange(&g_testFailPrepare, on ? 1 : 0); }
 
 bool FgMainPacing(void) { return g_mainPacing; }

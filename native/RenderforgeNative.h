@@ -182,6 +182,10 @@ DLSS_API void __cdecl Fg_SimEnd(void);
 // Main thread. Frames the live chain has prepared so far (0 with no chain; restarts with every chain): the managed
 // driver compares it with what it fed to notice a chain that takes frames and prepares none.
 DLSS_API unsigned __cdecl Fg_PreparedCount(void);
+// Main thread. 1 = the chain's last prepared frame carried a hud-less colour (the upscaler's output before Unity's
+// HUD pass), 0 = it did not - the generator then interpolates the back buffer itself, with everything drawn after
+// the upscale in it - -1 = this chain has prepared nothing yet.
+DLSS_API int __cdecl Fg_Hudless(void);
 // Test lever: 1 = every provider Prepare is treated as failed (nothing prepared, nothing generated).
 DLSS_API void __cdecl Fg_TestFailPrepare(int on);
 // Diagnostic A/B, main thread, takes effect on the next chain: 1 = sleep on the main thread (default), 0 = on the

@@ -183,6 +183,11 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern uint Fg_PreparedCount();
 
+        /// <summary>1 = the chain's last prepared frame carried a hud-less colour, 0 = it did not (the generator interpolates
+        /// the back buffer, with everything drawn after the upscale in it), -1 = this chain has prepared nothing yet.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_Hudless();
+
         /// <summary>Test lever: 1 = every native Prepare counts as failed (FrameGen's starvation watchdog must notice).</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Fg_TestFailPrepare(int on);

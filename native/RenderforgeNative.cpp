@@ -421,6 +421,7 @@ int __cdecl Fg_SetFrameLimit(unsigned presentedFps) { return FgHostSetFrameLimit
 unsigned __cdecl Fg_FrameBegin(int pace) { return FgHostFrameBegin(pace); }
 void __cdecl Fg_SimEnd(void) { FgHostSimEnd(); }
 unsigned __cdecl Fg_PreparedCount(void) { return FgHostPreparedCount(); }
+int __cdecl Fg_Hudless(void) { return FgHostHudless(); }
 void __cdecl Fg_TestFailPrepare(int on) { FgHostTestFailPrepare(on); }
 void __cdecl Fg_SetMainPacing(int on) { FgSetMainPacing(on != 0); }
 const char* __cdecl Fg_Latency(void) { return FgHostLatency(); }

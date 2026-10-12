@@ -160,6 +160,9 @@ const OwnedSet12* FgOwned12(void);
 // this frame (*fmt then says what the out twin is). Depth is R32_FLOAT, motion vectors R16G16_FLOAT, render size;
 // NULL = no usable inputs this frame (Prepare returns false).
 ID3D12Resource* FgHudless12(DXGI_FORMAT* fmt);
+// Render thread, inside Prepare: whether this frame was tagged with a hud-less colour. Without one the generator
+// interpolates the back buffer, with everything Unity drew after the upscale in it (Fg_Hudless).
+void FgNoteHudless(bool tagged);
 ID3D12Resource* FgDepth12(void);
 ID3D12Resource* FgMv12(void);
 
@@ -230,6 +233,8 @@ unsigned FgHostFrameBegin(int pace);
 void FgHostSimEnd(void);
 // Main thread. Frames the live chain prepared so far (provider Prepare recorded + submitted); restarts with a chain.
 unsigned FgHostPreparedCount(void);
+// Main thread. The live chain's last Prepare: 1 = hud-less colour tagged, 0 = not, -1 = no Prepare yet / no chain since.
+int FgHostHudless(void);
 // Test lever (Fg_TestFailPrepare): every provider Prepare counts as failed while on - the "native prepare fails for
 // good" state the managed driver must notice (FrameGen starvation watchdog).
 void FgHostTestFailPrepare(int on);
