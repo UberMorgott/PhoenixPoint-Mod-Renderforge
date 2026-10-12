@@ -9,7 +9,10 @@ extend-exclude = [
 
 [default]
 # LOD = level of detail (graphics term), never "LOAD"
-extend-ignore-identifiers-re = ["(?i)\\blod\\w*"]
+# No trailing \w*: typos only asks whether the pattern matches somewhere, so the suffix never changed the
+# answer, and a \b pattern that can also consume non-ASCII word characters is one Aegis's spell stage cannot
+# evaluate (it then skips every file holding a non-ASCII word).
+extend-ignore-identifiers-re = ["(?i)\\blod"]
 
 [default.extend-words]
 LOD = "LOD"
