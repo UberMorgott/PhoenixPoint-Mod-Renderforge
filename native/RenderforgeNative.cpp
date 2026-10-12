@@ -94,7 +94,9 @@ static struct {
     float nearZ, farZ, fovY;            // Dlss_SetCamera cache, copied into every slot
     int biasMaskMode;                   // Dlss_SetBiasMaskMode cache (DIAG), copied into every slot
     unsigned dlssPreset;                // Dlss_SetDlssPreset cache, copied into S.create by Dlss_SetCreateParams
-} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0, 0.1f, 1000.0f, 1.0471976f, 0, 0u };
+    FrameParams paired;                 // render thread: the previous evaluate's block (PairD3D12)
+    int havePaired;
+} S = { DLSS_ERR_NO_DEVICE, NULL, {}, {}, 0u, NULL, 0, DLSS_PROVIDER_DLSS, DLSS_PROVIDER_DLSS, 0, 0.1f, 1000.0f, 1.0471976f, 0, 0u, {}, 0 };
 
 static bool ShutdownBackend(void)
 {
@@ -102,6 +104,7 @@ static bool ShutdownBackend(void)
     if (S.dev && !S.dev->Shutdown()) return false;
     S.dev = NULL;
     S.lastSlot = NULL;
+    S.havePaired = 0;
     S.initCode = DLSS_ERR_NO_DEVICE;
     S.providerCode = 0;
     return true;
@@ -210,6 +213,30 @@ void __cdecl Dlss_SetCreateParams(unsigned w, unsigned h, unsigned outW, unsigne
     S.create.ngxFlags = f;
 }
 
+// D3D12 frame pairing. A list handed to IUnityGraphicsD3D12v5::ExecuteCommandList runs on the GPU BEFORE Unity's own
+// still-open command list of the same frame (v5 has no way to flush it), so the colour / depth / motion vectors our
+// list copies out of Unity's RTs at frame N's evaluate event are the ones Unity rendered in frame N-1. Measured
+// 2026-10-12 (docs\DESIGN.md "D3D12 frame pairing"): under camera motion outRT of a passthrough copy trails colorRT
+// read back in the same frame by one frame of motion, and reporting frame N-1's jitter lifted the converged match
+// with a native reference from 0.855 to 0.937 (DLSS), 0.773 to 0.919 (XeSS), 0.789 to 0.944 (FSR). So every value
+// that DESCRIBES the rendered frame (jitter, reset, frame time, camera) comes from the previous event's block; what
+// is applied to the output (sharpness, LUT, style, grade, colour vision) and the resources stay this frame's.
+// The first evaluate on a new colour RT has nothing behind it: Unity has not rendered into the RT yet, so it is a
+// reset, and the driver's own first-frame reset arrives with the first real frame one event later.
+static FrameParams PairD3D12(const FrameParams& cur)
+{
+    FrameParams q = cur;
+    if (S.havePaired && S.paired.color == cur.color && S.paired.renderW == cur.renderW && S.paired.renderH == cur.renderH) {
+        q.jitterX = S.paired.jitterX; q.jitterY = S.paired.jitterY;
+        q.reset = S.paired.reset; q.dtMs = S.paired.dtMs; q.preExposure = S.paired.preExposure;
+        q.nearZ = S.paired.nearZ; q.farZ = S.paired.farZ; q.fovY = S.paired.fovY;
+    } else {
+        q.reset = 1;
+    }
+    S.paired = cur; S.havePaired = 1;
+    return q;
+}
+
 void* __cdecl Dlss_GetFrameSlot(void)
 {
     return &S.slots[S.slotIdx++ & 3u];
@@ -289,7 +316,8 @@ static void __stdcall OnRenderEventAndData(int eventId, void* data)
         FrameParams* p = (FrameParams*)data;
         if (!p) p = S.lastSlot;
         if (!p) { S.dev->lastEval = NVSDK_NGX_Result_FAIL_MissingInput; S.dev->lastError = (int)S.dev->lastEval; break; }
-        S.dev->Evaluate(*p, p->passthrough != 0);
+        if (S.dev->Api() == 12) { FrameParams q = PairD3D12(*p); S.dev->Evaluate(q, q.passthrough != 0); }
+        else S.dev->Evaluate(*p, p->passthrough != 0);
         break;
     }
     case DLSS_EV_RELEASE:
