@@ -56,11 +56,24 @@ struct FgSetup
 };
 
 // One rendered frame's inputs. Filled on the main thread by Fg_SetFrame, read on the render thread.
+//
+// CONVENTIONS (docs\DESIGN.md "FG input contract"): Direct3D, for a TOP-DOWN image - a frame generator warps the
+// swapchain's back buffer with these inputs, so every one of them must index rows the way the back buffer does.
+//   resources  the providers tag FgDepth12 / FgMv12 / FgHudless12: the host's row-FLIPPED copies of the owned twins
+//              (Unity render textures are bottom-up in memory, the back buffer is top-down; FgTwins.h).
+//   view/proj  row-vector matrices (clip = v * view * proj), row-major. View space left-handed: x right, y up,
+//              z = camFwd - the basis camRight / camUp / camFwd span (sl_matrix_helpers.h:185-190). Clip space y up,
+//              w = +z, reversed Z (near = 1): `depthInverted` / INVERTED_DEPTH / DEPTH_INVERTED. No jitter.
+//   jitter     pixels, the NGX offsets, y mirrored with the rows: (-jx, +jy) of the Unity projection shear.
+//   mvScale    multiplies the stored UV-space motion into render pixels, current -> previous: (-renderW, +renderH).
+// PAIRING: on D3D12 the twins a list of frame N's event reads hold what Unity rendered in frame N-1 (RenderforgeNative.cpp
+// PairD3D12), and so does the back buffer of frame N's Present. FgHostPrepare therefore hands the provider the block of
+// the PREVIOUS event (view, proj, jitter, camera, reset, dt) next to this event's resources and frameId.
 struct FgFrame
 {
-    ID3D12Resource* hudless;      // outRT: upscaled scene WITHOUT the HUD, output resolution
+    ID3D12Resource* hudless;      // outRT: upscaled scene WITHOUT the HUD, output resolution (never read: presence only)
     ID3D12Resource* depth;        // depthRT, render resolution
-    ID3D12Resource* mv;           // mvRT, render resolution, current->previous, pixels
+    ID3D12Resource* mv;           // mvRT, render resolution
     float    jitterX, jitterY;
     float    mvScaleX, mvScaleY;
     float    cameraNear, cameraFar, cameraFovY;   // fov in radians
@@ -68,9 +81,9 @@ struct FgFrame
     int      reset;
     unsigned renderW, renderH, outW, outH;
     unsigned long long frameId;
-    float    view[16];            // worldToCamera, row-major
-    float    proj[16];            // non-jittered projection, row-major
-    float    camPos[3], camUp[3], camRight[3], camFwd[3];
+    float    view[16];            // world -> view
+    float    proj[16];            // view -> clip, non-jittered
+    float    camPos[3], camUp[3], camRight[3], camFwd[3];   // world space, orthonormal
 };
 
 struct IFgProvider
@@ -116,11 +129,23 @@ struct IFgProvider
 // The live upscaler backend's owned twins (RenderforgeNative.cpp); NULL when no D3D12 backend is up.
 struct OwnedSet12;
 const OwnedSet12* FgOwned12(void);
-// Render thread, inside Prepare only: the hud-less colour to tag, ALWAYS in the app back buffer's format - the owned
-// out twin itself, or (FP16 out, D3D12HalfColor) the host's 8-bit sRGB-encoded twin written on the prep list right
-// before Prepare (FgHudless.h). NULL when no matching twin exists this frame (*fmt then says what the out twin is).
-// Rests in COMMON like every owned twin.
+// Render thread, inside Prepare only: the inputs to tag - the host's row-flipped (top-down) copies of the owned twins,
+// written on the prep list right before Prepare (FgTwins.h), all resting in COMMON. The hud-less colour is ALWAYS in
+// the app back buffer's format (an FP16 out is sRGB-encoded into 8 bits on the way); NULL when no such copy exists
+// this frame (*fmt then says what the out twin is). Depth is R32_FLOAT, motion vectors R16G16_FLOAT, render size;
+// NULL = no usable inputs this frame (Prepare returns false).
 ID3D12Resource* FgHudless12(DXGI_FORMAT* fmt);
+ID3D12Resource* FgDepth12(void);
+ID3D12Resource* FgMv12(void);
+
+// Diagnostic capture (Fg_Capture): ONE prepared frame exactly as the provider was fed it - the constants it sent
+// (noted by the provider itself inside Prepare) and the raw memory of every tagged resource plus Unity's back buffer
+// of the Present that carries the frame. Render thread; a note outside an armed Prepare is dropped.
+bool FgCaptureArmed(void);
+void FgCaptureNote(const char* fmt, ...);                 // one "key=value" line
+void FgCaptureFloats(const char* key, const float* v, int n);
+int  FgHostCapture(const wchar_t* dir);                   // main thread: arm (0 = no live chain or one still pending)
+int  FgHostCaptureStatus(void);                           // 0 idle, 1 armed, 2 constants noted, 3 written, -1 failed
 
 IFgProvider* MakeFgProviderNone(void);
 IFgProvider* MakeFgProviderFsr(void);
@@ -150,8 +175,11 @@ const FgWndProbe* FgWndProbeNow(void);       // samples on the UI thread (bounde
 // Main thread. Refuses (FG_ERR_NO_SWAPCHAIN, caller retries) while a detached chain still awaits destruction.
 int  FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir);
 void FgHostSetEnabled(int on);               // main thread
-void FgHostSetFrame(const FgFrame& f);       // main thread; single slot, the Unity RTs are retained until overwritten
-void FgHostPrepare(void);                    // render thread, DLSS_EV_FG_PREPARE
+// Main thread. Stores the block in a ring and returns its address: the driver passes it as the `data` of that frame's
+// DLSS_EV_FG_PREPARE, so the render thread knows WHICH frame an event belongs to (the main thread runs ahead of it).
+// The Unity RTs of the latest block are retained until overwritten.
+const FgFrame* FgHostSetFrame(const FgFrame& f);
+void FgHostPrepare(const FgFrame* ev);       // render thread, DLSS_EV_FG_PREPARE; ev = that event's block (NULL = latest)
 // Main thread, every frame (Fg_Pump): destroys a chain that was detached by the render/UI thread. Returns 1 when
 // no chain is alive or detached afterwards.
 int  FgHostPump(void);

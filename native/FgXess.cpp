@@ -75,8 +75,8 @@ struct ProviderXess : IFgProvider
     int                     lastRc;
     // Our own frame counter, +1 per Prepare: XeLL insists on consecutive ids (Sleep() "expected frame N-1" errors)
     // and the host's single frame slot can hand the render thread the SAME FgFrame.frameId twice or skip one when
-    // Unity's main thread runs ahead. The owned twins are always the latest upscaled frame, so every Prepare tags a
-    // fresh id; only the constants in `f` can be one frame stale (host ceiling, shared with FSR).
+    // Unity's main thread runs ahead. Every Prepare tags a fresh id; the constants in `f` are the ones of the frame the
+    // tagged copies hold (the host pairs them per event, Fg.h FgFrame).
     unsigned                presentId;
     int                     marked;        // RENDERSUBMIT_END/PRESENT_START issued for presentId (Generate ran)
     long long               generated;     // interpolated frames the proxy reported presenting
@@ -142,7 +142,7 @@ struct ProviderXess : IFgProvider
 
         xefg_swapchain_d3d12_init_params_t ip = {};
         ip.pApplicationSwapChain = NULL;                          // xefg_swapchain_d3d12.h:212 - the SDK creates the chain
-        ip.initFlags = XEFG_SWAPCHAIN_INIT_FLAG_INVERTED_DEPTH;   // Unity D3D12 = reversed-Z (DlssDriver.cs:253)
+        ip.initFlags = XEFG_SWAPCHAIN_INIT_FLAG_INVERTED_DEPTH;   // reversed Z, as FgFrame.proj maps it (Fg.h)
         ip.maxInterpolatedFrames = s.multiplier - 1;
         ip.uiMode = XEFG_SWAPCHAIN_UI_MODE_BACKBUFFER_HUDLESS;
         DXGI_SWAP_CHAIN_DESC1 d = s.desc;                         // FLIP_DISCARD, app format/size, >= 3 buffers, flags 0
@@ -183,9 +183,11 @@ struct ProviderXess : IFgProvider
     bool Prepare(ID3D12GraphicsCommandList*, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
-        if (!fg || !o || !o->depth || !o->mv || !o->out) return false;
-        // FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16 out (D3D12HalfColor) - always back-buffer
-        // format. No match = tag depth/mv/constants anyway (XeSS-FG interpolates from the back buffer; hudless is optional).
+        ID3D12Resource* depth = FgDepth12();
+        ID3D12Resource* mv = FgMv12();
+        if (!fg || !o || !depth || !mv) return false;
+        // FgHudless12: the host's flipped copy in the back buffer's format (FgTwins.h). None = tag depth/mv/constants
+        // anyway (XeSS-FG interpolates from the back buffer; hudless is optional).
         DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
         ID3D12Resource* hud = FgHudless12(&hudFmt);
         if (!hud || hudFmt != backFmt || o->outW != outW || o->outH != outH) {
@@ -200,17 +202,27 @@ struct ProviderXess : IFgProvider
         xellAddMarkerData(ll, presentId, XELL_SIMULATION_END);
         xellAddMarkerData(ll, presentId, XELL_RENDERSUBMIT_START);
 
-        Tag(XEFG_SWAPCHAIN_RES_MOTION_VECTOR, o->mv, o->w, o->h, "mv");
-        Tag(XEFG_SWAPCHAIN_RES_DEPTH, o->depth, o->w, o->h, "depth");
+        Tag(XEFG_SWAPCHAIN_RES_MOTION_VECTOR, mv, o->w, o->h, "mv");
+        Tag(XEFG_SWAPCHAIN_RES_DEPTH, depth, o->w, o->h, "depth");
         if (hud) Tag(XEFG_SWAPCHAIN_RES_HUDLESS_COLOR, hud, o->outW, o->outH, "hudless");
 
         xefg_swapchain_frame_constant_data_t c = {};
-        memcpy(c.viewMatrix, f.view, sizeof(c.viewMatrix));         // row-major, non-jittered (guide :879-880)
+        // Row-major, non-jittered (guide :879-880), and ROW-VECTOR like the guide's own example, which memcpy's an
+        // XMFLOAT4X4 of XMMatrixTranslation (:903-909) - the layout the SR guide shears for jitter ([2][0], [2][1],
+        // xess_sr guide :274-275). FgFrame holds exactly that.
+        memcpy(c.viewMatrix, f.view, sizeof(c.viewMatrix));
         memcpy(c.projectionMatrix, f.proj, sizeof(c.projectionMatrix));
-        c.jitterOffsetX = -f.jitterX; c.jitterOffsetY = f.jitterY;  // same signs as XeSS-SR (Xess12.cpp kJitterSign)
+        // The NGX offsets unchanged, as XeSS-SR takes them (Xess12.cpp, measured), in top-down rows here (Fg.h).
+        c.jitterOffsetX = f.jitterX; c.jitterOffsetY = f.jitterY;
         c.motionVectorScaleX = f.mvScaleX; c.motionVectorScaleY = f.mvScaleY;
         c.resetHistory = f.reset ? 1u : 0u;
         c.frameRenderTime = f.dtMs;
+        if (FgCaptureArmed()) {
+            FgCaptureFloats("xess.viewMatrix", c.viewMatrix, 16);
+            FgCaptureFloats("xess.projectionMatrix", c.projectionMatrix, 16);
+            FgCaptureNote("xess.jitter=%.9g %.9g mvScale=%.9g %.9g reset=%u dtMs=%.9g presentId=%u enabled=%d", c.jitterOffsetX, c.jitterOffsetY,
+                          c.motionVectorScaleX, c.motionVectorScaleY, c.resetHistory, c.frameRenderTime, presentId, enabled);
+        }
         xefg_swapchain_result_t r = xefgSwapChainTagFrameConstants(fg, presentId, &c);
         if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (warned < 8) { ++warned; FgLog("xess: tag constants %d", (int)r); } }
         // Still prepared: presentId advanced and XeLL's SIMULATION/RENDERSUBMIT_START markers are out, so this frame's

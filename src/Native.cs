@@ -170,8 +170,9 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern void Fg_SetEnabled(int on);
 
+        /// <summary>Returns the stored block: the `data` of this frame's DLSS_EV_FG_PREPARE.</summary>
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
-        public static extern void Fg_SetFrame(IntPtr hudless, IntPtr depth, IntPtr mv,
+        public static extern IntPtr Fg_SetFrame(IntPtr hudless, IntPtr depth, IntPtr mv,
             float jitterX, float jitterY, float mvScaleX, float mvScaleY,
             float cameraNear, float cameraFar, float cameraFovY,
             float dtMs, int reset,
@@ -205,6 +206,15 @@ namespace Renderforge
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Fg_Alive();
+
+        /// <summary>Diagnostic: arm a one-frame capture of what the FG provider is fed (constants + raw tagged resources +
+        /// Unity's back buffer) into an existing folder. 1 = armed.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_Capture([MarshalAs(UnmanagedType.LPWStr)] string dir);
+
+        /// <summary>0 idle, 1 armed, 2 constants noted, 3 written, -1 failed.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_CaptureStatus();
 
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Dlss_ResultString")]
         private static extern IntPtr Dlss_ResultStringPtr(int ngxResult);

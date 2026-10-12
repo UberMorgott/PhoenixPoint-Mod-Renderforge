@@ -31,6 +31,21 @@
 
 namespace {
 
+// RENDERFORGE_FG_DEBUG=1: FidelityFX's own input validation (FFX_FRAMEGENERATION_ENABLE_DEBUG_CHECKING +
+// ffxConfigureDescGlobalDebug1, frame-interpolation-api.md "Debug Checker") into renderforge_fg.log. Needs no focus.
+bool FsrDebug()
+{
+    static int on = -1;
+    if (on < 0) { char v[4] = {}; on = GetEnvironmentVariableA("RENDERFORGE_FG_DEBUG", v, sizeof(v)) == 1 && v[0] == '1' ? 1 : 0; }
+    return on == 1;
+}
+
+void FsrDebugMessage(uint32_t type, const wchar_t* message)
+{
+    static LONG n = 0;
+    if (InterlockedIncrement(&n) <= 64) FgLog("fsr dbg[%s]: %S", type == FFX_API_MESSAGE_TYPE_ERROR ? "error" : "warning", message ? message : L"");
+}
+
 struct ProviderFsr : IFgProvider
 {
     const ffxFunctions* fn;
@@ -152,7 +167,8 @@ struct ProviderFsr : IFgProvider
         if (!proxy) return FG_ERR_NO_SWAPCHAIN;
 
         descFg.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
-        descFg.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;      // Unity D3D12 = reversed-Z (DlssDriver.cs:253)
+        descFg.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;      // reversed Z [1..0] (ffx_framegeneration.h:40-46)
+        if (FsrDebug()) descFg.flags |= FFX_FRAMEGENERATION_ENABLE_DEBUG_CHECKING;
         descFg.displaySize.width = outW; descFg.displaySize.height = outH;
         descFg.maxRenderSize.width = outW; descFg.maxRenderSize.height = outH;
         descFg.backBufferFormat = ffxApiGetSurfaceFormatDX12(backFmt);
@@ -169,6 +185,13 @@ struct ProviderFsr : IFgProvider
         ffxReturnCode_t rc = fn->CreateContext(&fgCtx, &descFg.header, NULL);
         if (rc != FFX_API_RETURN_OK) { FgLog("fsr: FG context %u", rc); fgCtx = NULL; return Fail(FG_ERR_PROVIDER_FAILED); }
         QueryVersion(&fgCtx, version, sizeof(version));
+        if (FsrDebug()) {
+            ffxConfigureDescGlobalDebug1 dbg = {};
+            dbg.header.type = FFX_API_CONFIGURE_DESC_TYPE_GLOBALDEBUG1;
+            dbg.fpMessage = &FsrDebugMessage;
+            dbg.debugLevel = FFX_API_CONFIGURE_GLOBALDEBUG_LEVEL_VERBOSE;
+            FgLog("fsr: debug checker on (configure %u)", (unsigned)fn->Configure(&fgCtx, &dbg.header));
+        }
 
         *out = proxy;
         FgLog("fsr: created, display %ux%u fmt %u, provider '%s' (override %llu), SDK swapchain (paced)", outW, outH, (unsigned)backFmt, version,
@@ -200,7 +223,9 @@ struct ProviderFsr : IFgProvider
     bool Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
-        if (!fgCtx || !o || !o->depth || !o->mv || !o->out) return false;
+        ID3D12Resource* depth = FgDepth12();
+        ID3D12Resource* mv = FgMv12();
+        if (!fgCtx || !o || !depth || !mv) return false;
 
         ffxConfigureDescFrameGeneration cfg = {};
         cfg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
@@ -214,7 +239,7 @@ struct ProviderFsr : IFgProvider
         cfg.frameID = f.frameId;
         // Hud-less UI mode (decision 5): the owned `out` is the upscaled frame before Unity draws the HUD. The FI
         // context copies it into its history, so its format must equal the back buffer's (ffx_frameinterpolation.cpp:887).
-        // FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16 out (D3D12HalfColor) - always back-buffer format.
+        // FgHudless12: the host's flipped copy in the back buffer's format (FgTwins.h).
         DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
         ID3D12Resource* hud = FgHudless12(&hudFmt);
         if (hud && hudFmt == backFmt && o->outW == outW && o->outH == outH)
@@ -229,8 +254,11 @@ struct ProviderFsr : IFgProvider
         pr.flags = 0;
         pr.commandList = list;
         pr.renderSize.width = f.renderW; pr.renderSize.height = f.renderH;
-        // Same conventions as the FSR upscaler (Fsr12.cpp Evaluate): J = (+jitterX, -jitterY), MV scale straight through.
-        pr.jitterOffset.x = f.jitterX; pr.jitterOffset.y = -f.jitterY;
+        // The NGX offsets unchanged, as the FSR upscaler takes them (Fsr12.cpp, measured), in top-down rows here (Fg.h):
+        // FSR's jitter is the clip-space translation (2*jx/w, -2*jy/h) of a D3D projection
+        // (super-resolution-upscaler.md:259-261) - +x right, +y down in pixels - which is what (-jx, +jy) of Unity's shear is.
+        // MV scale: UV-space motion -> render pixels, current -> previous (ffx_framegeneration.h:229).
+        pr.jitterOffset.x = f.jitterX; pr.jitterOffset.y = f.jitterY;
         pr.motionVectorScale.x = f.mvScaleX; pr.motionVectorScale.y = f.mvScaleY;
         pr.frameTimeDelta = f.dtMs;
         pr.reset = f.reset != 0;
@@ -238,12 +266,21 @@ struct ProviderFsr : IFgProvider
         pr.cameraFar = f.cameraFar;
         pr.cameraFovAngleVertical = f.cameraFovY;
         pr.viewSpaceToMetersFactor = 1.0f;                 // Unity units are metres
-        pr.depth = ffxApiGetResourceDX12(o->depth, FFX_API_RESOURCE_STATE_COMMON);
-        pr.motionVectors = ffxApiGetResourceDX12(o->mv, FFX_API_RESOURCE_STATE_COMMON);
+        pr.depth = ffxApiGetResourceDX12(depth, FFX_API_RESOURCE_STATE_COMMON);
+        pr.motionVectors = ffxApiGetResourceDX12(mv, FFX_API_RESOURCE_STATE_COMMON);
         memcpy(pr.cameraPosition, f.camPos, sizeof(pr.cameraPosition));
         memcpy(pr.cameraUp, f.camUp, sizeof(pr.cameraUp));
         memcpy(pr.cameraRight, f.camRight, sizeof(pr.cameraRight));
         memcpy(pr.cameraForward, f.camFwd, sizeof(pr.cameraForward));
+        if (FgCaptureArmed()) {
+            FgCaptureNote("fsr.jitter=%.9g %.9g mvScale=%.9g %.9g near=%.9g far=%.9g fov=%.9g dtMs=%.9g reset=%d frameId=%llu enabled=%d", pr.jitterOffset.x, pr.jitterOffset.y,
+                          pr.motionVectorScale.x, pr.motionVectorScale.y, pr.cameraNear, pr.cameraFar, pr.cameraFovAngleVertical, pr.frameTimeDelta, (int)pr.reset,
+                          (unsigned long long)pr.frameID, enabled);
+            FgCaptureFloats("fsr.cameraPosition", pr.cameraPosition, 3);
+            FgCaptureFloats("fsr.cameraUp", pr.cameraUp, 3);
+            FgCaptureFloats("fsr.cameraRight", pr.cameraRight, 3);
+            FgCaptureFloats("fsr.cameraForward", pr.cameraForward, 3);
+        }
         lastRc = (int)fn->Dispatch(&fgCtx, &pr.header);
         if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: prepare %d", lastRc); return false; }
         preparedId = f.frameId;

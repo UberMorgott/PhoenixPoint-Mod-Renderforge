@@ -615,18 +615,29 @@ namespace Renderforge
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
                 if (FrameGen.Live && !FrameGen.HoldPrepare && copyAttached)   // copyAttached: FG never gets MV/depth nobody rendered or copied (a passthrough generation)
                 {
-                    var v = cam.worldToCameraMatrix;
-                    var pr = cam.nonJitteredProjectionMatrix;
-                    Row(fgView, v); Row(fgProj, pr);
+                    // The FG contract (native\Fg.h FgFrame, docs\DESIGN.md "FG input contract"): everything in Direct3D
+                    // conventions for a TOP-DOWN image, because the generators compare these inputs with the swapchain's
+                    // back buffer. View space left-handed (z = cam.transform.forward, the basis the camera vectors below
+                    // span); clip space y up, reversed Z, w = +z: GL.GetGPUProjectionMatrix(p, false) is Unity's own
+                    // GL -> D3D conversion without the render-texture flip. Unity's matrices are right-handed (w = -z),
+                    // hence the z mirror on both, which cancels in clip -> previous clip.
+                    Matrix4x4 v = cam.worldToCameraMatrix;
+                    v.SetRow(2, -v.GetRow(2));
+                    Matrix4x4 pr = GL.GetGPUProjectionMatrix(cam.nonJitteredProjectionMatrix, false);
+                    pr.SetColumn(2, -pr.GetColumn(2));
+                    RowVector(fgView, v); RowVector(fgProj, pr);
                     Vector3 cp = cam.transform.position, cu = cam.transform.up, cr = cam.transform.right, cf = cam.transform.forward;
                     fgCam[0] = cp.x; fgCam[1] = cp.y; fgCam[2] = cp.z; fgCam[3] = cu.x; fgCam[4] = cu.y; fgCam[5] = cu.z;
                     fgCam[6] = cr.x; fgCam[7] = cr.y; fgCam[8] = cr.z; fgCam[9] = cf.x; fgCam[10] = cf.y; fgCam[11] = cf.z;
-                    Native.Fg_SetFrame(outPtr, depthPtr, mvPtr, -jx, -jy, -renderW, -renderH,
+                    // Jitter and MV scale: x as the upscalers get it (-jx, -renderW), y mirrored with the rows (the shim
+                    // hands the generators row-flipped twins): +jy, +renderH.
+                    IntPtr fgSlot = Native.Fg_SetFrame(outPtr, depthPtr, mvPtr, -jx, jy, -renderW, renderH,
                         cam.nearClipPlane, cam.farClipPlane, cam.fieldOfView * Mathf.Deg2Rad,
                         Time.unscaledDeltaTime * 1000f, reset,
                         (uint)renderW, (uint)renderH, (uint)outW, (uint)outH, (ulong)frames,
                         fgView, fgProj, fgCam);
-                    cbEval.IssuePluginEvent(evFn, Native.DLSS_EV_FG_PREPARE);
+                    // The block travels WITH the event: the render thread pairs it with the frame it really holds (Fg.h).
+                    cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_FG_PREPARE, fgSlot);
                 }
                 frames++;
             }
@@ -874,13 +885,15 @@ namespace Renderforge
         // Fg_SetFrame inputs, reused every frame: the shim memcpy's them inside the call (RenderforgeNative.cpp Fg_SetFrame).
         private static readonly float[] fgView = new float[16], fgProj = new float[16], fgCam = new float[12];
 
-        /// <summary>Row-major m00..m33, the order Fg_SetFrame always got.</summary>
-        private static void Row(float[] d, Matrix4x4 m)
+        /// <summary>Unity's column-vector matrix (clip = P * v) as a Direct3D row-vector one (clip = v * M), row-major:
+        /// the transpose. Streamline (sl_matrix_helpers.h:206-214) and XeSS-FG (developer guide "Frame Constants": an
+        /// XMFLOAT4X4 memcpy) both take this form.</summary>
+        private static void RowVector(float[] d, Matrix4x4 m)
         {
-            d[0] = m.m00; d[1] = m.m01; d[2] = m.m02; d[3] = m.m03;
-            d[4] = m.m10; d[5] = m.m11; d[6] = m.m12; d[7] = m.m13;
-            d[8] = m.m20; d[9] = m.m21; d[10] = m.m22; d[11] = m.m23;
-            d[12] = m.m30; d[13] = m.m31; d[14] = m.m32; d[15] = m.m33;
+            d[0] = m.m00; d[1] = m.m10; d[2] = m.m20; d[3] = m.m30;
+            d[4] = m.m01; d[5] = m.m11; d[6] = m.m21; d[7] = m.m31;
+            d[8] = m.m02; d[9] = m.m12; d[10] = m.m22; d[11] = m.m32;
+            d[12] = m.m03; d[13] = m.m13; d[14] = m.m23; d[15] = m.m33;
         }
 
         private static void Halton(int index, out float x, out float y)

@@ -27,8 +27,9 @@
 #include "RenderforgeNative.h"
 #include "D3D12Ring.h"
 #include "D3D12Owned.h"
-#include "FgHudless.h"
+#include "FgTwins.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -37,6 +38,7 @@ namespace {
 template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = NULL; } }
 
 enum { kNone = 0, kLive = 1, kDetached = 2 };
+enum { kFrameRing = 8 };   // the main thread is at most a frame or two ahead of the render thread
 
 struct Chain
 {
@@ -52,7 +54,7 @@ struct Chain
     HWND                  child;        // our own WS_CHILD window the chain sits on
     int                   logged;       // 0 nothing, 1 first present, 2 first present result
     DXGI_FORMAT           backFmt;      // the app chain's back-buffer format = what the providers want the hud-less in
-    Hudless8              hud;          // 8-bit sRGB-encoded twin of an FP16 owned out (FgHudless.h), else unused
+    FgTwins               twins;        // row-flipped hud-less / depth / mv copies the providers tag (FgTwins.h)
     Chain() : prov(NULL), app(NULL), shadow(NULL), factory(NULL), xfence(NULL), xval(0), scFlags(0), child(NULL), logged(0), backFmt(DXGI_FORMAT_UNKNOWN) {}
 };
 
@@ -84,6 +86,13 @@ struct Host
     int                   prepFails;    // failed prepares this chain, for the capped FgLog
     long long             idle;         // consecutive presents skipped for lack of a prepared frame
     int                   hidden;       // the child window is hidden because of idle
+    FgFrame               ring[kFrameRing]; // main thread writes under g_lock; an entry travels as its event's data
+    unsigned              ringIdx;
+    FgFrame               paired;       // render thread: the previous event's block (PairFrame)
+    int                   havePaired;
+    FgFrame               sent;         // render thread: what the previous Prepare was handed (capture notes)
+    int                   haveSent;
+    int                   twinsOk;      // render thread: this Prepare's list wrote the flipped copies (FgTwins.h)
     char                  status[512];
 };
 
@@ -142,7 +151,7 @@ bool ReleaseGpu(Chain& c)
 {
     if ((!c.prep.WaitIdle(0) && !c.prep.Removed()) || (!c.copy.WaitIdle(0) && !c.copy.Removed())) return false;
     c.prep.Release();
-    c.hud.Release();
+    c.twins.Release();
     c.copy.Release();
     SafeRelease(c.xfence);
     c.xval = 0;
@@ -228,6 +237,86 @@ void Unpin(const char* tearWhy)
       H.pinned = 0;
     }
     if (tearWhy) Detach(tearWhy);
+}
+
+// ---------------------------------------------------------------- capture (diagnostic, Fg_Capture)
+
+struct Capture
+{
+    volatile LONG state;        // 0 idle, 1 armed (main thread), 2 constants noted (Prepare), 3 written, -1 failed
+    wchar_t dir[MAX_PATH];
+    char    notes[16384];
+    int     len;
+};
+Capture g_cap;
+
+struct CapItem { const char* name; ID3D12Resource* res; ID3D12Resource* buf; D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp; UINT rows; UINT64 rowBytes; };
+
+// Render thread, Present hook, Unity's frame fully submitted. Every resource rests in COMMON (= PRESENT for the back
+// buffer); one throwaway list on Unity's queue copies them into readback buffers, waits, and writes tight rows in
+// MEMORY order (row 0 first) - the order every FG SDK indexes them in. Rare and slow on purpose (a diagnostic).
+bool CaptureWrite(ID3D12Resource* backBuffer)
+{
+    const OwnedSet12* o = FgOwned12();
+    DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
+    CapItem items[4] = { { "depth", FgDepth12(), NULL, {}, 0, 0 }, { "mv", FgMv12(), NULL, {}, 0, 0 },
+                         { "hud", FgHudless12(&hudFmt), NULL, {}, 0, 0 }, { "bb", backBuffer, NULL, {}, 0, 0 } };
+    if (!o || !H.device || !H.queue) return false;
+    ID3D12CommandAllocator* alloc = NULL; ID3D12GraphicsCommandList* cl = NULL; ID3D12Fence* fence = NULL;
+    bool ok = SUCCEEDED(H.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc))) &&
+              SUCCEEDED(H.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, NULL, IID_PPV_ARGS(&cl))) &&
+              SUCCEEDED(H.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+    for (int i = 0; ok && i < 4; ++i) {
+        CapItem& it = items[i];
+        if (!it.res) continue;
+        D3D12_RESOURCE_DESC d = it.res->GetDesc();
+        UINT64 total = 0;
+        H.device->GetCopyableFootprints(&d, 0, 1, 0, &it.fp, &it.rows, &it.rowBytes, &total);
+        D3D12_HEAP_PROPERTIES hp = {}; hp.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC bd = {};
+        bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; bd.Width = total; bd.Height = 1; bd.DepthOrArraySize = 1; bd.MipLevels = 1;
+        bd.SampleDesc.Count = 1; bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        if (FAILED(H.device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&it.buf)))) { ok = false; break; }
+        D3D12_TEXTURE_COPY_LOCATION src = {}, dst = {};
+        src.pResource = it.res; src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; src.SubresourceIndex = 0;
+        dst.pResource = it.buf; dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; dst.PlacedFootprint = it.fp;
+        OwnedSet12::Barrier(cl, it.res, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        cl->CopyTextureRegion(&dst, 0, 0, 0, &src, NULL);
+        OwnedSet12::Barrier(cl, it.res, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+    }
+    if (ok) {
+        HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
+        ID3D12CommandList* lists[1] = { cl };
+        ok = ev && SUCCEEDED(cl->Close());
+        if (ok) {
+            H.queue->ExecuteCommandLists(1, lists);
+            ok = SUCCEEDED(H.queue->Signal(fence, 1)) && SUCCEEDED(fence->SetEventOnCompletion(1, ev)) && WaitForSingleObject(ev, 5000) == WAIT_OBJECT_0;
+        }
+        if (ev) CloseHandle(ev);
+    }
+    for (int i = 0; ok && i < 4; ++i) {
+        CapItem& it = items[i];
+        if (!it.buf) { FgCaptureNote("%s=none", it.name); continue; }
+        wchar_t path[MAX_PATH];
+        _snwprintf_s(path, MAX_PATH, _TRUNCATE, L"%s\\fgcap.%S.bin", g_cap.dir, it.name);
+        void* p = NULL;
+        FILE* f = NULL;
+        if (FAILED(it.buf->Map(0, NULL, &p)) || !p || _wfopen_s(&f, path, L"wb") || !f) { ok = false; if (p) it.buf->Unmap(0, NULL); break; }
+        for (UINT y = 0; y < it.rows; ++y) fwrite((const char*)p + it.fp.Offset + (UINT64)y * it.fp.Footprint.RowPitch, 1, (size_t)it.rowBytes, f);
+        fclose(f);
+        it.buf->Unmap(0, NULL);
+        FgCaptureNote("%s=%ux%u fmt %u rowBytes %llu", it.name, it.fp.Footprint.Width, it.fp.Footprint.Height, (unsigned)it.fp.Footprint.Format, (unsigned long long)it.rowBytes);
+    }
+    for (int i = 0; i < 4; ++i) SafeRelease(items[i].buf);
+    SafeRelease(fence); SafeRelease(cl); SafeRelease(alloc);
+    if (ok) {
+        wchar_t path[MAX_PATH];
+        _snwprintf_s(path, MAX_PATH, _TRUNCATE, L"%s\\fgcap.txt", g_cap.dir);
+        FILE* f = NULL;
+        if (_wfopen_s(&f, path, L"wb") || !f) ok = false;
+        else { fwrite(g_cap.notes, 1, (size_t)g_cap.len, f); fclose(f); }
+    }
+    return ok;
 }
 
 // Lock held. Drop the retained Unity RTs of the frame slot.
@@ -378,7 +467,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.lastError = FG_OK;
     H.reason = NULL;
     H.lastPresentHr = 0;
-    H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
+    H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0; H.havePaired = 0; H.haveSent = 0; H.twinsOk = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
     {
         Locked lk;
         c.prov = p;                                        // publish: the render thread may pin from here on
@@ -403,31 +492,60 @@ void FgHostSetEnabled(int on)
     FgLog("host: enabled=%d", on ? 1 : 0);
 }
 
-// Single slot: the render thread copies it under the lock in Pin (a few hundred bytes), so a 4-deep ring and
-// its racy index are not needed. The Unity RTs are retained until overwritten or Shutdown.
-void FgHostSetFrame(const FgFrame& f)
+// The latest block also lands in the single slot (status line, presence checks; the Unity RTs are retained there until
+// overwritten or Shutdown). The ring copy is plain data: nothing dereferences its resource pointers.
+const FgFrame* FgHostSetFrame(const FgFrame& f)
 {
     if (f.hudless) f.hudless->AddRef();
     if (f.depth)   f.depth->AddRef();
     if (f.mv)      f.mv->AddRef();
     ID3D12Resource *oh, *od, *om;
+    FgFrame* r;
     {
         Locked lk;
         oh = H.slot.hudless; od = H.slot.depth; om = H.slot.mv;
         H.slot = f;
+        r = &H.ring[H.ringIdx++ % kFrameRing];
+        *r = f;
     }
     if (oh) oh->Release();
     if (od) od->Release();
     if (om) om->Release();
+    return r;
 }
 
-void FgHostPrepare(void)
+// Render thread. D3D12 frame pairing (Fg.h FgFrame): the twins this event's list reads, and the back buffer of this
+// frame's Present, hold what Unity rendered one frame EARLIER, so everything that describes the rendered frame comes
+// from the previous event's block; the resources, sizes and the frame id stay this event's. No previous block (first
+// frame of a chain, a skipped frame, a resized generation) = nothing describes the twins: reset.
+FgFrame PairFrame(const FgFrame& ev, bool* paired)
+{
+    FgFrame d = ev;
+    const FgFrame& p = H.paired;
+    if (H.havePaired && p.frameId + 1 == ev.frameId && p.renderW == ev.renderW && p.renderH == ev.renderH && p.outW == ev.outW && p.outH == ev.outH) {
+        d.jitterX = p.jitterX; d.jitterY = p.jitterY;
+        d.cameraNear = p.cameraNear; d.cameraFar = p.cameraFar; d.cameraFovY = p.cameraFovY;
+        d.dtMs = p.dtMs; d.reset = p.reset;
+        memcpy(d.view, p.view, sizeof(d.view)); memcpy(d.proj, p.proj, sizeof(d.proj));
+        memcpy(d.camPos, p.camPos, sizeof(d.camPos)); memcpy(d.camUp, p.camUp, sizeof(d.camUp));
+        memcpy(d.camRight, p.camRight, sizeof(d.camRight)); memcpy(d.camFwd, p.camFwd, sizeof(d.camFwd));
+        *paired = true;
+    } else {
+        d.reset = 1;
+        *paired = false;
+    }
+    H.paired = ev; H.havePaired = 1;
+    return d;
+}
+
+void FgHostPrepare(const FgFrame* ev)
 {
     if (!Pin()) return;
     // A new frame supersedes whatever is still unpresented: an earlier success nobody presented, or a token a skipped
     // Present (GetBuffer/copy failed) left behind. Reset BEFORE the input checks, so a frame with a missing input or a
     // failing Prepare leaves prepared = 0 and no stale DLSS-G token that a later Present would pop for the wrong frame.
     H.prepared = 0;
+    H.twinsOk = 0;
     H.c.prov->DropPrepared();
     // The pass-through provider has nothing to prepare. Nothing is declared to Unity: providers read the
     // shim-owned twins (COMMON at rest), never the Unity RTs - declaring those as NON_PIXEL_SHADER_RESOURCE made
@@ -441,14 +559,35 @@ void FgHostPrepare(void)
             ok = 0;
             ID3D12GraphicsCommandList* l = H.c.prep.Begin();
             if (l) {
-                // FP16 out (D3D12HalfColor): encode it into the 8-bit twin FIRST, on this list, so the provider's tags
-                // reference a hud-less in the back buffer's format (FgHudless.h). Same list = same queue order.
+                // The row-flipped copies FIRST, on this list, so the provider's tags reference inputs in the back
+                // buffer's orientation and format (FgTwins.h). Same list = same queue order, after the upscaler's.
                 const OwnedSet12* o = FgOwned12();
-                if (o && o->out && o->outFmt != H.c.backFmt && H.c.hud.Ensure(H.device, H.c.prep, o->outW, o->outH, H.c.backFmt))
-                    H.c.hud.Run(l, o->out, o->outFmt, H.c.prep.ringIdx);
-                bool prepared = H.c.prov->Prepare(l, H.cur);
+                if (o && H.c.twins.Ensure(H.device, H.c.prep, *o, H.c.backFmt)) { H.c.twins.Run(l, *o, H.c.prep.ringIdx); H.twinsOk = 1; }
+                bool paired = false;
+                const FgFrame f = PairFrame(ev ? *ev : H.cur, &paired);
+                if (FgCaptureArmed()) {
+                    FgCaptureNote("provider=%s", H.c.prov->Name());
+                    FgCaptureNote("frameId=%llu", f.frameId);
+                    FgCaptureNote("pair=event %llu carries the constants of block %llu (paired %d, reset %d)", f.frameId, paired ? f.frameId - 1 : f.frameId, paired ? 1 : 0, f.reset);
+                    FgCaptureNote("tagged=row-flipped copies (FgTwins.h) twins %d", H.twinsOk);
+                    FgCaptureNote("render=%ux%u out=%ux%u", f.renderW, f.renderH, f.outW, f.outH);
+                    FgCaptureNote("backFmt=%u", (unsigned)H.c.backFmt);
+                    FgCaptureFloats("frame.view", f.view, 16);
+                    FgCaptureFloats("frame.proj", f.proj, 16);
+                    FgCaptureFloats("frame.jitter", &f.jitterX, 2);
+                    FgCaptureFloats("frame.mvScale", &f.mvScaleX, 2);
+                    FgCaptureFloats("frame.cam", f.camPos, 12);
+                    if (H.haveSent && paired) {
+                        FgCaptureFloats("prev.view", H.sent.view, 16);
+                        FgCaptureFloats("prev.proj", H.sent.proj, 16);
+                        FgCaptureFloats("prev.cam", H.sent.camPos, 12);
+                    }
+                }
+                bool prepared = H.c.prov->Prepare(l, f);
+                H.sent = f; H.haveSent = 1;
                 bool submitted = H.c.prep.End(0);   // always End: an open list would wedge the ring's next Begin
                 ok = prepared && submitted;
+                if (FgCaptureArmed()) InterlockedExchange(&g_cap.state, ok ? 2 : -1);
                 if (prepared && !submitted) H.c.prov->DropPrepared();   // no Present will consume it (DLSS-G token)
                 if (!ok && H.prepFails++ < 8)
                     FgLog("host: prepare failed (provider=%d submit=%d) - frame not prepared", prepared ? 1 : 0, submitted ? 1 : 0);
@@ -459,18 +598,56 @@ void FgHostPrepare(void)
     Unpin(NULL);
 }
 
-// Render thread, inside Prepare (chain pinned). The owned out twin when it already has the back buffer's format, else
-// the encoded 8-bit twin FgHostPrepare just wrote; NULL (fmt = the out twin's) when neither matches.
+// Render thread, inside Prepare / the capture (chain pinned): the flipped copies FgHostPrepare just wrote on this list.
 ID3D12Resource* FgHudless12(DXGI_FORMAT* fmt)
 {
     const OwnedSet12* o = FgOwned12();
-    if (!o || !o->out) { if (fmt) *fmt = DXGI_FORMAT_UNKNOWN; return NULL; }
-    if (o->outFmt == H.c.backFmt) { if (fmt) *fmt = o->outFmt; return o->out; }
-    Hudless8& h = H.c.hud;
-    if (h.tex && h.w == o->outW && h.h == o->outH) { if (fmt) *fmt = h.fmt; return h.tex; }
-    if (fmt) *fmt = o->outFmt;
+    const FgTwins& t = H.c.twins;
+    if (H.twinsOk && t.tex[FgTwins::kHud]) { if (fmt) *fmt = t.hudFmt; return t.tex[FgTwins::kHud]; }
+    if (fmt) *fmt = o ? o->outFmt : DXGI_FORMAT_UNKNOWN;
     return NULL;
 }
+ID3D12Resource* FgDepth12(void) { return H.twinsOk ? H.c.twins.tex[FgTwins::kDepth] : NULL; }
+ID3D12Resource* FgMv12(void)    { return H.twinsOk ? H.c.twins.tex[FgTwins::kMv] : NULL; }
+
+bool FgCaptureArmed(void) { return InterlockedCompareExchange(&g_cap.state, 1, 1) == 1; }
+
+void FgCaptureNote(const char* fmt, ...)
+{
+    LONG s = InterlockedCompareExchange(&g_cap.state, 0, 0);
+    if (s != 1 && s != 2) return;
+    int room = (int)sizeof(g_cap.notes) - g_cap.len - 2;
+    if (room <= 0) return;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = _vsnprintf_s(g_cap.notes + g_cap.len, (size_t)room, _TRUNCATE, fmt, ap);
+    va_end(ap);
+    if (n < 0) n = (int)strlen(g_cap.notes + g_cap.len);
+    g_cap.len += n;
+    g_cap.notes[g_cap.len++] = '\n';
+}
+
+void FgCaptureFloats(const char* key, const float* v, int n)
+{
+    char line[512];
+    int at = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s=", key);
+    for (int i = 0; i < n && at > 0 && at < (int)sizeof(line) - 20; ++i)
+        at += _snprintf_s(line + at, sizeof(line) - at, _TRUNCATE, i ? " %.9g" : "%.9g", v[i]);
+    FgCaptureNote("%s", line);
+}
+
+int FgHostCapture(const wchar_t* dir)
+{
+    if (!dir || !FgHostAlive()) return 0;
+    LONG s = InterlockedCompareExchange(&g_cap.state, 0, 0);
+    if (s == 1 || s == 2) return 0;
+    wcsncpy_s(g_cap.dir, MAX_PATH, dir, _TRUNCATE);
+    g_cap.len = 0;
+    InterlockedExchange(&g_cap.state, 1);
+    return 1;
+}
+
+int FgHostCaptureStatus(void) { return (int)InterlockedCompareExchange(&g_cap.state, 0, 0); }
 
 bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 {
@@ -496,6 +673,8 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 
     ID3D12Resource* src = NULL;
     if (FAILED(c.app->GetBuffer(c.app->GetCurrentBackBufferIndex(), __uuidof(ID3D12Resource), (void**)&src)) || !src) { Unpin(NULL); return false; }
+
+    if (InterlockedCompareExchange(&g_cap.state, 2, 2) == 2) InterlockedExchange(&g_cap.state, CaptureWrite(src) ? 3 : -1);
 
     // Generated frame(s) first - they sit between the previous real frame and this one - then the real one.
     // The provider presents its own frames on the shadow chain, so the current back buffer is fetched after.

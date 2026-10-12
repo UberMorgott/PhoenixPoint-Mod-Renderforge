@@ -174,9 +174,12 @@ DLSS_API int __cdecl Fg_PresentedFps(void);
 DLSS_API int __cdecl Fg_Init(int provider, unsigned multiplier, const wchar_t* dllDir);
 // Main thread. Turns interpolation on/off without tearing the chain down.
 DLSS_API void __cdecl Fg_SetEnabled(int on);
-// Main thread. One rendered frame's inputs. All resources are ID3D12Resource*. `view`/`proj` are 16 floats
-// row-major; `cam` is 12 floats: pos[3], up[3], right[3], forward[3]. fovY in radians.
-DLSS_API void __cdecl Fg_SetFrame(void* hudless, void* depth, void* mv,
+// Main thread. One rendered frame's inputs, in the conventions of Fg.h FgFrame (Direct3D, top-down image). All
+// resources are ID3D12Resource*. `view`/`proj` are 16 floats, row-vector matrices (clip = v * view * proj) stored
+// row-major, left-handed view space, reversed-Z clip, no jitter; `cam` is 12 floats: pos[3], up[3], right[3],
+// forward[3], world space. fovY in radians. Returns the stored block: pass it as the `data` of this frame's
+// DLSS_EV_FG_PREPARE (IssuePluginEventAndData), which is how the render thread pairs constants with frames.
+DLSS_API void* __cdecl Fg_SetFrame(void* hudless, void* depth, void* mv,
                                   float jitterX, float jitterY, float mvScaleX, float mvScaleY,
                                   float cameraNear, float cameraFar, float cameraFovY,
                                   float dtMs, int reset,
@@ -200,6 +203,12 @@ DLSS_API int __cdecl Fg_Pump(void);
 // 1 while the chain exists. 0 once the shim detached it itself (ResizeBuffers, shadow Present failure):
 // the managed side must drop `live`, keep pumping and call Fg_Init again.
 DLSS_API int __cdecl Fg_Alive(void);
+// Diagnostic. Arms a one-frame capture into `dir` (an existing folder): fgcap.txt = the constants the provider sent
+// for the next prepared frame, fgcap.{depth,mv,hud,bb}.bin = the tagged resources and Unity's back buffer of the
+// Present carrying that frame, raw rows in memory order. Returns 1 when armed. Fg_CaptureStatus: 0 idle, 1 armed,
+// 2 constants noted, 3 written, -1 failed.
+DLSS_API int __cdecl Fg_Capture(const wchar_t* dir);
+DLSS_API int __cdecl Fg_CaptureStatus(void);
 
 #ifdef __cplusplus
 }

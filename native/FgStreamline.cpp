@@ -308,9 +308,9 @@ struct ProviderStreamline : IFgProvider
         return FG_OK;
     }
 
-    static void Transpose(sl::float4x4& m, const float* u)   // Unity column-vector m00..m33 -> SL row-vector (v * M)
+    static void Rows(sl::float4x4& m, const float* u)   // FgFrame row-vector, row-major = sl::float4x4 as is
     {
-        for (int r = 0; r < 4; ++r) m.setRow(r, sl::float4(u[r], u[4 + r], u[8 + r], u[12 + r]));
+        for (int r = 0; r < 4; ++r) m.setRow(r, sl::float4(u[4 * r], u[4 * r + 1], u[4 * r + 2], u[4 * r + 3]));
     }
 
     void Options(sl::DLSSGOptions& o, unsigned mode)
@@ -324,7 +324,7 @@ struct ProviderStreamline : IFgProvider
         if (owned) {
             o.mvecDepthWidth = owned->w; o.mvecDepthHeight = owned->h;
             o.mvecBufferFormat = DXGI_FORMAT_R16G16_FLOAT; o.depthBufferFormat = DXGI_FORMAT_R32_FLOAT;
-            o.hudLessBufferFormat = (unsigned)backFmt;   // what FgHudless12 hands Prepare: the out twin, or its 8-bit twin
+            o.hudLessBufferFormat = (unsigned)backFmt;   // what FgHudless12 hands Prepare (FgTwins.h)
         }
     }
 
@@ -356,11 +356,13 @@ struct ProviderStreamline : IFgProvider
     bool Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
-        if (!proxy || !o || !o->depth || !o->mv || !o->out) return false;
+        ID3D12Resource* depth = FgDepth12();
+        ID3D12Resource* mv = FgMv12();
+        if (!proxy || !o || !depth || !mv) return false;
         IssueOptions(o->w, o->h);
-        // The hud-less in the back buffer's format (FgHudless12: the out twin, or the host's encoded 8-bit twin of an FP16
-        // out). Without one the frame still gets its token, constants and depth/mv tags - a skipped hudless is a quality
-        // loss, a skipped token/constants wedges DLSS-G ("missing common constants", generated=0; measured 2026-09-03).
+        // The hud-less in the back buffer's format and row order (FgHudless12, the host's flipped copy). Without one the
+        // frame still gets its token, constants and depth/mv tags - a skipped hudless is a quality loss, a skipped
+        // token/constants wedges DLSS-G ("missing common constants", generated=0; measured 2026-09-03).
         DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
         ID3D12Resource* hud = FgHudless12(&hudFmt);
         if (!hud || hudFmt != backFmt || o->outW != outW || o->outH != outH) {
@@ -379,11 +381,13 @@ struct ProviderStreamline : IFgProvider
         g_sl.marker(sl::PCLMarker::eSimulationEnd, *t);
         g_sl.marker(sl::PCLMarker::eRenderSubmitStart, *t);
 
-        // sl_consts.h:183-185 row-major, jitter-free, v * M order (sl_matrix_helpers.h:185-213 builds them so).
+        // sl_consts.h:183-185 row-major, jitter-free, v * M order (sl_matrix_helpers.h:206-214 chains them so). FgFrame is
+        // already that: left-handed view space spanned by cameraRight/Up/Fwd, the basis sl_matrix_helpers.h:185-190 puts
+        // into cameraViewToWorld, so clipToCameraView * [right up fwd pos] is a valid clip -> world there too.
         sl::Constants c{};
         sl::float4x4 view, invView, clipToWorld, clipToPrevView;
-        Transpose(view, f.view);
-        Transpose(c.cameraViewToClip, f.proj);
+        Rows(view, f.view);
+        Rows(c.cameraViewToClip, f.proj);
         sl::matrixFullInvert(c.clipToCameraView, c.cameraViewToClip);
         if (!havePrev || f.reset) { prevView = view; prevProj = c.cameraViewToClip; havePrev = 1; }
         sl::matrixFullInvert(invView, view);
@@ -392,7 +396,7 @@ struct ProviderStreamline : IFgProvider
         sl::matrixMul(c.clipToPrevClip, clipToPrevView, prevProj);     // -> previous clip
         sl::matrixFullInvert(c.prevClipToClip, c.clipToPrevClip);
         prevView = view; prevProj = c.cameraViewToClip;
-        c.jitterOffset = sl::float2(f.jitterX, f.jitterY);      // NGX convention, the signs Device12.cpp hands DLSS SR
+        c.jitterOffset = sl::float2(f.jitterX, f.jitterY);      // pixels (sl_consts.h:201-202), NGX offsets in top-down rows (Fg.h)
         c.mvecScale = sl::float2(f.mvScaleX / (float)(f.renderW ? f.renderW : 1), f.mvScaleY / (float)(f.renderH ? f.renderH : 1));  // pixels -> [-1,1]
         c.cameraPinholeOffset = sl::float2(0.f, 0.f);
         c.cameraPos   = sl::float3(f.camPos[0], f.camPos[1], f.camPos[2]);
@@ -401,20 +405,34 @@ struct ProviderStreamline : IFgProvider
         c.cameraFwd   = sl::float3(f.camFwd[0], f.camFwd[1], f.camFwd[2]);
         c.cameraNear = f.cameraNear; c.cameraFar = f.cameraFar; c.cameraFOV = f.cameraFovY;
         c.cameraAspectRatio = f.renderH ? (float)f.renderW / (float)f.renderH : 1.f;
-        c.depthInverted = sl::Boolean::eTrue;                   // Unity D3D12 = reversed-Z (DlssDriver.cs:253)
+        c.depthInverted = sl::Boolean::eTrue;                   // reversed Z: closer = higher (sl_consts.h:228-229), as f.proj maps it
         c.cameraMotionIncluded = sl::Boolean::eTrue;
         c.motionVectors3D = sl::Boolean::eFalse;
         c.reset = f.reset ? sl::Boolean::eTrue : sl::Boolean::eFalse;
         c.orthographicProjection = sl::Boolean::eFalse;
         c.motionVectorsDilated = sl::Boolean::eFalse;
         c.motionVectorsJittered = sl::Boolean::eFalse;
+        if (FgCaptureArmed()) {
+            FgCaptureFloats("sl.cameraViewToClip", &c.cameraViewToClip[0].x, 16);
+            FgCaptureFloats("sl.clipToCameraView", &c.clipToCameraView[0].x, 16);
+            FgCaptureFloats("sl.clipToPrevClip", &c.clipToPrevClip[0].x, 16);
+            FgCaptureFloats("sl.prevClipToClip", &c.prevClipToClip[0].x, 16);
+            FgCaptureFloats("sl.jitterOffset", &c.jitterOffset.x, 2);
+            FgCaptureFloats("sl.mvecScale", &c.mvecScale.x, 2);
+            FgCaptureFloats("sl.cameraPos", &c.cameraPos.x, 3);
+            FgCaptureFloats("sl.cameraUp", &c.cameraUp.x, 3);
+            FgCaptureFloats("sl.cameraRight", &c.cameraRight.x, 3);
+            FgCaptureFloats("sl.cameraFwd", &c.cameraFwd.x, 3);
+            FgCaptureNote("sl.near=%.9g far=%.9g fov=%.9g aspect=%.9g depthInverted=%d reset=%d frameIdx=%u mode=%d", c.cameraNear, c.cameraFar, c.cameraFOV,
+                          c.cameraAspectRatio, (int)c.depthInverted, (int)c.reset, g_sl.frameIdx, isOn);
+        }
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.setConstants(c, *t, vp);
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetConstants %d", (int)r); }
 
-        // Owned twins rest in COMMON (D3D12Owned.h); SL copies them on `list` (eOnlyValidNow, ManualHooking.md:501-517).
-        sl::Resource rDepth(sl::ResourceType::eTex2d, o->depth, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
-        sl::Resource rMv(sl::ResourceType::eTex2d, o->mv, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
+        // The host's flipped copies rest in COMMON (FgTwins.h); SL copies them on `list` (eOnlyValidNow, ManualHooking.md:501-517).
+        sl::Resource rDepth(sl::ResourceType::eTex2d, depth, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
+        sl::Resource rMv(sl::ResourceType::eTex2d, mv, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
         sl::Resource rHud(sl::ResourceType::eTex2d, hud, (uint32_t)D3D12_RESOURCE_STATE_COMMON);
         sl::Extent eRender{}, eOut{};                            // full-size extents, explicit (SL warns on an unset 0x0 extent)
         eRender.width = o->w; eRender.height = o->h;

@@ -542,6 +542,40 @@ namespace Renderforge
             return "fgProvider=" + name + " " + FrameGen.Status();
         }
 
+        /// <summary>PPCLI: {"member":"SetFrameLimit","args":[true,120]} - the FPS limit row (presented ceiling 30..300). Live + saved.</summary>
+        public static string SetFrameLimit(bool on, int fps)
+        {
+            var m = Instance;
+            if (m == null) return "mod not enabled";
+            m.Cfg.LimitFrameRate = on;
+            m.Cfg.FrameRateLimit = Mathf.Clamp(fps, 30, 300);
+            ApplyFrameRate();
+            SaveConfig();
+            return FgCaps();
+        }
+
+        /// <summary>PPCLI diagnostic: {"member":"FgCapture","args":["C:\\Temp\\cap"]} - one frame exactly as the FG provider is
+        /// fed it (Native.Fg_Capture: fgcap.txt + raw fgcap.*.bin in memory row order) into an existing folder. Returns the
+        /// pacing caps of that moment; poll FgCaptureStatus until 3.</summary>
+        public static string FgCapture(string absDir)
+        {
+            if (!FrameGen.Live) return "fg not live";
+            return "armed=" + Native.Fg_Capture(absDir) + " " + FgCaps();
+        }
+
+        public static string FgCaptureStatus() => "capture=" + Native.Fg_CaptureStatus() + " " + FgCaps();
+
+        /// <summary>PPCLI diagnostic: every cap that bounds a frame-rate measurement, plus base and presented fps.</summary>
+        public static string FgCaps()
+        {
+            var cfg = Instance?.Cfg;
+            return "targetFrameRate=" + Application.targetFrameRate + " vSyncCount=" + QualitySettings.vSyncCount
+                 + " limiter=" + (cfg != null && cfg.LimitFrameRate ? cfg.FrameRateLimit.ToString() : "off")
+                 + " fgMultiplier=" + FrameGen.OutputMultiplier
+                 + " baseFps=" + Mathf.RoundToInt(1f / Mathf.Max(Time.smoothDeltaTime, 1e-5f))
+                 + " presentedFps=" + (FrameGen.Live ? Native.Fg_PresentedFps() : 0) + " frame=" + Time.frameCount;
+        }
+
         /// <summary>PPCLI test knob: {"member":"SetHoldPrepare","args":[true]} - the driver stops feeding FG frames while the chain stays live.</summary>
         public static string SetHoldPrepare(bool on) { FrameGen.HoldPrepare = on; return "holdPrepare=" + on + " " + FrameGen.Status(); }
 

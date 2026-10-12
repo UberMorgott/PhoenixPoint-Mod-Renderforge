@@ -324,7 +324,7 @@ static void __stdcall OnRenderEventAndData(int eventId, void* data)
         InterlockedExchange(&g_releaseResult, FgHostRetired() && S.dev->ReleaseFeature() ? 1 : -1);
         break;
     case DLSS_EV_FG_PREPARE:
-        FgHostPrepare();
+        FgHostPrepare((const FgFrame*)data);   // data = the block Fg_SetFrame returned for THIS frame (NULL: the latest)
         break;
     default:
         break;
@@ -427,7 +427,7 @@ int __cdecl Fg_Init(int provider, unsigned multiplier, const wchar_t* dllDir)
 
 void __cdecl Fg_SetEnabled(int on) { FgHostSetEnabled(on); }
 
-void __cdecl Fg_SetFrame(void* hudless, void* depth, void* mv,
+void* __cdecl Fg_SetFrame(void* hudless, void* depth, void* mv,
                          float jitterX, float jitterY, float mvScaleX, float mvScaleY,
                          float cameraNear, float cameraFar, float cameraFovY,
                          float dtMs, int reset,
@@ -454,7 +454,7 @@ void __cdecl Fg_SetFrame(void* hudless, void* depth, void* mv,
         memcpy(f.camRight, cam + 6, sizeof(f.camRight));
         memcpy(f.camFwd,   cam + 9, sizeof(f.camFwd));
     }
-    FgHostSetFrame(f);
+    return (void*)FgHostSetFrame(f);
 }
 
 const OwnedSet12* FgOwned12(void) { return S.dev ? S.dev->Owned12() : NULL; }
@@ -466,6 +466,8 @@ const char* __cdecl Fg_Reason(void) { return FgHostReason(); }
 int __cdecl Fg_Shutdown(void) { return FgHostShutdown(); }
 int __cdecl Fg_Pump(void) { return FgHostPump(); }
 int __cdecl Fg_Alive(void) { return FgHostAlive(); }
+int __cdecl Fg_Capture(const wchar_t* dir) { return FgHostCapture(dir); }
+int __cdecl Fg_CaptureStatus(void) { return FgHostCaptureStatus(); }
 
 // The vtable patch stays until UnityPluginUnload: Unity keeps presenting after Dlss_Shutdown, and the
 // hook is inert once the host has no provider.
