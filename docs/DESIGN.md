@@ -1075,20 +1075,105 @@ DLSS-G on NVIDIA, FSR-FG elsewhere; `RenderforgeMod.SetFgProvider` forces one fo
 
 ### Per-frame sequence
 
-1. Main thread: `FrameGen.Apply` -> `Fg_Init` (once) -> `Fg_SetFrame` (Unity RTs retained, jitter, camera, dt).
-2. Render thread, `DLSS_EV_FG_PREPARE` (`CameraEvent.AfterEverything`): `FgHostPrepare` -> `provider.Prepare`
-   on a recording command list submitted through `ExecuteCommandList` with state arrays. Providers read the
-   shim-owned twins (`FgOwned12()`, all resting in COMMON), never the Unity RTs.
+1. Main thread: `FrameGen.Apply` -> `Fg_Init` (once) -> `Fg_SetFrame` (jitter, camera, matrices, dt; returns the
+   stored block, which travels as the `data` of that frame's `DLSS_EV_FG_PREPARE`).
+2. Render thread, `DLSS_EV_FG_PREPARE` (`CameraEvent.AfterEverything`): `FgHostPrepare(block)` -> row-flipped copies
+   of the owned twins (`FgTwins.h`) -> `PairFrame` -> `provider.Prepare` on a recording command list submitted
+   through `ExecuteCommandList`. Providers tag `FgDepth12()` / `FgMv12()` / `FgHudless12()` (all resting in COMMON),
+   never the Unity RTs and never the upscaler's own twins.
 3. Render thread, Present hook: `FgHostOnPresent` copies Unity backbuffer (PRESENT -> COPY_SOURCE -> PRESENT)
    into shadow chain -> `provider.Generate` (FSR manual path only) -> `provider.BeforePresent` (DLSS: markers
    after copy fence wait) -> shadow `Present` (vendor paces internally) -> `provider.AfterPresent` (XeSS/DLSS:
    end markers) -> Unity's original `Present` (sync 0, ALLOW_TEARING).
 
+### FG input contract (2026-10-12)
+
+What `Fg_SetFrame` carries and what the providers tag (`native\Fg.h` `FgFrame`). Before this the generators got the
+upscaler's inputs as they were: reprojecting the tagged depth with the constants **as sent** missed the tagged motion
+vectors by 5226 px (tactical, pan + rotate + zoom, 53 px/frame) and 149 px (geoscape orbit, 2.6 px/frame) — the
+"image shake growing toward the edges" with frame generation on. Four defects, one contract:
+
+- **Orientation: top-down, like the back buffer.** A camera with a target texture renders through
+  `GL.GetGPUProjectionMatrix(p, true)` (y negated), so `colorRT` / `depthRT` / `mvRT` and the upscaler's `out` twin
+  hold image row 0 at the bottom; the present Blit turns the picture over into the back buffer (row 0 = top). The
+  upscalers never see the back buffer; a generator warps exactly that. Measured with `Fg_Capture` (raw rows of what
+  was tagged + Unity's back buffer of the same Present): hud-less vs back buffer correlation 0.08 same rows / 0.39
+  mirrored before. No SDK has a flag for bottom-up inputs, so `FgTwins.h` copies depth, motion vectors and the
+  hud-less colour row-flipped on the prep list (one compute pass each) and the providers tag those copies. After:
+  0.50–0.78 same rows / −0.06–0.16 mirrored on lit scenes (the rest is the HUD; one geoscape frame read 0.78 / 0.58, the globe being nearly symmetric); a 7 px `PixelArt` block grid, anchored at row 0 of
+  the `out` twin, lands on rows ≡ 5 (mod 7) = 1440 mod 7 in the tagged hud-less **and** in the back buffer; picture
+  edge strength on the tagged depth's silhouettes 0.20–0.23 same rows vs 0.01–0.06 mirrored (tactical).
+- **Matrices: Direct3D row-vector, left-handed view, reversed Z.** `view` = `worldToCameraMatrix` with z mirrored
+  (view z = `cam.transform.forward`), `proj` = `GL.GetGPUProjectionMatrix(nonJittered, false)` with the z column
+  mirrored (clip y up, w = +z, near = 1), both transposed (`clip = v * view * proj`). Was: Unity's GL projection
+  (z in −1..1, w = −z) next to `depthInverted` / `INVERTED_DEPTH`, and for XeSS-FG column-vector matrices where its
+  guide memcpy's an `XMFLOAT4X4` (`xess_fg_developer_guide_english.md:903-909`; read the other way the sent pair is
+  716 px off). Streamline: `sl_consts.h:183-199`, chain order `sl_matrix_helpers.h:206-214`; the left-handed view is
+  the basis `cameraRight` / `cameraUp` / `cameraFwd` span (`sl_matrix_helpers.h:185-190`): recomputing
+  `clipToPrevClip` from the sent camera vectors by that helper matches the sent matrix to 6e-5. FSR-FG takes no
+  matrices: camera position + right / up / forward (world space, `ffx_framegeneration.h:240-243`), near, far, fov.
+- **Jitter and motion-vector scale follow the rows.** Jitter = the NGX offsets every upscaler takes, y mirrored:
+  `(-jx, +jy)`; FSR documents that sign (`super-resolution-upscaler.md:259-261`: a clip-space translation by
+  `+2jx/w`, `−2jy/h`), Streamline (`sl_consts.h:201-202`) and XeSS-FG (`xefg_swapchain.h:158-161`) only say "pixels" /
+  "[-0.5, 0.5]" — same value as their upscalers get, mirrored. MV scale `(-renderW, +renderH)`: stored UV-space
+  motion → render pixels, current → previous; Streamline gets it divided by the render size (`mvecScale`, [-1, 1]).
+- **Pairing: the constants of the frame the twins hold.** Same ordering as `PairD3D12` (above): at frame N's event
+  the twins — and the back buffer of frame N's Present — hold frame N-1. `Fg_SetFrame` returns its block, the driver
+  passes it as the event's `data`, and `FgHostPrepare` → `PairFrame` hands the provider the **previous** event's
+  view / proj / jitter / camera / reset / dt beside this event's resources and frame id (no previous block = reset).
+  Left alone this was 0.62 px (tactical) / 0.05 px (geoscape) of residual at every radius.
+
+Residual after (median, output pixels, by radius r/rmax; `fgana.py` on an `Fg_Capture` under camera motion; D3D12,
+2560x1440 borderless, DLSS Quality 1707x960, FG 2x, `targetFrameRate=-1`, `vSyncCount=0`, limiter off):
+
+| scene / provider | motion | 0–.2 | .2–.4 | .4–.6 | .6–.8 | .8–1 | base / presented fps |
+|---|---|---|---|---|---|---|---|
+| tactical, before, DLSS-G | 53 px | 5226.5 | 5224.8 | 5228.3 | 5227.6 | 5227.5 | 55–104 / 54 |
+| geoscape, before, DLSS-G | 2.6 px | 148.6 | 148.8 | 149.2 | 150.1 | – | 270 / 192–248 |
+| tactical DLSS-G | 36 px | 0.016 | 0.018 | 0.021 | 0.025 | 0.028 | 101 / 111 |
+| tactical XeSS-FG | 34 px | 0.020 | 0.022 | 0.024 | 0.028 | 0.032 | 125 / 292 |
+| tactical FSR-FG | 50 px | 0.012 | 0.015 | 0.018 | 0.023 | 0.027 | 105 / 237 |
+| geoscape DLSS-G | 8.3 px | 0.003 | 0.003 | 0.003 | 0.003 | – | 109 / 104 |
+| geoscape XeSS-FG | 8.4 px | 0.002 | 0.003 | 0.002 | 0.002 | – | 98 / 177 |
+| geoscape FSR-FG | 18 px | 0.008 | 0.008 | 0.007 | 0.005 | – | 90 / 167 |
+
+(`–` = the globe does not reach the corners: no depth there.) DLSS-G rows are measured unfocused — the production
+plugin interpolates only with the window in the foreground (below); XeSS-FG and FSR-FG generate unfocused, 2.0x.
+
+Diagnostics: `RenderforgeMod.FgCapture(dir)` / `FgCaptureStatus()` / `FgCaps()` (PPCLI) → `Fg_Capture`: `fgcap.txt`
+(the constants each provider sent, the paired block and the previous one) + `fgcap.{depth,mv,hud,bb}.bin` (raw rows,
+memory order). `RENDERFORGE_FG_DEBUG=1` turns FidelityFX's debug checker on (`fsr dbg[...]` lines in
+`renderforge_fg.log`).
+
+### FG pacing (2026-10-12)
+
+One pacer per provider; the FPS LIMIT setting is the **presented** ceiling.
+
+| Provider | who caps | measured, limit 120 → base / presented |
+|---|---|---|
+| XeSS-FG | XeLL: `xellSetSleepMode.minimumIntervalUs = 1e6 / limit`, Unity `targetFrameRate = -1` | 60 / 120 (limit 60: 30 / 60) |
+| FSR-FG | Unity `targetFrameRate = floor(limit / multiplier)`; the FSR swapchain only spaces the presents | 60 / 119 |
+| DLSS-G | Unity `targetFrameRate = floor(limit / multiplier)` **and** Reflex `eLowLatency` sleep | 60 / 60 unfocused |
+
+- XeLL: other limiters "should be disabled when XeLL is in use", "FPS Cap is controlled via `xellSetSleepMode`"
+  (`xell_developer_guide_english.md:93-100,129`); with XeSS-FG it limits rendered frames to half the target (`:210-214`)
+  — measured as documented. `IFgProvider::SetFrameLimit` / `Fg_SetFrameLimit` is the seam; `ApplyFrameRate` switches
+  Unity's limiter off when the provider answers 1.
+- FSR: "rendered frame rate slightly below half the desired output frame rate" (`frame-interpolation-swap-chain.md:144`).
+- **Open, DLSS-G:** Streamline names `ReflexOptions::frameLimitUs` as the fixed-rate pacer (`ProgrammingGuideDLSS_G.md:769`)
+  but not whether it counts rendered or presented frames under frame generation (`sl_reflex.h:44-59`), and nothing
+  here can measure it unfocused. Until that is settled DLSS-G keeps two pacers (Unity's limiter + the Reflex sleep).
+- **Open, sleep placement:** `xellSleep` belongs "at the beginning of each frame, before sampling user input"
+  (`xell_developer_guide_english.md:294-298`) and Streamline defers `slReflexSleep` placement to the Reflex SDK guide
+  (`ProgrammingGuideReflex.md:181,210`, not on disk). Both still run on the render thread at `DLSS_EV_FG_PREPARE`,
+  with the six markers; moving them to the main thread's frame start needs frame ids shared across the two threads.
+
 ### HUD
 
-The present path gives every SDK what it needs for free: `outRT` = upscaled scene WITHOUT the HUD, backbuffer =
-same frame WITH it. FidelityFX's `HUDLessColor`, XeSS's UI mode 4 (`BACKBUFFER_HUDLESS`) and DLSS-G's
-`kBufferTypeHUDLessColor` + `enableUserInterfaceRecomposition`. No UI render target is built.
+The present path gives every SDK what it needs: the upscaler's `out` twin = upscaled scene WITHOUT the HUD, back
+buffer = same frame WITH it. The generators get the host's row-flipped copy of it in the back buffer's format
+(`FgTwins.h`; an FP16 `out` is sRGB-encoded into 8 bits on the way): FidelityFX's `HUDLessColor`, XeSS's UI mode 4
+(`BACKBUFFER_HUDLESS`) and DLSS-G's `kBufferTypeHUDLessColor`. No UI render target is built.
 
 ### Overlay
 
