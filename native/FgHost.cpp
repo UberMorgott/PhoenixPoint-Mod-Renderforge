@@ -106,7 +106,17 @@ struct Host
     unsigned              maxWaitMs;    // under g_lock
     int                   presentStalled; // a prepared frame's Present did not come within kPinWaitMs: prepares stop waiting until one does
     int                   tidLogged;
-    char                  status[640];
+    // Any render-thread exit of FgHostPrepare, pinned or not (EventRan): the highest pace id whose prepare event has
+    // run. Handed to the provider (PrepareDone) by whichever thread holds the pin next.
+    volatile LONG         evDone;
+    // Main thread only: the provider switch FgHostSetEnabled asked for and could not issue yet (-1 = none pending), and
+    // the last one issued on this chain (-1 = none yet).
+    int                   provWant, provOn;
+    // Presenting thread: presents to let pass before the quiescent point is tried again (after a failed drain), and the
+    // quiescent points served / refused for lack of a retirement proof (status line).
+    int                   quiesceSkip;
+    volatile LONG         nQuiesce, nQuiesceFail;
+    char                  status[768];
 };
 
 Host H;
@@ -295,9 +305,9 @@ void Unpin(const char* tearWhy)
 }
 
 // Main thread: the chain to itself - no Prepare and no Present inside it - for a vendor call that must not overlap
-// either: slDLSSGSetOptions "is NOT thread safe" (sl_dlss_g.h:207) and the render thread issues it from Prepare;
-// xellSetSleepMode wants the GPU work finished first (xell guide :131). Waits (bounded) for the thread inside to
-// leave. False = no live chain, or the wait timed out: nothing is pinned then. Unpin(NULL) ends it.
+// either: slDLSSGSetOptions "is NOT thread safe" (sl_dlss_g.h:207) and the render thread issues it from Prepare.
+// Waits (bounded) for the thread inside to leave. False = no live chain, or the wait timed out: nothing is pinned
+// then, and the caller must NOT issue its call (ApplyEnabled defers it). Unpin(NULL) ends it.
 bool PinMain(DWORD waitMs)
 {
     Locked lk;
@@ -594,6 +604,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.nPrepare = H.nPrepared = H.nPresent = H.nIdle = H.nWaited = H.nDup = H.nStall = 0;
     H.hudless = -1;
     H.presentStalled = 0; H.tidLogged = 0;
+    H.evDone = 0; H.provWant = -1; H.provOn = -1; H.quiesceSkip = 0; H.nQuiesce = H.nQuiesceFail = 0;
     {
         Locked lk;
         c.prov = p;                                        // publish: the render thread may pin from here on
@@ -668,31 +679,48 @@ const char* FgHostLatency(void)
     return buf;
 }
 
-// Main thread. The flag under the lock, the provider's SDK call outside it (SetEnabled and Destroy are both
-// main-thread only, so the provider cannot go away underneath).
+// Main thread. The provider's switch FgHostSetEnabled asked for (H.provWant), issued with the chain pinned by THIS
+// thread: a Prepare or Present in flight has left, none enters. DLSS-G's SetEnabled(false) is slDLSSGSetOptions, which
+// the render thread also issues from Prepare and which must be ordered against Present ("NOT thread safe",
+// sl_dlss_g.h:207; ProgrammingGuideDLSS_G.md:486-494).
+// INVARIANT: IFgProvider::SetEnabled runs on a LIVE chain only between a successful PinMain and its Unpin. No pin (a
+// thread still inside after `waitMs`) = the switch is not issued; it stays in H.provWant with the gate CLOSED
+// (H.enabled 0: no Prepare and no Present can enter any more, so the thread inside is the last one) and FgHostPump
+// tries again every frame. A chain that is no longer live needs nothing: DestroyChain switches its provider off
+// itself, detached and unpinned. True = nothing is pending.
+static bool ApplyEnabled(DWORD waitMs)
+{
+    if (H.provWant < 0) return true;
+    if (!PinMain(waitMs)) {
+        Locked lk;
+        if (H.state == kLive) return false;            // still someone inside: deferred
+        H.provWant = -1;
+        return true;
+    }
+    const int on = H.provWant;
+    H.provWant = -1;
+    H.c.prov->SetEnabled(on != 0);
+    H.provOn = on;
+    { Locked lk; H.enabled = on; }                     // the gate opens only behind the provider's own switch
+    Unpin(NULL);
+    FgLog("host: enabled=%d", on);
+    return true;
+}
+
 void FgHostSetEnabled(int on)
 {
-    // The provider's switch runs with the chain pinned by THIS thread: a Prepare or Present in flight has left, none
-    // enters (DLSS-G's SetEnabled(false) is slDLSSGSetOptions, which the render thread also issues from Prepare and
-    // which must be ordered against Present - sl_dlss_g.h:207, ProgrammingGuideDLSS_G.md:486-494). Off closes the
-    // gate first so nothing new queues up behind the pin; on opens it under the pin, the provider enabled before
-    // the first Prepare can enter.
-    enum { kEnableWaitMs = 500 };
-    IFgProvider* p = NULL;
-    if (!on) {
-        { Locked lk; H.enabled = 0; }
-        WakeAllConditionVariable(&g_unpinned);         // a waiting Pin re-reads `enabled` now
-    }
-    const bool pinned = PinMain(kEnableWaitMs);
-    {
+    enum { kEnableWaitMs = 100 };
+    on = on ? 1 : 0;
+    // FrameGen.Apply repeats the wish on every config change: nothing to do when it already holds.
+    if (H.provWant < 0 && H.provOn == on) {
         Locked lk;
-        H.enabled = on ? 1 : 0;
-        if (H.state == kLive) p = H.c.prov;
+        if (H.state != kLive || H.enabled == on) return;
     }
-    if (p && !pinned) FgLog("host: enabled=%d issued with a thread still inside the chain after %d ms", on ? 1 : 0, (int)kEnableWaitMs);
-    if (p) p->SetEnabled(on != 0);
-    if (pinned) Unpin(NULL);
-    FgLog("host: enabled=%d", on ? 1 : 0);
+    { Locked lk; H.enabled = 0; }                      // closed in both directions until the provider has switched
+    WakeAllConditionVariable(&g_unpinned);             // a waiting Pin re-reads `enabled` now
+    H.provWant = on;
+    if (!ApplyEnabled(kEnableWaitMs))
+        FgLog("host: enabled=%d deferred: a thread is still inside the chain after %d ms - the gate stays closed, the pump retries", on, (int)kEnableWaitMs);
 }
 
 // The latest block also lands in the single slot (status line, presence checks; the Unity RTs are retained there until
@@ -1011,6 +1039,7 @@ int FgHostPump(void)
         if (H.state == kLive && !FgAppIs((IDXGISwapChain*)H.c.app)) { H.state = kDetached; H.enabled = 0; H.destroyTries = 0; strncpy_s(H.why, sizeof(H.why), "app chain changed", _TRUNCATE); }
     }
     WakeAllConditionVariable(&g_unpinned);             // a Pin waiting on a chain that just went away gives up at once
+    ApplyEnabled(0);                                   // a provider switch that found a thread inside the chain: try again, no wait
     return DestroyDetached(0) ? 1 : 0;
 }
 
@@ -1046,14 +1075,14 @@ const char* FgHostStatus(void)
         caps = H.state == kLive ? H.c.prov->Caps() : H.lastCaps;
     }
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
-        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld maxWaitMs=%u stalls=%ld dup=%ld%s%s",
+        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld maxWaitMs=%u stalls=%ld dup=%ld quiesce=%ld/%ld pendingEnable=%d%s%s",
         prov, H.enabled, H.multiplier,
         state == kNone ? "-" : "child", child, (unsigned)H.childHr, w->hit, focus,
         w->foreground == game ? 1 : 0,
         shadow, H.outW, H.outH, scFlags,
         caps, H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
         frameId, state == kLive ? H.idle : 0LL, (long)H.nPrepared, (long)H.nPrepare, (long)H.nPresent, (long)H.nIdle, (long)H.nWaited,
-        H.maxWaitMs, (long)H.nStall, (long)H.nDup,
+        H.maxWaitMs, (long)H.nStall, (long)H.nDup, (long)H.nQuiesce, (long)H.nQuiesceFail, H.provWant,
         H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;
 }

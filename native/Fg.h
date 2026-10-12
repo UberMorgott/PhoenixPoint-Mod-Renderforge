@@ -210,7 +210,10 @@ const FgWndProbe* FgWndProbeNow(void);       // samples on the UI thread (bounde
 
 // Main thread. Refuses (FG_ERR_NO_SWAPCHAIN, caller retries) while a detached chain still awaits destruction.
 int  FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir);
-void FgHostSetEnabled(int on);               // main thread
+// Main thread. The gate closes at once; the provider's own switch (IFgProvider::SetEnabled) runs only with the chain
+// pinned by the main thread, and the gate opens after it. A thread still inside the chain = the switch is DEFERRED to
+// the next FgHostPump, never issued next to it.
+void FgHostSetEnabled(int on);
 // Main thread. Stores the block in a ring and returns its address: the driver passes it as the `data` of that frame's
 // DLSS_EV_FG_PREPARE, so the render thread knows WHICH frame an event belongs to (the main thread runs ahead of it).
 // The Unity RTs of the latest block are retained until overwritten.
