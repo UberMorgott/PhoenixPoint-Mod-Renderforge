@@ -685,6 +685,23 @@ namespace Renderforge
         /// <summary>{"member":"DumpHierarchy","args":["UI_GS_Site (191)","C:\\Temp\\h.txt"]} - scene hierarchy under a named object with renderers/canvases.</summary>
         public static string DumpHierarchy(string rootName, string absPath) => GeoMarkerOverlay.DumpHierarchy(rootName, absPath);
 
+        /// <summary>Diagnostic: range / centre / expected value of the depth the SDKs are fed (DlssDriver.DepthStats).</summary>
+        public static string DepthStats() => DlssDriver.Instance?.DepthStats() ?? "no driver";
+
+        /// <summary>Diagnostic: depth copy source, see Diagnostics.DepthSource. Applies to the live generation at once.</summary>
+        /// <summary>Diagnostic: colorRT and outRT read back in the SAME frame (frame-pairing check under camera motion).</summary>
+        public static string DumpPair(string inPath, string outPath) => (DlssDriver.Instance?.DumpColorIn(inPath) ?? "no driver") + " | " + (DlssDriver.Instance?.DumpOut(outPath) ?? "no driver") + " frame=" + Time.frameCount;
+
+        public static string SetJitterReportDelay(int frames) { Diagnostics.JitterReportDelay = frames; return "jitterReportDelay=" + frames; }
+
+        /// <summary>Diagnostic: depth copy source, see Diagnostics.DepthSource. Applies to the live generation at once.</summary>
+        public static string SetDepthSource(int source)
+        {
+            Diagnostics.DepthSource = source;
+            DlssDriver.Instance?.RebuildCopy();
+            return "depthSource=" + source;
+        }
+
         /// <summary>{"member":"DumpColorIn","args":["C:\\Temp\\in.png"]} - colorRT (SDK colour input) to PNG.</summary>
         public static string DumpColorIn(string absPath) => DlssDriver.Instance?.DumpColorIn(absPath) ?? "no driver";
 

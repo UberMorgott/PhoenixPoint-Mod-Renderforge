@@ -24,10 +24,17 @@ namespace Renderforge
         internal static bool MarkerOverlay { get; set; }
         /// <summary>MotionVectorFilter on/off (A-B lever for the geoscape softness; production = on).</summary>
         internal static bool MvFilter { get; set; }
+        /// <summary>Depth copy source (A-B lever): 0 = by rendering path (production), 1 = force BuiltinRenderTextureType.Depth,
+        /// 2 = force ResolvedDepth.</summary>
+        internal static int DepthSource { get; set; }
+        /// <summary>Report the jitter of the previous (1) or the next (-1) frame instead of this one's (frame-pairing A-B lever).</summary>
+        internal static int JitterReportDelay { get; set; }
 
         internal static void Reset()
         {
             MvFilter = true;
+            DepthSource = 0;
+            JitterReportDelay = 0;
             BiasMaskMode = 0;
             MarkerOverlay = true;
             View = DebugView.None;

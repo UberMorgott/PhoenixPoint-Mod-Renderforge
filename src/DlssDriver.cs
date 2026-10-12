@@ -17,6 +17,8 @@ namespace Renderforge
         private Camera cam;
         private PostProcessLayer layer;
         private RenderTexture colorRT, depthRT, mvRT, outRT;
+        private float prevJx, prevJy;   // Diagnostics.JitterReportDelay
+        private bool copyDeferred;      // the rendering path cbCopy's depth source was built for (BuildCopy)
         private IntPtr colorPtr, depthPtr, mvPtr, outPtr;
         private CommandBuffer cbCopy, cbEval, cbPresent;
         private Camera present;
@@ -370,8 +372,7 @@ namespace Renderforge
             mvPtr = mvRT.GetNativeTexturePtr(); outPtr = outRT.GetNativeTexturePtr();
 
             cbCopy = new CommandBuffer { name = "DLSS copy depth+mv" };
-            cbCopy.CopyTexture(BuiltinRenderTextureType.MotionVectors, mvRT);
-            cbCopy.Blit(BuiltinRenderTextureType.Depth, depthRT);
+            BuildCopy();
             cbEval = new CommandBuffer { name = "DLSS evaluate" };
 
             var go = new GameObject("DlssPresent") { hideFlags = HideFlags.HideAndDontSave };
@@ -411,6 +412,29 @@ namespace Renderforge
             return rt;
         }
 
+        /// <summary>The deferred paths have no camera depth texture of their own: there the scene depth is the resolved
+        /// G-buffer depth. Measured 2026-10-12 on D3D11 and D3D12 (DepthStats, geoscape + tactical): under DeferredShading
+        /// BuiltinRenderTextureType.Depth is not bound ("built-in render texture type 3 not found while executing DLSS copy
+        /// depth+mv (Blit source)" in Player.log) and the material-less Blit then copies whatever _MainTex still holds - the
+        /// colour buffer, correlation 1.0000 with colorRT.r - while ResolvedDepth reads the real reversed-Z device depth
+        /// (centre 0.01741 against 0.01737 predicted by a physics ray). Under Forward it is exactly the other way round.</summary>
+        private static bool IsDeferred(Camera c) => c.actualRenderingPath == RenderingPath.DeferredShading || c.actualRenderingPath == RenderingPath.DeferredLighting;
+
+        /// <summary>MV + depth copies into the RTs the SDKs read. depthRT (RFloat, render resolution, same row order as
+        /// colorRT / mvRT) holds raw device depth: reversed-Z on D3D, which is what DLSS_F_DEPTH_INVERTED declares.</summary>
+        private void BuildCopy()
+        {
+            if (cbCopy == null) return;
+            copyDeferred = cam != null && IsDeferred(cam);
+            bool resolved = Diagnostics.DepthSource == 0 ? copyDeferred : Diagnostics.DepthSource == 2;
+            cbCopy.Clear();
+            cbCopy.CopyTexture(BuiltinRenderTextureType.MotionVectors, mvRT);
+            cbCopy.Blit(resolved ? BuiltinRenderTextureType.ResolvedDepth : BuiltinRenderTextureType.Depth, depthRT);
+        }
+
+        /// <summary>Diagnostic: switch the depth copy's source on a live generation (Diagnostics.DepthSource).</summary>
+        public void RebuildCopy() => BuildCopy();
+
         private void BuildPresent()
         {
             if (cbPresent == null) return;
@@ -445,6 +469,8 @@ namespace Renderforge
             // Follows NeedsMvDepth live: a Depth / MotionVectors debug view can be switched in on a live generation.
             if (NeedsMvDepth)
             {
+                // The depth source depends on the rendering path; a path switch mid-generation would feed colour as depth.
+                if (IsDeferred(cam) != copyDeferred) { BuildCopy(); resetNext = true; }
                 cam.depthTextureMode |= DepthTextureMode.Depth | DepthTextureMode.MotionVectors;
                 // Attached mid-generation: the MV/depth history so far is missing, so the first frame fed is a reset.
                 if (!copyAttached) { cam.AddCommandBuffer(CameraEvent.BeforeImageEffects, cbCopy); copyAttached = true; resetNext = true; }
@@ -565,7 +591,11 @@ namespace Renderforge
                 // shim and copied into the frame slot, so the ABI of Dlss_SetFrame stays untouched.
                 Native.SetCamera(cam.nearClipPlane, cam.farClipPlane, cam.fieldOfView * Mathf.Deg2Rad);
                 // Diagnostic (D3D12 detail-loss hunt): sign/swap knobs touch ONLY the offset reported to the SDK, not the projection.
-                float rjx = -jx * Diagnostics.JitterReportSignX, rjy = -jy * Diagnostics.JitterReportSignY;
+                float sjx = jx, sjy = jy;
+                if (Diagnostics.JitterReportDelay > 0) { sjx = prevJx; sjy = prevJy; }
+                else if (Diagnostics.JitterReportDelay < 0) { Halton(jitterIndex, out sjx, out sjy); sjx *= jscale; sjy *= jscale; }
+                prevJx = jx; prevJy = jy;
+                float rjx = -sjx * Diagnostics.JitterReportSignX, rjy = -sjy * Diagnostics.JitterReportSignY;
                 if (Diagnostics.JitterReportSwapXY) { float t = rjx; rjx = rjy; rjy = t; }
                 reportJx = rjx; reportJy = rjy;
                 IntPtr slot = Native.Dlss_GetFrameSlot();
@@ -658,17 +688,21 @@ namespace Renderforge
         }
 
         /// <summary>Diagnostic: the whole mvRT as RGBA floats (r,g = Unity's UV-space motion), row 0 at the bottom; null when not live.</summary>
-        internal float[] ReadMv()
+        internal float[] ReadMv() => ReadFloats(mvRT);
+
+        /// <summary>Diagnostic: an RT of this generation as RGBA floats, row 0 at the bottom; null when not live.</summary>
+        private float[] ReadFloats(RenderTexture rt)
         {
-            if (gen != Gen.Live || mvRT == null) return null;
-            var tmp = RenderTexture.GetTemporary(renderW, renderH, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
-            var tex = new Texture2D(renderW, renderH, TextureFormat.RGBAFloat, false);
+            if (gen != Gen.Live || rt == null) return null;
+            int rw = rt.width, rh = rt.height;
+            var tmp = RenderTexture.GetTemporary(rw, rh, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var tex = new Texture2D(rw, rh, TextureFormat.RGBAFloat, false);
             var prev = RenderTexture.active;
             try
             {
-                Graphics.Blit(mvRT, tmp);
+                Graphics.Blit(rt, tmp);
                 RenderTexture.active = tmp;
-                tex.ReadPixels(new Rect(0, 0, renderW, renderH), 0, 0, false);
+                tex.ReadPixels(new Rect(0, 0, rw, rh), 0, 0, false);
                 return tex.GetRawTextureData<float>().ToArray();
             }
             finally
@@ -729,6 +763,40 @@ namespace Renderforge
             return sb.ToString();
         }
 
+        /// <summary>Diagnostic: is depthRT (the depth every SDK is fed) real device depth? Range, the centre texel with the
+        /// eye distance it decodes to, the device depth a physics ray through the screen centre predicts, and the Pearson
+        /// correlation with colorRT's red channel (1.0 = the blit copied colour, not depth).</summary>
+        public string DepthStats()
+        {
+            float[] d = ReadFloats(depthRT), c = ReadFloats(colorRT);
+            if (d == null || c == null) return "not live (gen=" + gen + ")";
+            int w = renderW, h = renderH, n = 0, zero = 0;
+            float min = float.MaxValue, max = float.MinValue;
+            double sd = 0, sc = 0, sdd = 0, scc = 0, sdc = 0;
+            for (int i = 0; i < w * h; i++)
+            {
+                float dv = d[i * 4], cv = c[i * 4];
+                if (dv < min) min = dv; if (dv > max) max = dv; if (dv == 0f) zero++;
+                sd += dv; sc += cv; sdd += (double)dv * dv; scc += (double)cv * cv; sdc += (double)dv * cv; n++;
+            }
+            double vd = sdd / n - sd / n * (sd / n), vc = scc / n - sc / n * (sc / n);
+            double corr = vd > 0 && vc > 0 ? (sdc / n - sd / n * (sc / n)) / Math.Sqrt(vd * vc) : 0;
+            float centre = d[((h / 2) * w + w / 2) * 4];
+            Matrix4x4 p = GL.GetGPUProjectionMatrix(cam.nonJitteredProjectionMatrix, true);
+            string eye = centre + p.m22 != 0f ? (p.m23 / (centre + p.m22)).ToString("F3") : "inf";
+            string expect = "no hit";
+            Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            if (Physics.Raycast(ray, out RaycastHit hit, cam.farClipPlane))
+            {
+                float z = Vector3.Dot(hit.point - cam.transform.position, cam.transform.forward);
+                expect = ((p.m23 - p.m22 * z) / z).ToString("F6") + " (eye " + z.ToString("F3") + " m, " + hit.collider.name + ")";
+            }
+            return "depthRT " + w + "x" + h + " src=" + Diagnostics.DepthSource + " min=" + min.ToString("F6") + " max=" + max.ToString("F6") + " mean=" + (sd / n).ToString("F6")
+                 + " zero=" + (100.0 * zero / n).ToString("F1") + "% centre=" + centre.ToString("F6") + " (eye " + eye + " m) expect=" + expect
+                 + " corrColorR=" + corr.ToString("F4") + " reversedZ=" + SystemInfo.usesReversedZBuffer + " path=" + cam.actualRenderingPath
+                 + " near=" + cam.nearClipPlane + " far=" + cam.farClipPlane;
+        }
+
         /// <summary>Diagnostic: MotionVectorFilter.Survey as a coroutine on this object; the file appears `frames` frames later.</summary>
         public string SurveyMovers(string absPath, int frames)
         {
@@ -738,8 +806,9 @@ namespace Renderforge
         }
 
         /// <summary>Diagnostic: outRT (the SDK output BEFORE Unity's present Blit) to PNG. Works on D3D12 (Blit into an
-        /// sRGB-less ARGB32 temp, ReadPixels from there; an ARGBHalf source (D3D12HalfColor) stays linear in the PNG -
-        /// the string's fmt= says which). Returns the path + WxH.</summary>
+        /// sRGB-less ARGB32 temp, ReadPixels from there). An ARGBHalf source (D3D12HalfColor) holds LINEAR values: it is
+        /// read back as floats and sRGB-encoded on the CPU, so a D3D12 dump compares 1:1 with a D3D11 one (whose 8-bit
+        /// bytes are already encoded); the string says enc=srgb(cpu) then. Returns the path + WxH.</summary>
         public string DumpOut(string absPath) => DumpRt(outRT, "outRT", absPath);
 
         /// <summary>Diagnostic: colorRT (the SDK colour input, render res) to PNG.</summary>
@@ -749,6 +818,17 @@ namespace Renderforge
         {
             if (gen != Gen.Live || rt == null) return "not live (gen=" + gen + ")";
             int w = rt.width, h = rt.height;
+            if (rt.format == RenderTextureFormat.ARGBHalf)
+            {
+                float[] f = ReadFloats(rt);
+                var px = new Color32[w * h];
+                for (int i = 0; i < px.Length; i++)
+                    px[i] = new Color32(SrgbByte(f[i * 4]), SrgbByte(f[i * 4 + 1]), SrgbByte(f[i * 4 + 2]), 255);
+                var enc = new Texture2D(w, h, TextureFormat.RGBA32, false);
+                try { enc.SetPixels32(px); enc.Apply(false); System.IO.File.WriteAllBytes(absPath, enc.EncodeToPNG()); }
+                finally { Destroy(enc); }
+                return what + " -> " + absPath + " " + w + "x" + h + " fmt=" + rt.graphicsFormat + " enc=srgb(cpu)";
+            }
             var tmp = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
             var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
             var prev = RenderTexture.active;
@@ -767,6 +847,12 @@ namespace Renderforge
                 RenderTexture.ReleaseTemporary(tmp);
                 Destroy(tex);
             }
+        }
+
+        private static byte SrgbByte(float v)
+        {
+            v = Mathf.Clamp01(v);
+            return (byte)Mathf.RoundToInt(255f * (v <= 0.0031308f ? v * 12.92f : 1.055f * Mathf.Pow(v, 1f / 2.4f) - 0.055f));
         }
 
         private static int QualityFor(RenderforgeMode mode, int outH)
