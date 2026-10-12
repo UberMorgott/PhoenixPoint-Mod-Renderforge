@@ -39,7 +39,22 @@ GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
 - `host: WATCHDOG shadow Present #n ... has not returned for N ms` - a vendor Present is stuck; the line says whether
   Unity's queue still retires work (`Unity queue probe COMPLETED` / `DID NOT COMPLETE`). Keep the log and the dump.
 - PPCLI on `RenderforgeMod`: `BuildInfo` (stamps), `FgCaps` (who paces: `targetFrameRate=-1` = the provider's SDK),
-  `FgLatency` (XeSS `sdkFails=mode/enable/input`), `ProbeMarkerClick` / `ProbeCraftClick` (`pass=True` = `other=0`).
+  `FgLatency` (XeSS `sdkFails=mode/enable/input`, ` sleepFails=n` once an `xellSleep` was refused),
+  `ProbeMarkerClick` / `ProbeCraftClick` (both: `pass=True` = `moved=0`, the mod changes no click; `other` is geometry).
+- Stuck vendor Present, three lines (2026-10-13): `host: WATCHDOG shadow Present #n ...` (queue probe + vram),
+  `host: WATCHDOG fences: copy fence completed a of signalled b; Unity frame fence completed c, next at Present entry d`,
+  `host: WATCHDOG presenting thread <tid> stack: N frames < module+0xoffset < ...` (which vendor wait it sits in; the
+  vendor's own game / interpolation / composition fences have no public query). The watchdog owns references to what it
+  probes and is joined at device shutdown and plugin unload (`... did not stop within 15 s` = a driver call hangs).
+- `AuditMvModes` keys are `family/active|inactive/mode` (inactive = pooled or hidden objects).
+- Known limits (review 5, documented, not fixed): (a) XeSS-FG - a REFUSED cap change leaves XeLL enforcing the previous
+  accepted cap while Unity's limiter takes the new one (`FG_PACER_HELD` off): two pacers until the retry (every 30
+  presents) is accepted or the request is taken back; the effective cap is the stricter of the two. DLSS-G: the same
+  for the first frame of a flow start. (b) DLSS-G `Off()` at teardown is not gated on "options issued this Streamline
+  frame": one `Repeated slDLSSGSetOptions` warning is possible and logged by us first. (c) the gate's build isolation
+  (`build\gate\`) hangs on `QGATE_SLOT_HELD=1` set by `qgate -Full`; a gate run without it builds into `build\native`
+  - the stamps then refuse the stale DLL at deploy/release. `refs\` SDK headers are outside the source hash: after an
+  SDK update build with `-Clean`.
 
 ## Workshop
 ### Identity & paths
