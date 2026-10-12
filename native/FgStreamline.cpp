@@ -118,6 +118,12 @@ struct SlCore
 };
 SlCore g_sl;
 
+// eWarnOutOfVRAM (39, sl_result.h:74) is a WARNING: the call took effect, the DXGI budget is exhausted
+// (commonInterface.cpp:556-565). Every DLSS-G result is judged through this - treating 39 as a refusal made the
+// teardown's eOff "refused" forever under video-memory overcommit (16781 retries in one session, the chain never
+// destroyed, frame generation stuck off) and dropped the generated-frame count (slDLSSGGetState).
+bool SlTookEffect(sl::Result r) { return r == sl::Result::eOk || r == sl::Result::eWarnOutOfVRAM; }
+
 bool SlOptionsIssuedThisFrame() { return InterlockedCompareExchange(&g_sl.optStamp, 0, 0) == InterlockedCompareExchange(&g_sl.presents, 0, 0) + 1; }
 void SlOptionsIssued() { InterlockedExchange(&g_sl.optStamp, InterlockedCompareExchange(&g_sl.presents, 0, 0) + 1); }
 
@@ -532,7 +538,7 @@ struct ProviderStreamline : IFgProvider
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.fgSetOptions(vp, o);
         SlOptionsIssued();
-        if (r == sl::Result::eOk) isOn = 0;
+        if (SlTookEffect(r)) isOn = 0;
         FgLog("sl: DLSS-G eOff while no frames are prepared -> %d", (int)r);
     }
 
@@ -712,7 +718,7 @@ struct ProviderStreamline : IFgProvider
         sl::DLSSGState st{};
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.fgGetState(vp, st, NULL);                    // DLSS_G.md:753-783: frames since the last call
-        if (r != sl::Result::eOk) { if (warned < 8) { ++warned; FgLog("sl: slDLSSGGetState %d", (int)r); } return; }
+        if (!SlTookEffect(r)) { if (warned < 8) { ++warned; FgLog("sl: slDLSSGGetState %d", (int)r); } return; }
         if (st.numFramesActuallyPresented > 1) { generated += st.numFramesActuallyPresented - 1; FgPresentedAdd((int)st.numFramesActuallyPresented - 1); }
         if ((unsigned)st.status != lastStatus) { lastStatus = (unsigned)st.status; FgLog("sl: DLSSGStatus 0x%X (2=Reflex not detected, 8=constants invalid, 16=GetCurrentBackBufferIndex not called)", lastStatus); }
         // Independent evidence: the real child chain's DXGI PresentCount counts DLSS-G's own presents (real + generated).
@@ -733,7 +739,7 @@ struct ProviderStreamline : IFgProvider
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.fgSetOptions(vp, o);
         SlOptionsIssued();
-        if (r == sl::Result::eOk) { isOn = 0; return true; }
+        if (SlTookEffect(r)) { isOn = 0; if (r != sl::Result::eOk) FgLog("sl: slDLSSGSetOptions(off) -> %d (eWarnOutOfVRAM: applied, DXGI budget exhausted)", (int)r); return true; }
         FgLog("sl: slDLSSGSetOptions(off) %d", (int)r);
         return false;
     }
