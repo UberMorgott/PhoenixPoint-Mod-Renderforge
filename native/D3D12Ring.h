@@ -219,6 +219,27 @@ struct D3D12Ring
         return WaitOn(fence, fenceVal, waitMs) == WAIT_OBJECT_0;
     }
 
+    // Diagnostic (FgHost.cpp ServeQuiescent): one more Signal on Unity's queue, and whether that value is complete
+    // within `spinUs` microseconds. On a queue with nothing in flight a Signal completes at once; one that does not
+    // sits behind work somebody put on the queue. Never a retirement proof by itself - the value is tracked like any
+    // other (fenceVal), so later waits of this ring stay correct either way.
+    bool SignalDone(unsigned spinUs = 200)
+    {
+        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        ID3D12CommandQueue* q = unity ? unity->GetCommandQueue() : NULL;
+        if (!q || !fence || trackingLost) return false;
+        if (FAILED(q->Signal(fence, fenceVal + 1))) return false;
+        ++fenceVal;
+        LARGE_INTEGER f, t0, t;
+        QueryPerformanceFrequency(&f); QueryPerformanceCounter(&t0);
+        for (;;) {
+            if (fence->GetCompletedValue() >= fenceVal) return true;
+            QueryPerformanceCounter(&t);
+            if ((t.QuadPart - t0.QuadPart) * 1000000 / f.QuadPart >= (LONGLONG)spinUs) return false;
+            YieldProcessor();
+        }
+    }
+
     // A failed Signal loses proof of retirement. Retain the complete ring and stop submitting until
     // device removal; starting another generation cannot make its referenced resources safe to destroy.
     void Quarantine(int i)

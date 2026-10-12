@@ -130,6 +130,12 @@ struct Host
     // once a chain was built. nStale: queued prepare events dropped because their block belongs to another generation.
     unsigned              epoch;
     volatile LONG         nStale;
+    // Threading diagnostics (docs\DESIGN.md "Present thread = submission thread"), pinned threads only: the thread
+    // of the last hooked Present / prepare event of this chain and how often it CHANGED (0 = one thread throughout);
+    // hooked Presents during which Unity's next-frame-fence value moved (FenceWatch); served quiescent points whose
+    // queue was no longer empty right behind the provider's SDK call (ServeQuiescent).
+    DWORD                 presentTid, prepareTid;
+    volatile LONG         nPresentTidSw, nPrepareTidSw, nFenceMoved, nQuiesceBusy;
     char                  status[1024];
 };
 
@@ -674,7 +680,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.hudless = -1;
     H.presentStalled = 0; H.tidLogged = 0;
     H.provWant = -1; H.provOn = -1; H.quiesceSkip = 0; H.nQuiesce = H.nQuiesceFail = 0;
-    H.nStale = 0;
+    H.nStale = 0; H.presentTid = H.prepareTid = 0; H.nPresentTidSw = H.nPrepareTidSw = H.nFenceMoved = H.nQuiesceBusy = 0;
     PublishChain(p, s.epoch);
     FgLog("host: provider=%s multiplier=%u epoch=%u shadow=%p %ux%u flags=0x%X caps=0x%X",
           p->Name(), H.multiplier, H.epoch, (void*)c.shadow, H.outW, H.outH, c.scFlags, p->Caps());
@@ -718,12 +724,17 @@ void FgHostSimEnd(void)
 }
 
 // The quiescent point (IFgProvider::WantsQuiescent / Quiescent). Presenting thread, chain pinned, top of the Present
-// hook - the one place where "any GPU activity is finished" (xell guide :131) can be PROVEN rather than hoped for:
-//   - this thread is Unity's D3D12 submission thread (docs\DESIGN.md "Prepare and Present run on different threads";
-//     D3D12Ring.h unityVal): the frame's lists are on the queue, and while it sits in this hook nothing else gets there
-//     - not Unity's next frame, not a prep list handed to ExecuteCommandList. A drain from the main thread could not
-//     say that: its Signal only covers what was queued by then (D3D12Ring::DrainQueue).
-//   - the pin keeps the render thread's Prepare out, and the host has queued nothing of this Present yet.
+// hook - the one place where "any GPU activity is finished" (xell guide :131) can be shown rather than hoped for:
+//   - PROVEN here: the queue was empty at one instant (the drain below), the pin keeps the render thread's Prepare
+//     out (so nothing of OURS is handed to Unity meanwhile), and the host has queued nothing of this Present yet.
+//   - ASSUMED, not proven (docs\DESIGN.md "Present thread = submission thread"): that this thread is the one that puts
+//     Unity's lists on the queue, so that while it sits in this hook nothing else gets there - not Unity's next frame,
+//     not a list handed to ExecuteCommandList earlier. The hook patches the DXGI vtable and has no say in which
+//     thread calls Present or ExecuteCommandLists. A drain from the main thread could not even claim this much: its
+//     Signal only covers what was queued by then (D3D12Ring::DrainQueue).
+//   - MEASURED because of that: the queue is probed again right behind the provider's call (quiesceBusy), Unity's
+//     next-frame-fence value is watched across every hooked Present (fenceMoved), and the presenting / preparing
+//     thread ids are tracked (presentTid / prepareTid) - all in Fg_Status and the log.
 // INVARIANT: Quiescent() is called only after DrainQueue() returned true in this very call, on this thread, with no
 // submission in between. No proof (timeout, failed Signal, quarantined ring) = no call: the request stays with the
 // provider and is tried again kQuiesceRetry presents later, so a stuck GPU costs one bounded wait per retry, not one
@@ -737,17 +748,28 @@ static void ServeQuiescent(Chain& c)
     if (H.quiesceSkip > 0) { --H.quiesceSkip; return; }
     const ULONGLONG t0 = GetTickCount64();
     const char* why = NULL;
+    IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+    const UINT64 next0 = unity ? unity->GetNextFrameFenceValue() : 0;
     if (c.prov->PresentQueue()) why = "the provider presents on a queue of its own";
     else if (!c.copy.DrainQueue(kQuiesceMs)) why = "no proof that Unity's queue retired";
     const ULONGLONG t1 = GetTickCount64();
+    // The drain proves the queue empty at one instant. That it STAYS empty across the provider's call rests on this
+    // thread being the one that submits Unity's lists - an assumption (header above), so it is measured, not trusted:
+    // one Signal right before the call (control: an empty queue completes it at once) and one right behind it. Control
+    // complete + the second one not = somebody put work on the queue while the SDK call ran. Unity's next-frame-fence
+    // value is read around the whole point for the same reason. Neither can undo the call; both are counted and logged.
+    const bool calm0 = !why && c.copy.SignalDone();
     if (!why && !c.prov->Quiescent()) why = "the provider could not act";
     if (!why) {
-        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        const bool calm1 = c.copy.SignalDone();
+        const UINT64 next1 = unity ? unity->GetNextFrameFenceValue() : 0;
+        if (calm0 && !calm1) InterlockedIncrement(&H.nQuiesceBusy);
         ID3D12Fence* ff = unity ? unity->GetFrameFence() : NULL;
         const LONG n = InterlockedIncrement(&H.nQuiesce);
-        FgLog("host: quiescent point #%ld served: Unity's queue drained in %llu ms (own fence %llu; Unity frame fence done %llu, next %llu)", n,
+        FgLog("host: quiescent point #%ld served: Unity's queue drained in %llu ms (own fence %llu; Unity frame fence done %llu, next %llu -> %llu; queue empty before the call %d, behind it %d%s) tid=%u", n,
               (unsigned long long)(t1 - t0), (unsigned long long)c.copy.fenceVal,
-              (unsigned long long)(ff ? ff->GetCompletedValue() : 0), (unsigned long long)(unity ? unity->GetNextFrameFenceValue() : 0));
+              (unsigned long long)(ff ? ff->GetCompletedValue() : 0), (unsigned long long)next0, (unsigned long long)next1, calm0 ? 1 : 0, calm1 ? 1 : 0,
+              calm0 && !calm1 ? " - WORK REACHED THE QUEUE DURING THE CALL" : "", (unsigned)GetCurrentThreadId());
         return;
     }
     H.quiesceSkip = kQuiesceRetry;
@@ -929,7 +951,9 @@ void FgHostPrepare(const FgFrame* ev)
         return;
     }
     H.lastEvPace = evPace;
-    if (!(H.tidLogged & 1)) { H.tidLogged |= 1; FgLog("host: first prepare tid=%u", (unsigned)GetCurrentThreadId()); }
+    const DWORD tid = GetCurrentThreadId();
+    if (tid != H.prepareTid) { if (H.prepareTid) InterlockedIncrement(&H.nPrepareTidSw); H.prepareTid = tid; }
+    if (!(H.tidLogged & 1)) { H.tidLogged |= 1; FgLog("host: first prepare tid=%u", (unsigned)tid); }
     // A new frame supersedes whatever is still unpresented: an earlier success nobody presented, or a token a skipped
     // Present (GetBuffer/copy failed) left behind. Reset BEFORE the input checks, so a frame with a missing input or a
     // failing Prepare leaves prepared = 0 and no stale DLSS-G token that a later Present would pop for the wrong frame.
@@ -1071,6 +1095,25 @@ static void TestPresentDelay()
     if (ms > 0 && FgHostAlive() && ++n % (unsigned)every == 0) Sleep((DWORD)ms);
 }
 
+// Always-on diagnostic for the assumption "the thread that calls Present is the thread that submits Unity's lists"
+// (docs\DESIGN.md "Present thread = submission thread"): Unity's next-frame-fence value read when the Present hook
+// enters the host and when it leaves. Unity moves that value when it closes a frame / flushes its queue. It moving
+// WHILE the presenting thread sits in here means another thread did that - the assumption is then false for this
+// process. Two interface calls per Present, no lock, no wait.
+struct FenceWatch
+{
+    UINT64 next;
+    FenceWatch() { IUnityGraphicsD3D12v5* u = g_unityD3D12; next = u ? u->GetNextFrameFenceValue() : 0; }
+    ~FenceWatch()
+    {
+        IUnityGraphicsD3D12v5* u = g_unityD3D12;
+        if (!u || u->GetNextFrameFenceValue() == next) return;
+        const LONG n = InterlockedIncrement(&H.nFenceMoved);
+        if (n <= 4 || n % 1024 == 0) FgLog("host: Unity's next frame fence value moved %llu -> %llu while tid %u was inside the Present hook (#%ld) - Present is NOT the only thread that advances Unity's frames",
+                                           (unsigned long long)next, (unsigned long long)u->GetNextFrameFenceValue(), (unsigned)GetCurrentThreadId(), n);
+    }
+};
+
 // The generation of the chain whose shadow Present this thread just made (FG_PRESENT_SHADOW): the hook reports the
 // result of Unity's own Present after the pin is gone, and a chain built meanwhile must not be detached for it.
 // Per thread: nothing here assumes there is only one presenting thread.
@@ -1078,9 +1121,12 @@ static thread_local unsigned t_presentEpoch;
 
 int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 {
+    FenceWatch watch;
     TestPresentDelay();
     if (!Pin(false)) return FG_PRESENT_FORWARD;
-    if (!(H.tidLogged & 2)) { H.tidLogged |= 2; FgLog("host: first hooked present tid=%u", (unsigned)GetCurrentThreadId()); }
+    const DWORD tid = GetCurrentThreadId();
+    if (tid != H.presentTid) { if (H.presentTid) InterlockedIncrement(&H.nPresentTidSw); H.presentTid = tid; }
+    if (!(H.tidLogged & 2)) { H.tidLogged |= 2; FgLog("host: first hooked present tid=%u", (unsigned)tid); }
     Chain& c = H.c;
     if (app != (IDXGISwapChain*)c.app || !c.shadow) { Unpin(NULL); return FG_PRESENT_FORWARD; }
     // Presents of OUR chain's app are arriving again: prepares may wait for them. Only here - a Present of some other
@@ -1251,7 +1297,7 @@ const char* FgHostStatus(void)
         caps = H.state == kLive ? H.c.prov->Caps() : H.lastCaps;
     }
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
-        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld maxWaitMs=%u stalls=%ld dup=%ld quiesce=%ld/%ld pendingEnable=%d epoch=%u stale=%ld%s%s",
+        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld maxWaitMs=%u stalls=%ld dup=%ld quiesce=%ld/%ld pendingEnable=%d epoch=%u stale=%ld presentTid=%lu/%ld prepareTid=%lu/%ld fenceMoved=%ld quiesceBusy=%ld%s%s",
         prov, H.enabled, H.multiplier,
         state == kNone ? "-" : "child", child, (unsigned)H.childHr, w->hit, focus,
         w->foreground == game ? 1 : 0,
@@ -1259,7 +1305,8 @@ const char* FgHostStatus(void)
         caps, H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
         frameId, state == kLive ? H.idle : 0LL, (long)H.nPrepared, (long)H.nPrepare, (long)H.nPresent, (long)H.nIdle, (long)H.nWaited,
         H.maxWaitMs, (long)H.nStall, (long)H.nDup, (long)H.nQuiesce, (long)H.nQuiesceFail, H.provWant,
-        H.epoch, (long)H.nStale,
+        H.epoch, (long)H.nStale, (unsigned long)H.presentTid, (long)H.nPresentTidSw, (unsigned long)H.prepareTid, (long)H.nPrepareTidSw,
+        (long)H.nFenceMoved, (long)H.nQuiesceBusy,
         H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;
 }
