@@ -18,6 +18,10 @@
 //   - the main thread's destroy waits (unlocked, bounded) for the render thread to unpin, then works on H.c
 //     unlocked too - the render thread cannot pin a detached chain, and Create/SetEnabled/Destroy are all main
 //     thread, so a provider is never destroyed under a call in flight.
+// DEFERRED REQUESTS (docs\DESIGN.md "FG host threading and retirement"): a call that needs a synchronisation it did
+// not get is never issued "anyway" - the wish is stored and applied at the next proven-safe point of the thread that
+// owns it: the provider's on/off on the main thread under PinMain (ApplyEnabled, retried by FgHostPump), an SDK call
+// that needs the GPU idle on the presenting thread inside the Present hook (ServeQuiescent).
 //
 // Two D3D12Ring instances (D3D12Ring.h, the ring every D3D12 backend uses): `prep` submits through
 // IUnityGraphicsD3D12v5::ExecuteCommandList with the resource states Unity must know about (its state
@@ -651,15 +655,45 @@ void FgHostSimEnd(void)
     if (p) p->SimEnd(H.simId);
 }
 
-// Main thread (a provider's FrameBegin). True = the chain is pinned by this thread and everything on Unity's queue has
-// retired (the prep ring's fence: only pinned threads touch that ring); FgHostResume must follow. False = nothing held.
-bool FgHostQuiesce(unsigned waitMs)
+// The quiescent point (IFgProvider::WantsQuiescent / Quiescent). Presenting thread, chain pinned, top of the Present
+// hook - the one place where "any GPU activity is finished" (xell guide :131) can be PROVEN rather than hoped for:
+//   - this thread is Unity's D3D12 submission thread (docs\DESIGN.md "Prepare and Present run on different threads";
+//     D3D12Ring.h unityVal): the frame's lists are on the queue, and while it sits in this hook nothing else gets there
+//     - not Unity's next frame, not a prep list handed to ExecuteCommandList. A drain from the main thread could not
+//     say that: its Signal only covers what was queued by then (D3D12Ring::DrainQueue).
+//   - the pin keeps the render thread's Prepare out, and the host has queued nothing of this Present yet.
+// INVARIANT: Quiescent() is called only after DrainQueue() returned true in this very call, on this thread, with no
+// submission in between. No proof (timeout, failed Signal, quarantined ring) = no call: the request stays with the
+// provider and is tried again kQuiesceRetry presents later, so a stuck GPU costs one bounded wait per retry, not one
+// per Present. The copy ring's fence serves as the proof (only this thread touches that ring); with a provider that
+// presents on a queue of its own that fence is signalled on THAT queue (CopyBackBuffer), so such a provider is not
+// served at all - none asks.
+enum { kQuiesceMs = 100, kQuiesceRetry = 30 };
+static void ServeQuiescent(Chain& c)
 {
-    if (!PinMain(waitMs)) return false;
-    if (!H.c.prep.DrainQueue(waitMs)) FgLog("host: quiesce: Unity's queue did not drain within %u ms", waitMs);
-    return true;
+    if (!c.prov->WantsQuiescent()) { H.quiesceSkip = 0; return; }
+    if (H.quiesceSkip > 0) { --H.quiesceSkip; return; }
+    const ULONGLONG t0 = GetTickCount64();
+    const char* why = NULL;
+    if (c.prov->PresentQueue()) why = "the provider presents on a queue of its own";
+    else if (!c.copy.DrainQueue(kQuiesceMs)) why = "no proof that Unity's queue retired";
+    const ULONGLONG t1 = GetTickCount64();
+    if (!why && !c.prov->Quiescent()) why = "the provider could not act";
+    if (!why) {
+        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        ID3D12Fence* ff = unity ? unity->GetFrameFence() : NULL;
+        const LONG n = InterlockedIncrement(&H.nQuiesce);
+        FgLog("host: quiescent point #%ld served: Unity's queue drained in %llu ms (own fence %llu; Unity frame fence done %llu, next %llu)", n,
+              (unsigned long long)(t1 - t0), (unsigned long long)c.copy.fenceVal,
+              (unsigned long long)(ff ? ff->GetCompletedValue() : 0), (unsigned long long)(unity ? unity->GetNextFrameFenceValue() : 0));
+        return;
+    }
+    H.quiesceSkip = kQuiesceRetry;
+    const LONG n = InterlockedIncrement(&H.nQuiesceFail);
+    if (n <= 8 || n % 64 == 0)
+        FgLog("host: quiescent point refused (#%ld, %llu ms): %s - the provider's request stays pending, retry in %d presents", n,
+              (unsigned long long)(GetTickCount64() - t0), why, (int)kQuiesceRetry);
 }
-void FgHostResume(void) { Unpin(NULL); }
 
 unsigned FgHostPreparedCount(void) { return (unsigned)H.nPrepared; }
 void FgNoteHudless(bool tagged) { InterlockedExchange(&H.hudless, tagged ? 1 : 0); }
@@ -948,6 +982,8 @@ int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     // chain consumes nothing, and clearing the flag for it made every following prepare wait its full timeout.
     { Locked lk; H.presentStalled = 0; }
 
+    // Before anything of this Present is queued: an SDK call that waits for the GPU to be idle (ServeQuiescent).
+    ServeQuiescent(c);
     // Prepare events that ran since the last pinned thread told the provider, including those that gave up without
     // the pin (EventRan): their ids can be closed now.
     if (H.evDone) c.prov->PrepareDone((unsigned)H.evDone);

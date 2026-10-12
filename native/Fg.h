@@ -153,6 +153,15 @@ struct IFgProvider
     // paced `id` has run - prepared, refused, or given up before it got the pin (FgHost.cpp EventRan). Default no-ops.
     virtual void     FrameUnfed(unsigned /*id*/) {}
     virtual void     PrepareDone(unsigned /*id*/) {}
+    // The quiescent point (FgHost.cpp ServeQuiescent): the presenting thread - Unity's D3D12 submission thread -
+    // inside the Present hook, chain pinned, before the host queues anything of this Present. WantsQuiescent: an SDK
+    // call is pending that needs the GPU work finished first (xellSetSleepMode, xell guide :131). The host then
+    // proves Unity's queue retired (D3D12Ring::DrainQueue; nothing new can be submitted while this thread sits here)
+    // and calls Quiescent; without that proof it does NOT call it and the request stays pending. Quiescent false =
+    // the provider could not act either (still pending, the host backs off like after a failed drain). Served only
+    // for a provider that presents on Unity's queue (PresentQueue() NULL). Defaults: nothing wanted.
+    virtual bool     WantsQuiescent() { return false; }
+    virtual bool     Quiescent() { return true; }
     // Main thread. Latency SDK statistics, one line ("" = none).
     virtual void     Stats(char* buf, int cap) { if (cap > 0) buf[0] = 0; }
     // Main thread.
@@ -246,11 +255,6 @@ int  FgHostSetFrameLimit(unsigned presentedFps);   // main thread; 1 = the live 
 // here); FgHostSetFrame stamps it into the frame's block.
 unsigned FgHostFrameBegin(int pace);
 void FgHostSimEnd(void);
-// Main thread, from a provider's FrameBegin: the chain pinned by the caller (no Prepare, no Present inside it) and
-// Unity's queue drained, for an SDK call that wants the GPU work finished (xellSetSleepMode, xell guide :131).
-// True = held, FgHostResume() must follow; false = no live chain or the thread inside did not leave in `waitMs`.
-bool FgHostQuiesce(unsigned waitMs);
-void FgHostResume(void);
 // Main thread. Frames the live chain prepared so far (provider Prepare recorded + submitted); restarts with a chain.
 unsigned FgHostPreparedCount(void);
 // Main thread. The live chain's last Prepare: 1 = hud-less colour tagged, 0 = not, -1 = no Prepare yet / no chain since.

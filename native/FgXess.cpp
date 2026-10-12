@@ -15,19 +15,27 @@
 // ("at the beginning of each frame, before sampling user input", xell guide :294-298), SIMULATION_END after LateUpdate,
 // RENDERSUBMIT_* / PRESENT_* on the render thread with the same id, which travels in FgFrame::paceId. The frame cap is
 // xellSetSleepMode.minimumIntervalUs and nothing else (xell guide :93-100, :129).
-// THREADS: XeLL is called from three - main (xellSleep, xellSetSleepMode, SIMULATION_*, reports), render
-// (RENDERSUBMIT_START) and the presenting thread (RENDERSUBMIT_END, PRESENT_*). The XeLL guide and xell.h say nothing
+// SLEEP MODE (docs\DESIGN.md "FG host threading and retirement"): "application must ensure any GPU activity is
+// finished before xellSetSleepMode is called" (xell guide :131). EVERY xellSetSleepMode of this file - the first one
+// (low latency on) and each cap change - is issued from Quiescent(), which the host calls on the presenting thread
+// inside the Present hook only after it has proven Unity's queue retired there (FgHost.cpp ServeQuiescent). Until
+// then the wish waits in `wantUs` and XeLL runs in pass-through, which the guide describes as the normal disabled
+// state (:112-115). Frame generation itself is switched on right behind the first sleep mode, never before it
+// ("XeLL must be enabled before enabling frame generation", xess_fg guide :237, :648).
+// THREADS: XeLL is called from three - main (xellSleep, SIMULATION_*, reports), render (RENDERSUBMIT_START) and the
+// presenting thread (RENDERSUBMIT_END, PRESENT_*, xellSetSleepMode). The XeLL guide and xell.h say nothing
 // about thread safety (only that the logging callback "can be called from other threads", xell.h:114; the XeSS-FG
 // guide's "thread-safe" list, :1096-1108, covers xefg* calls only), so every XeLL call except xellSleep goes through
-// one lock (XellLock). xellSleep blocks for the frame's pacing interval and is never called under it - the sleep on
-// the simulation thread while other threads mark is the shape the guide itself describes.
+// one lock (XellLock). xellSleep blocks for the pacing interval and is never called under it - the sleep on
+// the simulation thread while other threads mark is the shape the guide itself describes. xellSleep and
+// xellSetSleepMode exclude each other through SleepGate: a state word, not a lock held across the sleep.
 //
 // UI: XEFG_SWAPCHAIN_UI_MODE_BACKBUFFER_HUDLESS with UI composition enabled (guide :531-535, :602-605, :623): the
 // SDK interpolates the hud-less colour and extracts the HUD from the composed back buffer it already holds. Inputs are
 // the upscaler's shim-owned twins (D3D12Owned.h, all resting in COMMON): hud-less = owned `out` (same format/size as
 // the back buffer, guide :571-572, :860), depth/mv at render res (guide :798 "same resourceSize"). Tagged
-// XEFG_SWAPCHAIN_RV_UNTIL_NEXT_PRESENT with incomingState COMMON (the SDK barriers from/to it, guide :763-764); the
-// twins are only rewritten by the next frame's upscaler list, which the render thread submits after this Present.
+// XEFG_SWAPCHAIN_RV_ONLY_NOW with incomingState COMMON (the SDK barriers from/to it, guide :763-764) on the prep
+// list: the SDK copies them there (Tag below).
 //
 // Loading: libxess_fg.lib / libxell.lib are linked but DELAY-LOADED (CMakeLists.txt); Create pins both DLLs from the
 // mod folder with LoadLibraryW before the first call, exactly as Xess12.cpp does for libxess.dll.
@@ -82,6 +90,45 @@ void Mark(xell_context_handle_t ll, unsigned id, xell_latency_marker_type_t m)
     xellAddMarkerData(ll, id, m);
 }
 
+// xellSleep (the sleeping thread: main, or the render thread under the diagnostic render pacing) and xellSetSleepMode
+// (the presenting thread) never run inside XeLL together. g_sleepLock guards the STATE WORD only and is never held
+// across either SDK call: the sleeper marks itself in and out, the mode setter waits (bounded) for "nobody sleeping",
+// and a sleeper arriving while the mode is being set waits for that one call to return (microseconds).
+SRWLOCK g_sleepLock = SRWLOCK_INIT;
+CONDITION_VARIABLE g_sleepCv = CONDITION_VARIABLE_INIT;
+int g_sleepState;           // 0 free, 1 a thread is inside xellSleep, 2 xellSetSleepMode is being issued
+struct SleepGate
+{
+    static void EnterSleep()
+    {
+        AcquireSRWLockExclusive(&g_sleepLock);
+        while (g_sleepState == 2) SleepConditionVariableSRW(&g_sleepCv, &g_sleepLock, INFINITE, 0);
+        g_sleepState = 1;
+        ReleaseSRWLockExclusive(&g_sleepLock);
+    }
+    // False = a thread was still inside xellSleep after `waitMs` (one pacing interval at most): nothing entered.
+    static bool EnterMode(DWORD waitMs)
+    {
+        const ULONGLONG until = GetTickCount64() + waitMs;
+        AcquireSRWLockExclusive(&g_sleepLock);
+        while (g_sleepState != 0) {
+            const ULONGLONG now = GetTickCount64();
+            if (now >= until) { ReleaseSRWLockExclusive(&g_sleepLock); return false; }
+            SleepConditionVariableSRW(&g_sleepCv, &g_sleepLock, (DWORD)(until - now), 0);
+        }
+        g_sleepState = 2;
+        ReleaseSRWLockExclusive(&g_sleepLock);
+        return true;
+    }
+    static void Leave()
+    {
+        AcquireSRWLockExclusive(&g_sleepLock);
+        g_sleepState = 0;
+        ReleaseSRWLockExclusive(&g_sleepLock);
+        WakeAllConditionVariable(&g_sleepCv);
+    }
+};
+
 unsigned g_maxInterp;       // maxSupportedInterpolations once measured on this GPU (process lifetime), 0 = not yet
 unsigned CapsFor(unsigned maxInterp) { return FG_CAP_2X | (maxInterp >= 2 ? FG_CAP_3X : 0u) | (maxInterp >= 3 ? FG_CAP_4X : 0u); }
 
@@ -106,15 +153,18 @@ struct ProviderXess : IFgProvider
     int                     marked;        // RENDERSUBMIT_END/PRESENT_START issued for presentId (Generate ran)
     long long               generated;     // interpolated frames the proxy reported presenting
     int                     warned;
-    unsigned                capDeferred;   // cap changes put off because the chain could not be quiesced (log throttle)
-    enum { kQuiesceMs = 200 };             // the longest a cap change waits for the chain and Unity's queue
-    // XeLL frame cap: minimumIntervalUs for the PRESENTED rate (XeLL halves the rendered rate itself with XeSS-FG,
-    // xell guide :210-214). Main thread writes `wantUs`, the sleeping thread applies it before its next xellSleep.
+    unsigned                modeDeferred;  // sleep-mode changes put off because the sleeping thread did not leave xellSleep (log throttle)
+    enum { kSleepWaitMs = 100 };           // the longest Quiescent waits for the sleeping thread to leave xellSleep
+    // XeLL sleep mode: low latency on + minimumIntervalUs for the PRESENTED rate (XeLL halves the rendered rate itself
+    // with XeSS-FG, xell guide :210-214). Main thread writes `wantUs` (SetFrameLimit); the presenting thread issues
+    // it from Quiescent() and records it in `appliedUs` (-1 = no xellSetSleepMode on this context yet).
     volatile LONG           wantUs;
-    LONG                    appliedUs;
-    // Marker bookkeeping (CloseSkipped): the highest id with SIMULATION_END (main thread), the highest id whose
-    // prepare event has run (render thread), the ids of frames nothing was fed in (main thread) and the highest id
-    // with all six markers out.
+    volatile LONG           appliedUs;
+    int                     fgOn;          // xefgSwapChainSetEnabled(1) is in effect (pinned threads only)
+    // Marker bookkeeping (OpenSkipped): the highest id with SIMULATION_END (main thread), the highest id whose
+    // prepare event has run (a pinned thread, PrepareDone), the ids of frames nothing was fed in (main thread), the
+    // highest id whose PRESENT_START is out, and the ids of skipped frames whose PRESENT_END waits for the Present
+    // call their PRESENT_START precedes to return (endFrom..endTo, 0 = none).
     enum { kOpen = 16 };
     volatile LONG           simEnded, settledId;
     volatile LONG           unfedId[kOpen];   // main thread: the id of an unfed frame in that slot (no prepare event will come)
@@ -130,7 +180,7 @@ struct ProviderXess : IFgProvider
         simEnded = 0; settledId = 0; closedId = 0; endFrom = endTo = 0; skippedClosed = 0; memset(startedId, 0, sizeof(startedId));
         for (int i = 0; i < kOpen; ++i) unfedId[i] = 0;
         fg = NULL; ll = NULL; proxy = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; caps = 0; maxInterp = 0;
-        enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = 0; capDeferred = 0;
+        enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = -1; fgOn = 0; modeDeferred = 0;
     }
 
     int Id() const { return FG_PROVIDER_XESS; }
@@ -199,21 +249,9 @@ struct ProviderXess : IFgProvider
         s.factory->MakeWindowAssociation(child, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
         xefgSwapChainSetUiCompositionState(fg, XEFG_SWAPCHAIN_UI_COMPOSITION_STATE_ENABLED);
 
-        // XeLL on; the fps cap follows through SetFrameLimit. Init runs on the main thread with no chain live (nothing
-        // of ours is in flight); Unity's queue is drained first all the same (xell guide :131, as in Sleep()).
-        {
-            ID3D12Fence* idle = NULL;
-            HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
-            if (ev && SUCCEEDED(s.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&idle))) &&
-                SUCCEEDED(s.queue->Signal(idle, 1)) && SUCCEEDED(idle->SetEventOnCompletion(1, ev)))
-                WaitForSingleObject(ev, kQuiesceMs);
-            if (idle) idle->Release();
-            if (ev) CloseHandle(ev);
-        }
-        xell_sleep_params_t sp = {};
-        sp.bLowLatencyMode = 1;
-        lr = xellSetSleepMode(ll, &sp);
-        if (lr != XELL_RESULT_SUCCESS) FgLog("xess: xellSetSleepMode %d", (int)lr);
+        // No xellSetSleepMode here: Create runs on the main thread while Unity renders, and nothing this thread can
+        // do proves the GPU idle (xell guide :131). appliedUs stays -1 = WantsQuiescent(): the first Present of the
+        // chain turns low latency on at the host's quiescent point, and frame generation right behind it.
 
         *out = proxy;
         FgLog("xess: proxy swapchain %p on child hwnd %p, display %ux%u fmt %u, interpolated=%u, ui=backbuffer_hudless",
@@ -239,32 +277,52 @@ struct ProviderXess : IFgProvider
         if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (warned < 8) { ++warned; FgLog("xess: tag %s %d", what, (int)r); } }
     }
 
-    // The sleeping thread: the cap when it changed, a fresh id, xellSleep (first call for a new id), SIMULATION_START.
+    // The sleeping thread: a fresh id, xellSleep (first call for a new id), SIMULATION_START. The sleep mode is not
+    // this thread's business any more (Quiescent); the gate only keeps the two calls from overlapping.
     unsigned Sleep()
     {
-        LONG us = InterlockedCompareExchange(&wantUs, 0, 0);
-        if (us != appliedUs) {
-            // "application must ensure any GPU activity is finished before xellSetSleepMode is called" (xell guide
-            // :131). Main thread, between two frames: the chain is taken from the render and presenting threads and
-            // Unity's queue drained first (FgHostQuiesce). What Unity's own render thread still has to submit of the
-            // frame in flight is out of reach from here; a quiesce that fails (a Present stuck in the proxy's pacing
-            // wait) leaves the cap for the next frame. Render-thread pacing (diagnostic) is already inside the pin.
-            const bool held = mainPacing ? FgHostQuiesce(kQuiesceMs) : false;
-            if (held || !mainPacing) {
-                xell_sleep_params_t sp = {};
-                sp.bLowLatencyMode = 1;
-                sp.minimumIntervalUs = (uint32_t)us;
-                xell_result_t lr;
-                { XellLock lk; lr = xellSetSleepMode(ll, &sp); }
-                appliedUs = us;
-                FgLog("xess: XeLL frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
-            } else if (capDeferred++ % 240 == 0) FgLog("xess: XeLL frame cap %ld us deferred - chain busy", us);
-            if (held) FgHostResume();
-        }
         unsigned id = ++nextId;
-        xellSleep(ll, id);                                 // never under the lock: it blocks for the pacing interval
+        SleepGate::EnterSleep();
+        xellSleep(ll, id);                                 // never under a lock: it blocks for the pacing interval
+        SleepGate::Leave();
         Mark(ll, id, XELL_SIMULATION_START);
         return id;
+    }
+
+    // The host's quiescent point (Fg.h): the presenting thread inside the Present hook, chain pinned, and the host
+    // has JUST proven Unity's queue retired on this thread, which is the thread Unity submits from - "any GPU
+    // activity is finished" (xell guide :131) holds here and nowhere else we can reach. Out of reach even here: what
+    // the XeSS-FG proxy's own present thread still does with the previous frame (the SDK's work, not the
+    // application's).
+    // INVARIANT: xellSetSleepMode is issued only from here, i.e. only behind a successful drain, and never while a
+    // thread is inside xellSleep. INVARIANT: xefgSwapChainSetEnabled(1) is issued only once a sleep mode with low
+    // latency has been set on this context (appliedUs >= 0).
+    bool WantsQuiescent() { return ll && fg && (wantUs != appliedUs || (enabled && !fgOn)); }
+    bool Quiescent()
+    {
+        if (!ll || !fg) return true;
+        const LONG us = InterlockedCompareExchange(&wantUs, 0, 0);
+        if (us != appliedUs) {
+            if (!SleepGate::EnterMode(kSleepWaitMs)) {
+                if (modeDeferred++ % 64 == 0) FgLog("xess: XeLL sleep mode (cap %ld us) deferred - a thread stayed inside xellSleep for %d ms", us, (int)kSleepWaitMs);
+                return false;
+            }
+            xell_sleep_params_t sp = {};
+            sp.bLowLatencyMode = 1;
+            sp.minimumIntervalUs = (uint32_t)us;
+            xell_result_t lr;
+            { XellLock lk; lr = xellSetSleepMode(ll, &sp); }
+            SleepGate::Leave();
+            // An SDK refusal is not a missing synchronisation: recorded as applied, so it is reported once, not every Present.
+            InterlockedExchange(&appliedUs, us);
+            FgLog("xess: XeLL sleep mode: low latency on, frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
+        }
+        if (enabled && !fgOn) {
+            xefg_swapchain_result_t r = xefgSwapChainSetEnabled(fg, 1u);   // thread-safe (guide :1098-1107)
+            fgOn = 1;
+            FgLog("xess: frame generation on (behind the XeLL sleep mode) -> %d", (int)r);
+        }
+        return true;
     }
 
     // The presenting thread. "All marker types ... must be delivered each frame for XeLL to correctly calculate and
@@ -355,6 +413,9 @@ struct ProviderXess : IFgProvider
         ID3D12Resource* depth = FgDepth12();
         ID3D12Resource* mv = FgMv12();
         if (!fg || !o || !depth || !mv) return false;
+        // Frame generation is not on yet: the chain's first Present switches it on behind the XeLL sleep mode
+        // (Quiescent). Nothing is tagged to a disabled chain; the frame goes out the idle way, its id is closed there.
+        if (!fgOn) return false;
         // Main-thread pacing: this frame's id was opened by FrameBegin. None = the frame was fed before the pacer started
         // (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same id twice =
         // a second prepare event inside one frame.
@@ -443,10 +504,17 @@ struct ProviderXess : IFgProvider
         return true;
     }
 
+    // Main thread with the chain pinned (FgHost.cpp ApplyEnabled) or detached and unpinned (DestroyChain). Off goes out
+    // at once. On goes out here only when XeLL low latency is already set on this context; on a fresh chain it is
+    // Quiescent() that issues it, right behind the first xellSetSleepMode ("When enabling frame generation, the
+    // application must ensure that XeLL latency reduction is enabled", xess_fg guide :648) - the proxy presents the
+    // application's frames unchanged until then (:652 "passthrough mode").
     void SetEnabled(bool on)
     {
         enabled = on ? 1 : 0;
-        if (fg) xefgSwapChainSetEnabled(fg, on ? 1u : 0u);       // thread-safe (guide :1098-1107)
+        if (!fg) return;
+        if (!on) { xefgSwapChainSetEnabled(fg, 0u); fgOn = 0; }  // thread-safe (guide :1098-1107)
+        else if (appliedUs >= 0 && !fgOn) { xefgSwapChainSetEnabled(fg, 1u); fgOn = 1; }
     }
 
     // Main thread, chain detached. The host has already released its proxy reference (FgHost.cpp DestroyChain):
