@@ -90,7 +90,8 @@ struct XellLock
     ~XellLock() { ReleaseSRWLockExclusive(&g_xellLock); }
 };
 volatile LONG g_markFails;  // refused xellAddMarkerData calls, process lifetime (Stats line; the first few are logged)
-volatile LONG g_sleptId;    // the newest id xellSleep was called with (Sleep): how far the sleeping thread is ahead of a refused marker
+volatile LONG g_sleptId;    // the newest id xellSleep ACCEPTED (Sleep): how far the sleeping thread is ahead of a refused marker
+volatile LONG g_sleepFails; // refused xellSleep calls, process lifetime (the first few are logged with their id)
 // Any thread: one XeLL marker, serialised with every other XeLL call of ours (file header THREADS). A refused marker
 // changes no state of ours (the id bookkeeping follows what was SENT, in order); it is counted and logged.
 void Mark(xell_context_handle_t ll, unsigned id, xell_latency_marker_type_t m)
@@ -312,13 +313,24 @@ struct ProviderXess : IFgProvider
 
     // The sleeping thread: a fresh id, xellSleep (first call for a new id), SIMULATION_START. The sleep mode is not
     // this thread's business any more (Quiescent); the gate only keeps the two calls from overlapping.
+    // SDK RESULT: an id exists for XeLL only once xellSleep ACCEPTED it. A refused sleep opens no frame: 0 is returned
+    // (the frame is unpaced - nothing is prepared for it, no marker names the id), `nextId` and g_sleptId do not move,
+    // so the next frame asks for the same id again and the ids XeLL has seen stay consecutive. If it lasts, the
+    // chain prepares nothing and the starvation watchdog drops the provider.
     unsigned Sleep()
     {
-        unsigned id = ++nextId;
-        InterlockedExchange(&g_sleptId, (LONG)id);
+        const unsigned id = nextId + 1;
         SleepGate::EnterSleep();
-        xellSleep(ll, id);                                 // never under a lock: it blocks for the pacing interval
+        const xell_result_t r = xellSleep(ll, id);         // never under a lock: it blocks for the pacing interval
         SleepGate::Leave();
+        if (r != XELL_RESULT_SUCCESS) {
+            const LONG n = InterlockedIncrement(&g_sleepFails);
+            if (n <= 16 || n % 512 == 0)
+                FgLog("xess: xellSleep(id %u) REFUSED %d (#%ld) - no frame opened, no marker uses this id; newest accepted id %ld, tid %u", id, (int)r, (long)n, (long)g_sleptId, (unsigned)GetCurrentThreadId());
+            return 0;
+        }
+        nextId = id;
+        InterlockedExchange(&g_sleptId, (LONG)id);
         Mark(ll, id, XELL_SIMULATION_START);
         return id;
     }
@@ -473,6 +485,7 @@ struct ProviderXess : IFgProvider
         double k = n ? 1.0 / (1000000.0 * n) : 0.0;
         _snprintf_s(buf, cap, _TRUNCATE, "xell: frames=%u simMs=%.2f simToPresentEndMs=%.2f renderSubmitMs=%.2f minimumIntervalUs=%ld wantUs=%ld fgOn=%d dead=%ld sdkFails=%d/%d/%d markFails=%ld pacing=%s",
                     n, sim * k, toPresent * k, submit * k, appliedUs, wantUs, fgOn, dead, modeFails, enableFails, inputFails, (long)g_markFails, mainPacing ? "main" : "render");
+        if (g_sleepFails) { const size_t at = strlen(buf); _snprintf_s(buf + at, cap - at, _TRUNCATE, " sleepFails=%ld", (long)g_sleepFails); }
     }
 
     // Render thread, DLSS_EV_FG_PREPARE: the pre-present markers, then tag this frame's inputs.
@@ -503,7 +516,9 @@ struct ProviderXess : IFgProvider
         if (mainPacing) presentId = f.paceId;
         else {
             // Render-thread pacing (diagnostic): the simulation is not reachable from here, SIMULATION_* bracket this event.
-            presentId = Sleep();
+            const unsigned slept = Sleep();
+            if (!slept) return false;                      // xellSleep refused: no id, nothing is tagged (presentId keeps the last real one)
+            presentId = slept;
             Mark(ll, presentId, XELL_SIMULATION_END);
         }
         marked = 0;
