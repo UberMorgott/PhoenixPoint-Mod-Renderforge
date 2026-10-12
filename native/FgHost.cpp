@@ -279,6 +279,7 @@ void Unpin(const char* tearWhy)
 struct Capture
 {
     volatile LONG state;        // 0 idle, 1 armed (main thread), 2 constants noted (Prepare), 3 written, -1 failed
+    ULONGLONG armedAt;          // GetTickCount64 of the arm: a capture nobody finished may be re-armed after kCaptureStaleMs
     wchar_t dir[MAX_PATH];
     char    notes[16384];
     int     len;
@@ -725,10 +726,14 @@ void FgCaptureFloats(const char* key, const float* v, int n)
 int FgHostCapture(const wchar_t* dir)
 {
     if (!dir || !FgHostAlive()) return 0;
+    // Armed with no Prepare following (frames on hold), or a chain that died between the notes and its Present: nobody
+    // would ever finish that capture, so a stale one may be armed again.
+    enum { kCaptureStaleMs = 2000 };
     LONG s = InterlockedCompareExchange(&g_cap.state, 0, 0);
-    if (s == 1 || s == 2) return 0;
+    if ((s == 1 || s == 2) && GetTickCount64() - g_cap.armedAt < kCaptureStaleMs) return 0;
     wcsncpy_s(g_cap.dir, MAX_PATH, dir, _TRUNCATE);
     g_cap.len = 0;
+    g_cap.armedAt = GetTickCount64();
     InterlockedExchange(&g_cap.state, 1);
     return 1;
 }
