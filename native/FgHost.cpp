@@ -200,12 +200,15 @@ bool DestroyChain(Chain& c, const char* why, bool force)
 // Any thread, lock only. A live chain stops being pinnable; the main thread destroys it on its next pump.
 void Detach(const char* why)
 {
-    Locked lk;
-    if (H.state != kLive) return;
-    H.state = kDetached;
-    H.enabled = 0;
-    H.destroyTries = 0;
-    strncpy_s(H.why, sizeof(H.why), why, _TRUNCATE);
+    {
+        Locked lk;
+        if (H.state != kLive) return;
+        H.state = kDetached;
+        H.enabled = 0;
+        H.destroyTries = 0;
+        strncpy_s(H.why, sizeof(H.why), why, _TRUNCATE);
+    }
+    WakeAllConditionVariable(&g_unpinned);             // a Pin waiting for the other thread gives up now, not at its timeout
 }
 
 // Main thread. Destroys the detached chain once the render thread has left it (it leaves every frame; `waitMs`
@@ -245,13 +248,15 @@ bool DestroyDetached(DWORD waitMs)
 bool Pin(bool forPrepare)
 {
     Locked lk;
-    const ULONGLONG until = GetTickCount64() + kPinWaitMs;
+    const ULONGLONG start = GetTickCount64();
+    const ULONGLONG until = start + kPinWaitMs;
     bool waited = false;
     for (;;) {
         if (H.state != kLive || !H.enabled) return false;
         if (!H.pinned && !(forPrepare && H.prepared && !H.presentStalled)) break;
         ULONGLONG now = GetTickCount64();
         if (now >= until) {
+            InterlockedIncrement(&H.nStall);
             if (H.pinned) return false;                // never two threads inside the chain
             H.presentStalled = 1;                      // supersede the unpresented frame, as before
             break;
@@ -259,7 +264,11 @@ bool Pin(bool forPrepare)
         waited = true;
         SleepConditionVariableSRW(&g_unpinned, &g_lock, (DWORD)(until - now), 0);
     }
-    if (waited && forPrepare) InterlockedIncrement(&H.nWaited);
+    if (waited && forPrepare) {
+        InterlockedIncrement(&H.nWaited);
+        unsigned ms = (unsigned)(GetTickCount64() - start);
+        if (ms > H.maxWaitMs) H.maxWaitMs = ms;
+    }
     H.pinned = 1;
     H.cur = H.slot;
     if (H.cur.hudless) H.cur.hudless->AddRef();
@@ -582,6 +591,7 @@ void FgHostSetEnabled(int on)
         H.enabled = on ? 1 : 0;
         if (H.state == kLive) p = H.c.prov;
     }
+    if (!on) WakeAllConditionVariable(&g_unpinned);    // a waiting Pin re-reads `enabled` now
     if (p) p->SetEnabled(on != 0);
     FgLog("host: enabled=%d", on ? 1 : 0);
 }
@@ -635,7 +645,14 @@ FgFrame PairFrame(const FgFrame& ev, bool* paired)
 
 void FgHostPrepare(const FgFrame* ev)
 {
+    // A second prepare event of a frame whose inputs were already taken (the bound camera rendered twice inside one
+    // frame; the managed driver feeds one frame once, this is the backstop for a paced provider): the first one stands.
+    // Checked BEFORE the pin and the reset below - Pin(true) would wait its full timeout for a Present that cannot
+    // come before this event returns, and the reset would throw the prepared frame away (the provider then refuses
+    // the duplicate id and the frame is presented the idle way).
+    if (ev && ev->paceId && ev->paceId == H.lastEvPace) { InterlockedIncrement(&H.nDup); return; }
     if (!Pin(true)) return;
+    H.lastEvPace = ev ? ev->paceId : 0;
     if (!(H.tidLogged & 1)) { H.tidLogged |= 1; FgLog("host: first prepare tid=%u", (unsigned)GetCurrentThreadId()); }
     // A new frame supersedes whatever is still unpresented: an earlier success nobody presented, or a token a skipped
     // Present (GetBuffer/copy failed) left behind. Reset BEFORE the input checks, so a frame with a missing input or a
@@ -737,10 +754,21 @@ void FgCaptureFloats(const char* key, const float* v, int n)
 
 int FgHostCapture(const wchar_t* dir)
 {
-    if (!dir || !FgHostAlive()) return 0;
+    if (!dir) return 0;
     // Armed with no Prepare following (frames on hold), or a chain that died between the notes and its Present: nobody
-    // would ever finish that capture, so a stale one may be armed again.
+    // would ever finish that capture, so a stale one may be armed again. The notes (Prepare) and the write (OnPresent)
+    // both run PINNED, so arming under the lock with nobody pinned can never race either of them: a writer still
+    // inside CaptureWrite keeps the pin and the arm waits (bounded) or is refused.
     enum { kCaptureStaleMs = 2000 };
+    Locked lk;
+    const ULONGLONG until = GetTickCount64() + kPinWaitMs;
+    for (;;) {
+        if (H.state != kLive) return 0;
+        if (!H.pinned) break;
+        ULONGLONG now = GetTickCount64();
+        if (now >= until) return 0;
+        SleepConditionVariableSRW(&g_unpinned, &g_lock, (DWORD)(until - now), 0);
+    }
     LONG s = InterlockedCompareExchange(&g_cap.state, 0, 0);
     if ((s == 1 || s == 2) && GetTickCount64() - g_cap.armedAt < kCaptureStaleMs) return 0;
     wcsncpy_s(g_cap.dir, MAX_PATH, dir, _TRUNCATE);
@@ -755,10 +783,12 @@ int FgHostCaptureStatus(void) { return (int)InterlockedCompareExchange(&g_cap.st
 bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 {
     if (!Pin(false)) return false;
-    H.presentStalled = 0;
     if (!(H.tidLogged & 2)) { H.tidLogged |= 2; FgLog("host: first hooked present tid=%u", (unsigned)GetCurrentThreadId()); }
     Chain& c = H.c;
     if (app != (IDXGISwapChain*)c.app || !c.shadow) { Unpin(NULL); return false; }
+    // Presents of OUR chain's app are arriving again: prepares may wait for them. Only here - a Present of some other
+    // chain consumes nothing, and clearing the flag for it made every following prepare wait its full timeout.
+    { Locked lk; H.presentStalled = 0; }
 
     // No frame prepared since the last present: the provider is not driven at all this frame (no copy, no shadow
     // Present, no vendor call), the hook forwards Unity's Present unchanged, and the child hides on the first such frame.
@@ -867,6 +897,7 @@ int FgHostPump(void)
         // The hook forgot / rediscovered the app chain (WM_NCDESTROY): a chain built on the old one is dead.
         if (H.state == kLive && !FgAppIs((IDXGISwapChain*)H.c.app)) { H.state = kDetached; H.enabled = 0; H.destroyTries = 0; strncpy_s(H.why, sizeof(H.why), "app chain changed", _TRUNCATE); }
     }
+    WakeAllConditionVariable(&g_unpinned);             // a Pin waiting on a chain that just went away gives up at once
     return DestroyDetached(0) ? 1 : 0;
 }
 
@@ -902,13 +933,14 @@ const char* FgHostStatus(void)
         caps = H.state == kLive ? H.c.prov->Caps() : H.lastCaps;
     }
     _snprintf_s(H.status, sizeof(H.status), _TRUNCATE,
-        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld%s%s",
+        "provider=%s enabled=%d multiplier=%u chain=%s child=%p childHr=0x%08X hit=%d focus=%s fg=%d shadow=%p out=%ux%u flags=0x%X caps=0x%X lastError=%d presentHr=0x%08X presented=%lld fps=%d frameId=%llu idle=%lld prepare=%ld/%ld presents=%ld idled=%ld waited=%ld maxWaitMs=%u stalls=%ld dup=%ld%s%s",
         prov, H.enabled, H.multiplier,
         state == kNone ? "-" : "child", child, (unsigned)H.childHr, w->hit, focus,
         w->foreground == game ? 1 : 0,
         shadow, H.outW, H.outH, scFlags,
         caps, H.lastError, (unsigned)H.lastPresentHr, FgPresentCount(), FgPresentedFps(),
         frameId, state == kLive ? H.idle : 0LL, (long)H.nPrepared, (long)H.nPrepare, (long)H.nPresent, (long)H.nIdle, (long)H.nWaited,
+        H.maxWaitMs, (long)H.nStall, (long)H.nDup,
         H.reason ? " reason=" : "", H.reason ? H.reason : "");
     return H.status;
 }

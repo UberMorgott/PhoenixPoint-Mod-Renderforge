@@ -44,6 +44,7 @@ namespace Renderforge
         private bool liveHalfColor;         // colorRT + outRT linear ARGBHalf, DLSS_F_HDR (fixed-on production path)
 
         private int jitterIndex, phaseCount;
+        private int cullFrame = -1;          // Time.frameCount of the last AfterPostProcessPreCull of the bound layer
         private float jx, jy;
         private float reportJx, reportJy;   // what the last Dlss_SetFrame actually got (after the diagnostic sign/swap knobs)
         private bool resetNext;
@@ -549,6 +550,9 @@ namespace Renderforge
         public void AfterPostProcessPreCull(PostProcessLayer l)
         {
             if (broken || gen != Gen.Live || l != layer || cam == null) return;
+            bool again = cullFrame == Time.frameCount;   // the bound layer culled a second time inside one frame (a manual Camera.Render)
+            cullFrame = Time.frameCount;
+            if (again) FrameGen.DupPreCull++;
             try
             {
                 Halton(jitterIndex, out jx, out jy);
@@ -614,7 +618,10 @@ namespace Renderforge
                         Mathf.Clamp(cfg.Saturation, 0, 200) / 100f, Mathf.Clamp(cfg.Vibrance, -100, 100) / 100f);
                 cbEval.Clear();
                 cbEval.IssuePluginEventAndData(evDataFn, Native.DLSS_EV_EVALUATE, slot);
-                if (FrameGen.Live && !FrameGen.HoldPrepare && copyAttached)   // copyAttached: FG never gets MV/depth nobody rendered or copied (a passthrough generation)
+                // One frame is fed ONCE: a second prepare event inside a frame cannot be presented (one Present per frame)
+                // and made the shim throw the first one away after waiting 100 ms for a Present that could not come.
+                if (again && FrameGen.Live && !FrameGen.HoldPrepare && copyAttached) FrameGen.DupFeeds++;
+                else if (FrameGen.Live && !FrameGen.HoldPrepare && copyAttached)   // copyAttached: FG never gets MV/depth nobody rendered or copied (a passthrough generation)
                 {
                     // The FG contract (native\Fg.h FgFrame, docs\DESIGN.md "FG input contract"): everything in Direct3D
                     // conventions for a TOP-DOWN image, because the generators compare these inputs with the swapchain's
