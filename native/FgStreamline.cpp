@@ -340,6 +340,7 @@ struct ProviderStreamline : IFgProvider
         qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         HRESULT hr = g_sl.proxyDevice->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue));
         if (FAILED(hr) || !queue) { FgLog("sl: proxy CreateCommandQueue 0x%08X", (unsigned)hr); return Fail(FG_ERR_PROVIDER_FAILED); }
+        queue->SetName(L"Renderforge DLSS-G present queue");
 
         void* fac = s.factory;
         sl::Result r = g_sl.upgrade(&fac);              // ManualHooking.md:205-215: the swapchain MUST come from the proxy factory

@@ -91,7 +91,9 @@ struct D3D12Ring
     void Attach(ID3D12Device* dev)
     {
         device = dev;
-        if (device && !fence) device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+        // Every D3D12 object of ours carries a "Renderforge ..." name: a debug-layer message that names none of them
+        // is not about our lists or resources (docs\DESIGN.md "Debug-layer attribution").
+        if (device && !fence && SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) && fence) fence->SetName(L"Renderforge ring fence");
         if (device && !qheap) {
             D3D12_QUERY_HEAP_DESC qd = {};
             qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
@@ -108,6 +110,8 @@ struct D3D12Ring
                 FAILED(qbuf->Map(0, &all, (void**)&qCpu))) {
                 ReleaseTimings();   // no timestamps, everything else works
             }
+            if (qheap) qheap->SetName(L"Renderforge ring timestamps");
+            if (qbuf) qbuf->SetName(L"Renderforge ring timestamp readback");
         }
     }
 
@@ -275,6 +279,7 @@ struct D3D12Ring
             }
             static const wchar_t* const names[kRing] = { L"Renderforge ring 0", L"Renderforge ring 1", L"Renderforge ring 2", L"Renderforge ring 3" };
             list[i]->SetName(names[i]);      // so debug-layer messages name OUR list, not "Unnamed ID3D12GraphicsCommandList"
+            alloc[i]->SetName(names[i]);
             list[i]->Close();
         }
         if (FAILED(alloc[i]->Reset()) || FAILED(list[i]->Reset(alloc[i], NULL))) { failCode = DLSS_ERR_NO_CONTEXT; return NULL; }

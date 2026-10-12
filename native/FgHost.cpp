@@ -307,6 +307,14 @@ bool CopyBackBuffer(Chain& c, ID3D12Resource* src, ID3D12Resource* dst)
     }
     ID3D12GraphicsCommandList* l = c.copy.Begin();
     if (!l) return false;
+    // Debug-layer attribution (RENDERFORGE_D3D12_DEBUG): which of Unity's back buffers this list read, on which queue
+    // and thread, for the first presents of a chain - a later message naming a back buffer is matched by pointer.
+    // The shadow chain's buffers get a name of ours; Unity names its own ("BackBufferN_0").
+    if (RfDbg::On()) {
+        dst->SetName(L"Renderforge FG shadow back buffer");
+        if (H.nPresent <= 4) RfDbg::Log("FG copy: unity back buffer %p (app index %u) -> shadow %p on %s queue %p, epoch %u present %ld tid=%u, PRESENT -> COPY_SOURCE -> PRESENT inside this list",
+                                        (void*)src, c.app->GetCurrentBackBufferIndex(), (void*)dst, q == H.queue ? "Unity's" : "the provider's", (void*)q, H.epoch, (long)H.nPresent, (unsigned)GetCurrentThreadId());
+    }
 
     D3D12_RESOURCE_BARRIER b[2] = {};
     b[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -554,6 +562,7 @@ bool CaptureWrite(ID3D12Resource* backBuffer)
     bool ok = SUCCEEDED(H.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc))) &&
               SUCCEEDED(H.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, NULL, IID_PPV_ARGS(&cl))) &&
               SUCCEEDED(H.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+    if (ok) { alloc->SetName(L"Renderforge FG capture"); cl->SetName(L"Renderforge FG capture"); fence->SetName(L"Renderforge FG capture fence"); }
     for (int i = 0; ok && i < 4; ++i) {
         CapItem& it = items[i];
         if (!it.res) continue;
@@ -565,6 +574,7 @@ bool CaptureWrite(ID3D12Resource* backBuffer)
         bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; bd.Width = total; bd.Height = 1; bd.DepthOrArraySize = 1; bd.MipLevels = 1;
         bd.SampleDesc.Count = 1; bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         if (FAILED(H.device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&it.buf)))) { ok = false; break; }
+        it.buf->SetName(L"Renderforge FG capture readback");
         D3D12_TEXTURE_COPY_LOCATION src = {}, dst = {};
         src.pResource = it.res; src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; src.SubresourceIndex = 0;
         dst.pResource = it.buf; dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; dst.PlacedFootprint = it.fp;
@@ -787,6 +797,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     // run the copy on Unity's queue, unordered against that provider's presents): the chain is published DEAD -
     // detached, never live - and the ordinary teardown path destroys it.
     const bool noHandoff = p->PresentQueue() && (FAILED(H.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&c.xfence))) || !c.xfence);
+    if (c.xfence) c.xfence->SetName(L"Renderforge FG queue handoff fence");
     if (noHandoff) {
         FgLog("host: CreateFence for the %s present-queue handoff failed (removed=0x%08X) - chain not started", p->Name(), (unsigned)H.device->GetDeviceRemovedReason());
         { Locked lk; c.prov = p; H.state = kDetached; H.enabled = 0; H.destroyTries = 0; strncpy_s(H.why, sizeof(H.why), "no handoff fence", _TRUNCATE); }
@@ -813,7 +824,8 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     return FG_OK;
 }
 
-// Main thread. The presented-fps ceiling for the live provider (IFgProvider::SetFrameLimit); 1 = it paces to it itself.
+// Main thread. The presented-fps ceiling for the live provider (IFgProvider::SetFrameLimit), then what its SDK holds
+// (IFgProvider::PacerState, FG_PACER_* bits). 0 = no live chain: the caller's limiter paces, undivided.
 int FgHostSetFrameLimit(unsigned presentedFps)
 {
     IFgProvider* p = NULL;

@@ -101,6 +101,7 @@ struct FgTwins
         if (serr) serr->Release();
         if (SUCCEEDED(hr) && sig) { hr = device->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(), IID_PPV_ARGS(&rootSig)); sig->Release(); }
         if (FAILED(hr) || !rootSig) { code->Release(); dead = true; return false; }
+        rootSig->SetName(L"Renderforge FG twins root signature");
 
         D3D12_COMPUTE_PIPELINE_STATE_DESC pd = {};
         pd.pRootSignature = rootSig;
@@ -108,12 +109,14 @@ struct FgTwins
         hr = device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&pso));
         code->Release();
         if (FAILED(hr) || !pso) { dead = true; return false; }
+        pso->SetName(L"Renderforge FG twins pipeline");
 
         D3D12_DESCRIPTOR_HEAP_DESC hd = {};
         hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         hd.NumDescriptors = 2 * kCount * D3D12Ring::kRing;
         hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FAILED(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&heap))) || !heap) { pso->Release(); pso = NULL; dead = true; return false; }
+        heap->SetName(L"Renderforge FG twins descriptors");
         descSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         return true;
     }

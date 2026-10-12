@@ -352,8 +352,20 @@ struct Fsr12 : IDevice
             ring.Stamp(2);
             owned.Leave(cl, output);
         }
+        // Same registration as Device12 / Xess12: without it a debug-layer message naming one of Unity's RTs could not
+        // be matched against the four this list declares (an FSR generation was the one that could not be checked).
+        if (RfDbg::On() && dbgLogged != output) {
+            dbgLogged = output;
+            RfDbg::Log("FSR Evaluate: tid=%u passthrough=%d render=%ux%u reset=%d", (unsigned)GetCurrentThreadId(), (int)passthrough, fp.renderW, fp.renderH, fp.reset);
+            RfDbg::Resource("color", color);
+            RfDbg::Resource("depth", depth);
+            RfDbg::Resource("mv", mv);
+            RfDbg::Resource("output", output);
+            RfDbg::States(n, st);
+        }
         if (!ring.End(n)) { lastEval = NVSDK_NGX_Result_FAIL_PlatformError; lastError = DLSS_ERR_NO_CONTEXT; }
     }
+    ID3D12Resource* dbgLogged = NULL;   // RENDERFORGE_D3D12_DEBUG: the output whose descs were already logged
 
     bool ReleaseFeature() override { return DestroyContext(); }
 

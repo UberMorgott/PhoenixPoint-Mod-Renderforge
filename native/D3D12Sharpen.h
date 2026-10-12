@@ -108,12 +108,14 @@ struct SharpenPass12
         hr = device->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(), IID_PPV_ARGS(&rootSig));
         sig->Release();
         if (FAILED(hr)) { rootSig = NULL; Fail(); return false; }
+        rootSig->SetName(L"Renderforge post root signature");
 
         D3D12_DESCRIPTOR_HEAP_DESC hd = {};
         hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         hd.NumDescriptors = 2 * D3D12Ring::kRing;
         hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         HRESULT hh = device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&descHeap));
+        if (SUCCEEDED(hh) && descHeap) descHeap->SetName(L"Renderforge post descriptors");
         // Say what the heap actually came back as: the debug layer's id=1315 ("GetGPUDescriptorHandleForHeapStart on a
         // heap that is not SHADER_VISIBLE") is otherwise unattributable between this heap and the vendor SDKs' own heaps.
         // Fail() marks the pass dead, so a half-built shared set is never reused.
@@ -134,6 +136,7 @@ struct SharpenPass12
         bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd,
                                                    D3D12_RESOURCE_STATE_GENERIC_READ, NULL, IID_PPV_ARGS(&cb)))) { cb = NULL; Fail(); return false; }
+        cb->SetName(L"Renderforge post constants");
         D3D12_RANGE noRead = { 0, 0 };
         if (FAILED(cb->Map(0, &noRead, (void**)&cbCpu)) || !cbCpu) { Fail(); return false; }
         shared = true;
@@ -156,6 +159,7 @@ struct SharpenPass12
             pd.CS.pShaderBytecode = code;
             pd.CS.BytecodeLength = n;
             if (FAILED(device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&p)))) { p = NULL; Fail(); return false; }
+            p->SetName(L"Renderforge post pipeline");
         }
         pso = p; psoHdr = hdr; psoGrade = colorGrade; psoKind = kind;
         owner->sharpener = kind;
@@ -188,6 +192,7 @@ struct SharpenPass12
         td.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;   // the upscaler writes it, the sharpen pass reads it
         if (FAILED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td,
                                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, IID_PPV_ARGS(&target)))) { Fail(); return false; }
+        target->SetName(L"Renderforge post target");
         targetW = w; targetH = h; targetFmt = od.Format;
         RfDbg::Log("SharpenTarget: %ux%u fmt=%d created", w, h, (int)od.Format);
         return true;
