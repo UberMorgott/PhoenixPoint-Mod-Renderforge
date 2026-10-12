@@ -299,6 +299,10 @@ struct ProviderFsr : IFgProvider
     int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT) { return 0; }
 
     void SetEnabled(bool on) { enabled = on ? 1 : 0; }    // applied by the next Prepare's Configure
+    // AMD's order (frame-interpolation-api.md:318-337, frame-interpolation-swap-chain.md:262-268, :298-300):
+    // Configure(off) on the proxy -> DestroyContext(frame generation) -> DestroyContext(swapchain) -> the application
+    // releases the FINAL reference to the proxy. So the host keeps its reference across Destroy().
+    bool ProxyOutlivesDestroy() { return true; }
 
     // Main thread, chain detached (the render thread no longer presents the proxy; the host's prep ring retired).
     bool Destroy(bool force)

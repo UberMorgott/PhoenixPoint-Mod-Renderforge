@@ -177,6 +177,121 @@ void TestSdkFailInit()
           g_testSdk.what, count, skip, count > 0 ? "that many times" : "every time", skip > 0 ? skip : 0);
 }
 
+// --- VIDEO MEMORY + PRESENT WATCHDOG (diagnostics; docs\DESIGN.md "A vendor Present that does not return") ---------
+// 2026-10-12: FSR-FG, 7th fast off/on rebuild, video memory overcommitted by a second game instance. The second
+// Present of a fresh proxy never returned: AMD's proxy spun in waitForFenceValue (no timeout) on its composition fence,
+// its interpolation thread on the interpolation fence it had signalled on Unity's queue in Present #1 - a Signal that
+// never completed - and Unity's render thread hit its own 30 s fence timeout and broke into the debugger. No lock or
+// pin of ours was involved, the device was not removed, and the minidump cannot say why the queue stood still. So the
+// next occurrence must be decidable from the log alone: a thread of our own watches the time the presenting thread
+// spends inside the provider's Present and, past kPresentStuckMs, writes down what the queue and the memory are doing.
+// It only reads and logs - a vendor spin without a timeout cannot be interrupted from outside.
+enum { kPresentStuckMs = 2000, kWatchPeriodMs = 500 };
+volatile LONGLONG g_presentSince;       // GetTickCount64() at the entry of the shadow Present, 0 = not inside one
+volatile LONG     g_presentNo;          // counts shadow Presents (the watchdog reports each stuck one once)
+volatile LONG     g_presentFlagged;     // the Present in flight was reported stuck: its return is logged too
+HANDLE            g_watchThread, g_watchStop;
+
+// Any thread. "vram local <usage>/<budget> MB, shared <usage>/<budget> MB" of the adapter the device runs on.
+void VramLine(ID3D12Device* dev, char* buf, int cap)
+{
+    _snprintf_s(buf, cap, _TRUNCATE, "vram unknown");
+    IDXGIFactory4* dxgi = NULL;
+    IDXGIAdapter3* adapter = NULL;
+    if (dev && SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&dxgi))) && dxgi && SUCCEEDED(dxgi->EnumAdapterByLuid(dev->GetAdapterLuid(), IID_PPV_ARGS(&adapter))) && adapter) {
+        DXGI_QUERY_VIDEO_MEMORY_INFO loc = {}, non = {};
+        if (SUCCEEDED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &loc)) && SUCCEEDED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &non)))
+            _snprintf_s(buf, cap, _TRUNCATE, "vram local %llu/%llu MB%s, shared %llu/%llu MB", (unsigned long long)(loc.CurrentUsage >> 20), (unsigned long long)(loc.Budget >> 20),
+                        loc.CurrentUsage > loc.Budget ? " OVER BUDGET" : "", (unsigned long long)(non.CurrentUsage >> 20), (unsigned long long)(non.Budget >> 20));
+    }
+    SafeRelease(adapter);
+    SafeRelease(dxgi);
+}
+
+DWORD WINAPI PresentWatchdog(void*)
+{
+    LONG reported = -1;
+    while (WaitForSingleObject(g_watchStop, kWatchPeriodMs) == WAIT_TIMEOUT) {
+        const LONGLONG since = InterlockedCompareExchange64(&g_presentSince, 0, 0);
+        const LONG no = InterlockedCompareExchange(&g_presentNo, 0, 0);
+        if (!since || no == reported || (LONGLONG)GetTickCount64() - since < kPresentStuckMs) continue;
+        reported = no;
+        // The presenting thread is inside Present with the chain pinned: device, queue and provider cannot go away.
+        ID3D12Device* dev = H.device;
+        ID3D12CommandQueue* queue = H.queue;
+        if (!dev || !queue) continue;
+        InterlockedExchange(&g_presentFlagged, 1);
+        char vram[160];
+        VramLine(dev, vram, sizeof(vram));
+        // Is Unity's queue retiring work at all? A fence of our own, signalled behind everything submitted so far.
+        int probe = -1;                                    // -1 not run, 0 did not complete within 1 s, 1 completed
+        ULONGLONG probeMs = 0;
+        ID3D12Fence* fence = NULL;
+        HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
+        if (ev && SUCCEEDED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) && fence) {
+            const ULONGLONG t0 = GetTickCount64();
+            if (SUCCEEDED(queue->Signal(fence, 1)) && SUCCEEDED(fence->SetEventOnCompletion(1, ev))) probe = WaitForSingleObject(ev, 1000) == WAIT_OBJECT_0 ? 1 : 0;
+            probeMs = GetTickCount64() - t0;
+        }
+        SafeRelease(fence);
+        if (ev) CloseHandle(ev);
+        FgLog("host: WATCHDOG shadow Present #%ld (%s, epoch %u, present %ld of this chain) has not returned for %lld ms on tid %u: removed=0x%08X, Unity queue probe %s (%llu ms), %s",
+              no, H.c.prov ? H.c.prov->Name() : "-", H.epoch, (long)H.nPresent, (LONGLONG)GetTickCount64() - since, (unsigned)H.presentTid,
+              (unsigned)dev->GetDeviceRemovedReason(), probe == 1 ? "COMPLETED - the queue retires work, the provider waits on something of its own" :
+              probe == 0 ? "DID NOT COMPLETE in 1 s - the queue itself stands still (a queue Wait nobody signals, or the GPU scheduler holds it: paging under memory overcommit)" : "not run",
+              (unsigned long long)probeMs, vram);
+    }
+    return 0;
+}
+
+void WatchdogStart()
+{
+    if (g_watchThread) return;
+    g_watchStop = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (g_watchStop) g_watchThread = CreateThread(NULL, 0, PresentWatchdog, NULL, 0, NULL);
+}
+
+} // namespace
+
+// Plugin unload (UnityPluginUnload, after FgHostShutdown): the watchdog thread must not outlive the module's code.
+void FgHostWatchdogStop(void)
+{
+    if (!g_watchThread) return;
+    SetEvent(g_watchStop);
+    WaitForSingleObject(g_watchThread, 2000);
+    CloseHandle(g_watchThread); g_watchThread = NULL;
+    CloseHandle(g_watchStop); g_watchStop = NULL;
+}
+
+namespace {
+
+// TEST lever RENDERFORGE_FG_TEST_VRAM_MB=<n> (env, before launch): commit n MB of throwaway 4096x4096 RGBA8 textures on
+// Unity's device before the first chain is built and keep them for the process - frame generation under video-memory
+// pressure (chain rebuilds allocate and free hundreds of MB each). Main thread, once.
+void TestVramPressure(ID3D12Device* dev)
+{
+    static bool done = false;
+    if (done || !dev) return;
+    done = true;
+    char v[32] = {};
+    if (!GetEnvironmentVariableA("RENDERFORGE_FG_TEST_VRAM_MB", v, sizeof(v)) || atoi(v) <= 0) return;
+    const int want = atoi(v) / 64;
+    int got = 0;
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; desc.Width = 4096; desc.Height = 4096; desc.DepthOrArraySize = 1; desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; desc.SampleDesc.Count = 1;
+    for (; got < want; ++got) {
+        ID3D12Resource* tex = NULL;                        // never released: the pressure lasts for the process
+        if (FAILED(dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, IID_PPV_ARGS(&tex))) || !tex) break;
+        tex->SetName(L"Renderforge TEST vram pressure");
+    }
+    char vram[160];
+    VramLine(dev, vram, sizeof(vram));
+    FgLog("host: TEST RENDERFORGE_FG_TEST_VRAM_MB=%s - committed %d of %d textures (%d MB), %s", v, got, want, got * 64, vram);
+}
+
 // Barrier src PRESENT->COPY_SOURCE and dst PRESENT->COPY_DEST, CopyResource, barrier back, execute on the queue.
 // A provider with its own presenting queue (DLSS-G) gets the copy on THAT queue: it first waits for everything Unity's
 // queue submitted for this frame (xfence), and Unity's queue then waits for the copy (ring fence) before it may render
@@ -238,15 +353,17 @@ bool ReleaseGpu(Chain& c)
     return true;
 }
 
-// Main thread, no lock held, chain detached. The host's shadow reference goes first (XeSS-FG's xefgSwapChainDestroy
-// refuses while any proxy reference is outstanding; FSR's swapchain context holds its own), then the provider, then
-// the remaining GPU objects. False = the provider refused and kept its handles: retried on the next pump.
+// Main thread, no lock held, chain detached. Where the host's shadow reference goes is the provider's SDK's rule
+// (IFgProvider::ProxyOutlivesDestroy): BEFORE the provider (XeSS-FG's xefgSwapChainDestroy refuses while any proxy
+// reference is outstanding; DLSS-G) or AFTER it, as the last reference of all (FSR: "release the final reference
+// last", frame-interpolation-swap-chain.md:262-268 - ReleaseGpu does it). Then the remaining GPU objects.
+// False = the provider refused and kept its handles: retried on the next pump.
 bool DestroyChain(Chain& c, const char* why, bool force)
 {
     ULONGLONG t0 = GetTickCount64();
     if (c.prov) c.prov->SetEnabled(false);
     if ((!c.prep.WaitIdle(0) && !c.prep.Removed()) || (!c.copy.WaitIdle(0) && !c.copy.Removed())) return false;
-    SafeRelease(c.shadow);
+    if (!c.prov || !c.prov->ProxyOutlivesDestroy()) SafeRelease(c.shadow);
     if (c.prov) {
         if (!c.prov->Destroy(force)) { FgLog("host: teardown (%s): provider refused Destroy (try %d)", why, H.destroyTries + 1); return false; }
         c.prov = NULL;
@@ -647,6 +764,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     c.backFmt = s.desc.Format;
 
     TestSdkFailInit();
+    TestVramPressure(H.device);
     IDXGISwapChain4* shadow = NULL;
     FgHookHide();                                          // the new chain's vtable shows dxgi, not us (Fg.h)
     int rc = p->Create(s, &shadow);
@@ -687,8 +805,11 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.provWant = -1; H.provOn = -1; H.quiesceSkip = 0; H.nQuiesce = H.nQuiesceFail = 0;
     H.nStale = 0; H.presentTid = H.prepareTid = 0; H.nPresentTidSw = H.nPrepareTidSw = H.nFenceMoved = H.nQuiesceBusy = 0;
     PublishChain(p, s.epoch);
-    FgLog("host: provider=%s multiplier=%u epoch=%u shadow=%p %ux%u flags=0x%X caps=0x%X",
-          p->Name(), H.multiplier, H.epoch, (void*)c.shadow, H.outW, H.outH, c.scFlags, p->Caps());
+    char vram[160];
+    VramLine(H.device, vram, sizeof(vram));
+    FgLog("host: provider=%s multiplier=%u epoch=%u shadow=%p %ux%u flags=0x%X caps=0x%X, %s",
+          p->Name(), H.multiplier, H.epoch, (void*)c.shadow, H.outW, H.outH, c.scFlags, p->Caps(), vram);
+    WatchdogStart();
     return FG_OK;
 }
 
@@ -1219,7 +1340,13 @@ int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     }
     c.prov->BeforePresent();                           // the copy is the last write into the shadow back buffer
 
+    InterlockedIncrement(&g_presentNo);
+    const ULONGLONG presentT0 = GetTickCount64();
+    InterlockedExchange64(&g_presentSince, (LONGLONG)presentT0);
     HRESULT hr = c.shadow->Present(syncInterval, pf);
+    InterlockedExchange64(&g_presentSince, 0);
+    if (InterlockedExchange(&g_presentFlagged, 0))
+        FgLog("host: WATCHDOG shadow Present #%ld returned 0x%08X after %llu ms", (long)g_presentNo, (unsigned)hr, (unsigned long long)(GetTickCount64() - presentT0));
     H.lastPresentHr = (long)hr;
     c.prov->AfterPresent(hr);
     if (c.logged == 1) {

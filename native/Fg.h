@@ -183,6 +183,9 @@ struct IFgProvider
     virtual void     Stats(char* buf, int cap) { if (cap > 0) buf[0] = 0; }
     // Main thread.
     virtual void     SetEnabled(bool on) = 0;
+    // Teardown order of the host's proxy reference (FgHost.cpp DestroyChain): false = released BEFORE Destroy, true =
+    // released AFTER Destroy succeeded, as the last reference to the proxy.
+    virtual bool     ProxyOutlivesDestroy() { return false; }
     // Main thread, chain detached, the host's shadow reference already released. True = gone, the singleton is
     // reusable. False = the SDK refused (DLSS-G still on, proxy references outstanding): handles are RETAINED and
     // the host retries on its next pump; `force` = give up, leak what the SDK holds and reset anyway.
@@ -228,6 +231,7 @@ HWND FgWndChild(void);                       // the live child, NULL when none
 void FgWndShow(bool show);                   // any thread: hide the child (Unity's own chain shows through) / show it again
 bool FgWndIsOurs(HWND h);                    // a window of our child class (the hook never adopts a chain on it)
 void FgWndUnload(void);                      // plugin unload: destroy the child, restore the subclass, unregister the class
+void FgHostWatchdogStop(void);               // plugin unload: end the present watchdog thread (FgHost.cpp)
 struct FgWndProbe
 {
     HWND  parent, child, focus, foreground;  // focus/foreground as seen from the UI thread

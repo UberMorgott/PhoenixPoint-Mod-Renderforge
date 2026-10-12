@@ -67,6 +67,7 @@ void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload(void)
 {
     FgHostShutdown();
+    FgHostWatchdogStop();
     FgHookRemove();
     FgWndUnload();
     ShutdownBackend();
