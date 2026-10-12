@@ -1,5 +1,6 @@
 // Source-linked lifecycle proof: real WARP COM resources/fences; only FG vendor/window seams are mocked.
 #include "../FgHost.cpp"
+#include "../FgLatch.h"
 #include <stdlib.h>
 IUnityGraphicsD3D12v5* g_unityD3D12 = NULL;
 namespace RfDbg { void Log(const char*, ...) {} bool On() { return false; } void Removed(ID3D12Device*, const char*) {} }
@@ -303,5 +304,39 @@ int main()
     Check(ring.Release(), "ring release idempotent");
     owned.Release(); idle.Release(); a->Release(); b->Release();
     device->Release(); warp->Release(); factory->Release();
-    printf("retirement_probe: PASS %d checks (pinned/refused/success/re-enable/real WARP fence+resize/stale fence wake/deferred enable/quiescent point/event settling/capture retention/SDK refusal back-off/queue probe/stale chain epoch)\n", checks);
+    {
+        // ---- review 4 (2026-10-12): the Reflex latch of FgStreamline.cpp ReflexApply (FgLatch.h), driven the way the
+        // provider drives it, the SDK's answer coming from the real lever. Modes: 0 = eOff, 1 = eLowLatency.
+        SetEnvironmentVariableA("RENDERFORGE_FG_TEST_SDK_FAIL", "sl_reflex@6944,1,skip=1");
+        TestSdkFailInit();
+        SetEnvironmentVariableA("RENDERFORGE_FG_TEST_SDK_FAIL", NULL);
+        FgReflexLatch l = {}; l.mode = -1;
+        int calls = 0; bool refuse = false;
+        auto ask = [&](int m, unsigned us) {
+            return l.Apply(m, us, m != 0, [&]() {
+                ++calls;
+                char name[32]; _snprintf_s(name, sizeof(name), _TRUNCATE, "sl_reflex@%u", us);
+                return !refuse && !FgTestSdkFail("sl_reflex") && !FgTestSdkFail(name);
+            });
+        };
+        Check(ask(0, 0) == FgReflexLatch::kAccepted && ask(1, 8333) == FgReflexLatch::kAccepted && !l.bad, "reflex latch: chain start, cap 120 accepted");
+        Check(ask(1, 6944) == FgReflexLatch::kAccepted && ask(1, 8333) == FgReflexLatch::kAccepted && calls == 4, "lever skip=1: the first matching call goes through");
+        Check(ask(1, 6944) == FgReflexLatch::kRefused && l.bad == 1 && l.mode == 1 && l.us == 8333 && l.fails == 1, "cap 144 refused: nothing recorded as applied, DLSS-G not fed");
+        const int c0 = calls;
+        Check(ask(1, 8333) == FgReflexLatch::kInEffect && l.bad == 0 && calls == c0, "back to the accepted cap 120: in effect without a call, and the refusal no longer stands (DLSS-G is fed again)");
+        Check(ask(1, 8333) == FgReflexLatch::kInEffect && l.bad == 0, "and it stays clear frame after frame");
+        Check(ask(1, 6944) == FgReflexLatch::kBackoff && l.bad == 1 && calls == c0, "the refused cap asked again inside its back-off: no call, not in effect");
+        Check(ask(0, 0) == FgReflexLatch::kAccepted && l.bad == 0, "eOff accepted (no frames flow): nothing needed stands refused");
+        Check(ask(1, 6944) == FgReflexLatch::kBackoff && l.bad == 1, "low latency asked again while backed off: DLSS-G is not fed behind an eOff Reflex");
+        int waits = 0, step;
+        while ((step = ask(1, 6944)) == FgReflexLatch::kBackoff) ++waits;
+        Check(waits == FgReflexLatch::kRetry - 2 && step == FgReflexLatch::kAccepted && !l.bad && !l.fails && !l.skip && l.us == 6944, "retried after exactly the back-off; an accepted call clears the refusal and its counters");
+        refuse = true;
+        Check(ask(1, 4166) == FgReflexLatch::kRefused && ask(0, 0) == FgReflexLatch::kRefused && l.bad == 1 && l.fails == 2, "a refused eOff leaves the low-latency refusal standing");
+        l.NewChain();
+        refuse = false;
+        Check(!l.bad && !l.skip && !l.fails && l.mode == 1 && l.us == 6944, "a new chain starts without the old chain's refusal or back-off; the accepted state is the SDK's");
+        Check(ask(0, 0) == FgReflexLatch::kAccepted, "and its first request is issued at once");
+    }
+    printf("retirement_probe: PASS %d checks (pinned/refused/success/re-enable/real WARP fence+resize/stale fence wake/deferred enable/quiescent point/event settling/capture retention/SDK refusal back-off/queue probe/stale chain epoch/reflex latch 120-144-120)\n", checks);
 }

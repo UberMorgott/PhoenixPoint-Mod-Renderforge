@@ -153,7 +153,7 @@ struct Locked
 };
 
 // FgTestSdkFail (Fg.h). `on` is written once, on the main thread, before any chain exists (FgHostInit).
-struct TestSdkFail { int on; char what[32]; volatile LONG left; volatile LONG hits; };
+struct TestSdkFail { int on; char what[32]; volatile LONG left; volatile LONG hits; volatile LONG skip; };
 TestSdkFail g_testSdk;
 void TestSdkFailInit()
 {
@@ -162,14 +162,19 @@ void TestSdkFailInit()
     done = true;
     char v[64] = {};
     if (!GetEnvironmentVariableA("RENDERFORGE_FG_TEST_SDK_FAIL", v, sizeof(v)) || !v[0]) return;
-    int count = -1;
+    int count = -1, skip = 0;
     char* comma = strchr(v, ',');
-    if (comma) { *comma = 0; count = atoi(comma + 1); }
+    if (comma) {
+        *comma = 0; count = atoi(comma + 1);
+        const char* sk = strstr(comma + 1, "skip=");
+        if (sk) skip = atoi(sk + 5);
+    }
     strncpy_s(g_testSdk.what, sizeof(g_testSdk.what), v, _TRUNCATE);
     g_testSdk.left = count > 0 ? count : -1;           // -1 = every call
+    g_testSdk.skip = skip > 0 ? skip : 0;
     g_testSdk.on = 1;
-    FgLog("host: TEST RENDERFORGE_FG_TEST_SDK_FAIL=%s,%d - the named SDK call is skipped and reported as failed (%s)", g_testSdk.what, count,
-          count > 0 ? "that many times" : "every time");
+    FgLog("host: TEST RENDERFORGE_FG_TEST_SDK_FAIL=%s,%d,skip=%d - the named SDK call is skipped and reported as failed (%s, after %d calls that go through)",
+          g_testSdk.what, count, skip, count > 0 ? "that many times" : "every time", skip > 0 ? skip : 0);
 }
 
 // Barrier src PRESENT->COPY_SOURCE and dst PRESENT->COPY_DEST, CopyResource, barrier back, execute on the queue.
@@ -788,6 +793,7 @@ bool FgTestSdkFail(const char* what)
 {
     if (!g_testSdk.on) return false;
     if (strcmp(g_testSdk.what, what)) return false;
+    if (g_testSdk.skip > 0) { InterlockedDecrement(&g_testSdk.skip); return false; }   // skip=N: the first N go through
     if (g_testSdk.left >= 0 && InterlockedDecrement(&g_testSdk.left) < 0) { InterlockedExchange(&g_testSdk.left, 0); return false; }
     const LONG n = InterlockedIncrement(&g_testSdk.hits);
     if (n <= 16 || n % 256 == 0) FgLog("host: TEST forced SDK failure #%ld: %s", n, what);
