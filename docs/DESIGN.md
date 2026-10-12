@@ -257,7 +257,8 @@ Contract notes: `docs\research\fsr-ffx-api-d3d12-contract.md`, `docs\research\xe
 - Reset: `InReset=1` on the first frame after create, on `OnLevelStart`, on a Cinemachine cut
   (`CinemachineBrain.ActiveBlend == null` and the active virtual camera changed), and when the
   camera position jumps > 50 m or FOV changes between frames.
-- Auto mode table (output height): ≤1200 → DLAA; ≤1600 → Quality; else → Performance.
+- Auto mode table (output height): ≤1200 → DLAA; ≤2160 → Quality; else → Balanced (2026-10-12: was ≤1600 → Quality,
+  else Performance - 1080p → 4K read as blurry; quality before fps by default).
 - SMAA: postfix `LightingManager.ApplyPostProcessOptions` → when DLSS active force
   `antialiasingMode = None` (SMAA on top of DLSS = blur). Restored on Off.
 - Resolution / mode changes: a small generation state machine — `Idle → Creating → Live →

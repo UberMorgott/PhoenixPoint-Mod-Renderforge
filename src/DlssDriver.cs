@@ -691,7 +691,8 @@ namespace Renderforge
         {
             switch (mode)
             {
-                case RenderforgeMode.Auto: return outH <= 1200 ? Native.DLSS_Q_DLAA : outH <= 1600 ? Native.DLSS_Q_QUALITY : Native.DLSS_Q_PERFORMANCE;
+                // Quality before fps: 4K (2160) stays Quality - Performance there (1080p -> 4K) read as blurry; only above 4K does Auto drop, and then to Balanced.
+                case RenderforgeMode.Auto: return outH <= 1200 ? Native.DLSS_Q_DLAA : outH <= 2160 ? Native.DLSS_Q_QUALITY : Native.DLSS_Q_BALANCED;
                 case RenderforgeMode.Quality: return Native.DLSS_Q_QUALITY;
                 case RenderforgeMode.Balanced: return Native.DLSS_Q_BALANCED;
                 case RenderforgeMode.Performance: return Native.DLSS_Q_PERFORMANCE;

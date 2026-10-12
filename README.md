@@ -84,7 +84,7 @@ The regular controls live only in the normal game menus: renderer, upscaler, qua
 |---|---:|---|
 | Renderer | Auto | Auto uses D3D11; changing renderer requires a restart. |
 | Upscaler | Auto | Picks an available provider for the current GPU and renderer. |
-| Quality | Auto | DLAA through 1200p, Quality through 1600p, and Performance above 1600p. |
+| Quality | Auto | DLAA through 1200p, Quality through 2160p (4K), and Balanced above that. |
 | Frame generation | Off | 2x on a supported D3D12 setup with an upscaler active; 3x and 4x need DLSS-G on an RTX 50 GPU and are greyed out otherwise. |
 | Sharpness | 40 | Live 0–100 control; 0 disables sharpening. |
 | LUT filter | Off | Nine colour grades, including B&W Cinema, Noir, Amber Film, Arctic and Vintage Sepia, in tactical missions and on the Geoscape. Runs after reconstruction so it never enters temporal history; the HUD stays unchanged. |
