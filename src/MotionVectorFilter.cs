@@ -110,7 +110,10 @@ namespace Renderforge
                 if (saved.Count >= pruneAt) Prune();
                 saved[r] = r.motionVectorGenerationMode;
             }
+            // Only a renderer that was writing per-object vectors is switched: Camera stays Camera, and one the game set to
+            // ForceNoMotion keeps writing none (forcing Camera there would add vectors the game had turned off).
             // Re-asserted on every enable: nothing in the game writes the mode, but a re-enabled object costs one compare.
+            if (saved[r] != MotionVectorGenerationMode.Object) return false;
             if (r.motionVectorGenerationMode != MotionVectorGenerationMode.Camera) r.motionVectorGenerationMode = MotionVectorGenerationMode.Camera;
             return true;
         }
