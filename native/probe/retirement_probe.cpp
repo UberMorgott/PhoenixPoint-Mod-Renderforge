@@ -28,6 +28,30 @@ struct PendingProvider : ProviderNone {
     bool ready = false; int calls = 0;
     bool Destroy(bool force) override { ++calls; Check(!force, "retries never force destruction"); return ready; }
 };
+// Review 2 (2026-10-12): what the host asks of a provider at its deferred-request points.
+struct ProbeProvider : ProviderNone {
+    int setEnabled = 0, lastOn = -1, quiescent = 0, unprepared = 0, after = 0; unsigned done = 0; bool wants = false, hold = false;
+    void SetEnabled(bool on) override { ++setEnabled; lastOn = on ? 1 : 0; }
+    bool WantsQuiescent() override { return wants; }
+    bool Quiescent() override { ++quiescent; wants = false; return true; }
+    void PrepareDone(unsigned id) override { if (id > done) done = id; }
+    bool UnpreparedPresent() override { ++unprepared; return hold; }
+    void AfterUnpreparedPresent() override { ++after; }
+};
+// A Unity D3D12 interface over a real WARP queue: D3D12Ring::DrainQueue signals and waits on it.
+static ID3D12Device* s_dev; static ID3D12CommandQueue* s_queue; static ID3D12Fence* s_frameFence;
+static ID3D12Device* UNITY_INTERFACE_API FakeDevice() { return s_dev; }
+static ID3D12Fence* UNITY_INTERFACE_API FakeFrameFence() { return s_frameFence; }
+static UINT64 UNITY_INTERFACE_API FakeNextFrame() { return 1; }
+static ID3D12CommandQueue* UNITY_INTERFACE_API FakeQueue() { return s_queue; }
+// D3D12Ring::WaitOn as it stood at da602a4: the wait result alone decides.
+static DWORD OldWaitOn(HANDLE ev, ID3D12Fence* f, UINT64 value, DWORD ms)
+{
+    if (f->GetCompletedValue() >= value) return WAIT_OBJECT_0;
+    if (FAILED(f->SetEventOnCompletion(value, ev))) return WAIT_FAILED;
+    return WaitForSingleObject(ev, ms);
+}
+static DWORD WINAPI SignalThreeLater(void* f) { Sleep(120); ((ID3D12Fence*)f)->Signal(3); return 0; }
 int main()
 {
     Dlss_BeginRelease();
@@ -47,8 +71,8 @@ int main()
     H.state = kLive; H.enabled = 1; H.c.prov = &provider;
     FgFrame f = {}; f.hudless = a; FgHostSetFrame(f);
     Check(Refs(a) == ar + 1, "slot retains");
-    Check(Pin(), "pin");
-    Check(!Pin(), "nested pin refused");
+    Check(Pin(false), "pin");
+    Check(!Pin(false), "nested pin refused");
     f.hudless = b; FgHostSetFrame(f);
     Check(Refs(a) == ar + 1 && H.cur.hudless == a, "slot replacement keeps pinned frame alive");
     Check(!FgHostShutdown() && !FgHostRetired(), "pinned shutdown pending");
@@ -62,9 +86,108 @@ int main()
     Check(Refs(b) == br, "completed shutdown releases slot once");
     Check(FgHostShutdown() && Refs(b) == br, "repeat shutdown idempotent");
     H.state = kLive; H.enabled = 1; H.c.prov = &provider; FgHostSetFrame(f);
-    Check(Pin(), "re-enable after completed shutdown"); Unpin(NULL);
+    Check(Pin(false), "re-enable after completed shutdown"); Unpin(NULL);
     Check(FgHostShutdown() && Refs(b) == br, "second lifecycle balanced");
 
+    // ---- review 2 (2026-10-12) ------------------------------------------------------------------------------
+    // D3D12Ring::WaitOn: a registration left armed by a timed-out wait must not pass for the retirement of a later value.
+    {
+        ID3D12Fence* f1 = NULL; ID3D12Fence* f2 = NULL;
+        Check(SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&f1))) && SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&f2))), "wait fences");
+        HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
+        Check(OldWaitOn(ev, f1, 1, 10) == WAIT_TIMEOUT, "old wait: unretired 1 times out, registration stays armed");
+        f1->Signal(1); Sleep(60);
+        Check(OldWaitOn(ev, f1, 2, 200) == WAIT_OBJECT_0 && f1->GetCompletedValue() == 1, "defect reproduced: the da602a4 wait reports 2 retired on the stale wake for 1");
+        D3D12Ring w;
+        Check(w.WaitOn(f2, 1, 10) == WAIT_TIMEOUT, "unretired 1 times out");
+        f2->Signal(1); Sleep(60);
+        ULONGLONG t0 = GetTickCount64();
+        Check(w.WaitOn(f2, 2, 200) == WAIT_TIMEOUT && GetTickCount64() - t0 >= 150 && f2->GetCompletedValue() == 1, "stale wake for 1 is not retirement of 2: the wait runs to its original deadline");
+        f2->Signal(2); Sleep(60);                          // the timed-out wait for 2 left ITS registration armed: the event is set again
+        HANDLE th = CreateThread(NULL, 0, SignalThreeLater, f2, 0, NULL);
+        t0 = GetTickCount64();
+        Check(w.WaitOn(f2, 3, 5000) == WAIT_OBJECT_0 && f2->GetCompletedValue() >= 3 && GetTickCount64() - t0 >= 80, "the wait goes on past a stale wake until 3 has really retired");
+        Check(w.WaitOn(f2, 3, 0) == WAIT_OBJECT_0 && w.WaitOn(f2, 4, 0) == WAIT_TIMEOUT, "zero-wait polls read the fence");
+        WaitForSingleObject(th, INFINITE); CloseHandle(th);
+        CloseHandle(w.waitEvent); CloseHandle(ev); f1->Release(); f2->Release();
+    }
+    // Fg_Capture: a readback list still in flight keeps the twins it reads.
+    {
+        auto t = OwnedSet12::Make(device, 8, 8, DXGI_FORMAT_R8G8B8A8_UNORM, false, L"cap");
+        ID3D12Fence* cf = NULL;
+        Check(t && SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&cf))), "capture objects");
+        ULONG tr = Refs(t);
+        g_capPending.live = true; g_capPending.fence = cf; g_capPending.src[0] = t; t->AddRef();
+        Check(!CapturePendingRetire() && Refs(t) == tr + 1 && g_capPending.live, "in-flight capture list keeps its source twin");
+        cf->Signal(1);
+        Check(CapturePendingRetire() && Refs(t) == tr && !g_capPending.live, "retired capture list releases it exactly once");
+        Check(CapturePendingRetire(), "nothing pending is idempotent");
+        t->Release();
+    }
+    // The host's deferred requests, on a live chain with a counting provider and a real queue behind the Unity interface.
+    {
+        D3D12_COMMAND_QUEUE_DESC qd = {}; qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        Check(SUCCEEDED(device->CreateCommandQueue(&qd, IID_PPV_ARGS(&s_queue))) && SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&s_frameFence))), "queue");
+        s_dev = device;
+        static IUnityGraphicsD3D12v5 fake = {};
+        fake.GetDevice = FakeDevice; fake.GetFrameFence = FakeFrameFence; fake.GetNextFrameFenceValue = FakeNextFrame; fake.GetCommandQueue = FakeQueue;
+        g_unityD3D12 = &fake;
+        ProbeProvider pp;
+        H.state = kLive; H.enabled = 0; H.c.prov = &pp; H.provWant = -1; H.provOn = -1; H.evDone = 0; H.quiesceSkip = 0; H.prepared = 0; H.idle = 0;
+        H.nQuiesce = H.nQuiesceFail = 0;
+        H.c.copy.Attach(device);
+
+        // Provider on/off: only between a successful PinMain and its Unpin.
+        FgHostSetEnabled(1);
+        Check(pp.setEnabled == 1 && pp.lastOn == 1 && H.enabled == 1 && H.pinned == 0, "enable: provider switched under the main pin, gate opened behind it");
+        FgHostSetEnabled(1);
+        Check(pp.setEnabled == 1, "a repeated wish is a no-op");
+        Check(Pin(false), "a thread inside the chain");
+        FgHostSetEnabled(0);
+        Check(pp.setEnabled == 1 && H.enabled == 0 && H.provWant == 0 && H.pinned == 1, "disable with a thread inside: provider NOT switched, gate closed, wish pending");
+        Check(FgHostPump() == 1 && pp.setEnabled == 1 && H.provWant == 0, "pump with the thread still inside: still deferred");
+        Unpin(NULL);
+        FgHostPump();
+        Check(pp.setEnabled == 2 && pp.lastOn == 0 && H.provWant == -1 && H.enabled == 0 && H.pinned == 0, "pump after the thread left: switched off under the pin");
+        FgHostSetEnabled(1);
+        Check(pp.setEnabled == 3 && pp.lastOn == 1 && H.enabled == 1, "enabled again");
+
+        // A prepare event that never gets the pin still counts as run.
+        Check(Pin(false), "a Present inside the chain");
+        FgFrame e7 = {}; e7.paceId = 7;
+        FgHostPrepare(&e7);
+        Check(H.evDone == 7 && pp.done == 0 && H.pinned == 1, "prepare event that timed out on the pin is recorded as run");
+        Unpin(NULL);
+
+        // The Present hook's side: quiescent point, settled events, the pin held across a forwarded Present.
+        IDXGISwapChain* app = (IDXGISwapChain*)(INT_PTR)0x1000;       // compared, never dereferenced on the idle path
+        H.c.app = (IDXGISwapChain3*)app; H.c.shadow = (IDXGISwapChain4*)(INT_PTR)0x2000;
+        pp.wants = true; pp.hold = true;
+        int r = FgHostOnPresent(app, 0, 0);
+        Check(r == FG_PRESENT_HELD && H.pinned == 1 && pp.unprepared == 1 && pp.after == 0, "unprepared Present with opened ids: forwarded with the pin held");
+        Check(pp.quiescent == 1 && H.nQuiesce == 1 && H.c.copy.fenceVal == 1 && H.c.copy.fence->GetCompletedValue() == 1, "quiescent point served behind a real drain of the queue");
+        Check(pp.done == 7, "the presenting thread tells the provider of the event that gave up without the pin");
+        FgHostAfterForwardedPresent();
+        Check(pp.after == 1 && H.pinned == 0, "present end reported after the forwarded Present, pin dropped");
+        pp.wants = true; pp.hold = false;
+        H.c.copy.trackingLost = true;                                  // no retirement proof to be had
+        r = FgHostOnPresent(app, 0, 0);
+        Check(r == FG_PRESENT_FORWARD && pp.quiescent == 1 && pp.wants && H.nQuiesceFail == 1 && H.quiesceSkip == kQuiesceRetry && H.pinned == 0,
+              "no retirement proof: the SDK call is NOT made, the request stays pending");
+        H.c.copy.trackingLost = false;
+        for (int i = 0; i < kQuiesceRetry; ++i) FgHostOnPresent(app, 0, 0);
+        Check(pp.quiescent == 1, "backoff: no drain per Present while the request waits");
+        FgHostOnPresent(app, 0, 0);
+        Check(pp.quiescent == 2 && !pp.wants && H.nQuiesce == 2, "served at the retry");
+        FgFrame e8 = {}; e8.paceId = 8;
+        FgHostPrepare(&e8);
+        Check(H.evDone == 8 && pp.done == 8 && H.pinned == 0, "a prepare event that ran settles its id before it unpins");
+
+        H.c.app = NULL; H.c.shadow = NULL;
+        Check(FgHostShutdown() && FgHostRetired() && pp.lastOn == 0, "probe chain torn down, provider switched off detached");
+        g_unityD3D12 = NULL;
+        s_queue->Release(); s_frameFence->Release();
+    }
     D3D12Ring ring; ring.Attach(device); ring.submitted[0] = 1;
     auto fence = ring.fence; auto heap = ring.qheap;
     Check(!ring.Release(), "unsignalled fence release pending");
@@ -80,5 +203,5 @@ int main()
     Check(ring.Release(), "ring release idempotent");
     owned.Release(); idle.Release(); a->Release(); b->Release();
     device->Release(); warp->Release(); factory->Release();
-    printf("retirement_probe: PASS %d checks (pinned/refused/success/re-enable/real WARP fence+resize)\n", checks);
+    printf("retirement_probe: PASS %d checks (pinned/refused/success/re-enable/real WARP fence+resize/stale fence wake/deferred enable/quiescent point/event settling/capture retention)\n", checks);
 }
