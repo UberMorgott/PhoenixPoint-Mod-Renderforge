@@ -90,13 +90,18 @@ struct XellLock
     ~XellLock() { ReleaseSRWLockExclusive(&g_xellLock); }
 };
 volatile LONG g_markFails;  // refused xellAddMarkerData calls, process lifetime (Stats line; the first few are logged)
+volatile LONG g_sleptId;    // the newest id xellSleep was called with (Sleep): how far the sleeping thread is ahead of a refused marker
 // Any thread: one XeLL marker, serialised with every other XeLL call of ours (file header THREADS). A refused marker
 // changes no state of ours (the id bookkeeping follows what was SENT, in order); it is counted and logged.
 void Mark(xell_context_handle_t ll, unsigned id, xell_latency_marker_type_t m)
 {
     xell_result_t r;
     { XellLock lk; r = xellAddMarkerData(ll, id, m); }
-    if (r != XELL_RESULT_SUCCESS && InterlockedIncrement(&g_markFails) <= 8) FgLog("xess: xellAddMarkerData(id %u, marker %d) %d", id, (int)m, (int)r);
+    // -4 = XELL_RESULT_ERROR_INVALID_ARGUMENT (xell.h:54). Seen 2026-10-12 for markers 2..5 (RENDERSUBMIT_*, PRESENT_*)
+    // of single ids, never for SIMULATION_*; the guide names no rule our order breaks (:296-298, :320-329). Unverified
+    // hypothesis: XeLL drops an id once the sleeping thread is two ids ahead of it - hence `newest slept id` here.
+    if (r != XELL_RESULT_SUCCESS && InterlockedIncrement(&g_markFails) <= 32)
+        FgLog("xess: xellAddMarkerData(id %u, marker %d) %d - newest slept id %ld (%ld ahead), tid %u", id, (int)m, (int)r, (long)g_sleptId, (long)g_sleptId - (long)id, (unsigned)GetCurrentThreadId());
 }
 // XeSS-FG reports warnings as positive codes (xefg_swapchain.h: WARNING_* > 0): the call took effect.
 bool XefgOk(xefg_swapchain_result_t r) { return (int)r >= 0; }
@@ -310,6 +315,7 @@ struct ProviderXess : IFgProvider
     unsigned Sleep()
     {
         unsigned id = ++nextId;
+        InterlockedExchange(&g_sleptId, (LONG)id);
         SleepGate::EnterSleep();
         xellSleep(ll, id);                                 // never under a lock: it blocks for the pacing interval
         SleepGate::Leave();
