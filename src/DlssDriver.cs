@@ -250,7 +250,7 @@ namespace Renderforge
                     if (++genFrames < 2) break;
                     if (wantsFeature)
                     {
-                        int c, e, alive; Native.Dlss_Status(out c, out e, out alive);
+                        int c, e, alive; _ = Native.Dlss_Status(out c, out e, out alive);   // returns the init code; only the out values matter here
                         if (alive == 0)
                         {
                             // Every provider reports NGX codes (FSR/XeSS map theirs): only 0xBAD0xxxx is a failure.
@@ -280,7 +280,7 @@ namespace Renderforge
                     }
                     if (wantsFeature && frames > 2)
                     {
-                        int c, e, alive; Native.Dlss_Status(out c, out e, out alive);
+                        int c, e, alive; _ = Native.Dlss_Status(out c, out e, out alive);   // returns the init code; only the out values matter here
                         if ((e & 0xFFF00000) == 0xBAD00000) { Fail("NGX evaluate failed: 0x" + e.ToString("X") + " " + Native.Dlss_ResultString(e) + " lastError=" + Native.Dlss_LastError()); break; }
                     }
                     KeepCameraState();
@@ -387,7 +387,7 @@ namespace Renderforge
             present.AddCommandBuffer(CameraEvent.AfterEverything, cbPresent);
             BuildPresent();
 
-            Native.Dlss_Passthrough(passthrough ? 1 : 0);
+            _ = Native.Dlss_Passthrough(passthrough ? 1 : 0);   // returns the previous flag, not an error
             if (wantsFeature)
             {
                 liveMvJittered = WantMvJittered;
@@ -480,7 +480,7 @@ namespace Renderforge
             MipBias.Reset();
             Detach(); // Stop all future evaluate/FG submissions before requesting retirement.
             FrameGen.Release();
-            Native.Dlss_Passthrough(0);
+            _ = Native.Dlss_Passthrough(0);   // returns the previous flag, not an error
             releaseQueued = false;
             gen = Gen.Releasing; genFrames = 0;
         }

@@ -88,6 +88,15 @@ namespace Renderforge
             catch (Exception ex) { Logger.LogError("Renderforge enable THREW " + ex); }
         }
 
+        /// <summary>Dlss_Shutdown before a re-Init. 0 = the shim retained its backend (a frame-generation chain or a
+        /// vendor context is still pending retirement), so the Init that follows runs over a device that was not
+        /// released: say so in the log instead of dropping the answer. Init/switch path only, never per frame.</summary>
+        private static void ShutdownNative()
+        {
+            if (Native.Dlss_Shutdown() == 0)
+                Instance?.Logger.LogWarning("native shutdown refused (backend retained, " + Upscalers.Running + "): the next init runs over the retained backend");
+        }
+
         /// <summary>Stand the shim up on `want` (SetProvider + Dlss_Init on the probe texture). Auto under D3D12: a provider
         /// that fails Init (GTX without DLSS, old driver, no DP4a) falls through to the next one - FSR, then XeSS
         /// (Upscalers.NextFallback); Dlss_Shutdown clears the latch, so a second Init with another provider is allowed.
@@ -105,7 +114,7 @@ namespace Renderforge
                 UpscalerKind next = Upscalers.NextFallback(Upscalers.Running);
                 if (next == UpscalerKind.Off) break;
                 m.Logger.LogInfo(Upscalers.Running + " init failed (code " + InitCode + "): Auto falls back to " + next);
-                Native.Dlss_Shutdown();
+                ShutdownNative();
                 Upscalers.Running = next;
                 Native.SetProvider(Upscalers.ProviderOf(next));
                 InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
@@ -119,7 +128,7 @@ namespace Renderforge
                 && postCarrier == UpscalerKind.Off && want == UpscalerKind.Auto && first != UpscalerKind.DLSS)
             {
                 UpscalerKind lastFailed = Upscalers.Running; int lastCode = InitCode;   // the real FSR/XeSS failure, for the picker
-                Native.Dlss_Shutdown();
+                ShutdownNative();
                 Upscalers.Running = UpscalerKind.DLSS;
                 Native.SetProvider(Upscalers.ProviderOf(UpscalerKind.DLSS));
                 InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
@@ -140,7 +149,7 @@ namespace Renderforge
             // styles, the colour-vision correction and NIS sharpen still have a live device to run on.
             if (InitCode != Native.DLSS_OK && InitCode != Native.DLSS_OK_POST_ONLY && postCarrier != UpscalerKind.Off)
             {
-                Native.Dlss_Shutdown();
+                ShutdownNative();
                 Upscalers.Running = postCarrier;
                 Native.SetProvider(Upscalers.ProviderOf(postCarrier));
                 InitCode = Native.Init(probeTex.GetNativeTexturePtr(), ModDir, ModDir);
@@ -174,7 +183,7 @@ namespace Renderforge
             // THERE: Upscalers.Failed is about to be overwritten with the provider this switch is trying, so a
             // carrier derived from Failed would be correct for the first rollback and wrong for every one after it.
             UpscalerKind prevCarrier = Upscalers.PostCarrier;
-            Native.Dlss_Shutdown();
+            ShutdownNative();
             // Post-only is a good answer when nothing was running; it is a regression when it replaces a live
             // provider, so treat that exactly as a hard failure and roll back.
             if (InitNative(want) && !(PostOnly && prev != UpscalerKind.Off))
@@ -185,7 +194,7 @@ namespace Renderforge
             m.Logger.LogWarning(Upscalers.Failed + " init failed (code " + (InitCode == Native.DLSS_OK_POST_ONLY ? Native.PostOnlyReason() + ", post pass only" : InitCode.ToString()) + "): back to "
                                 + (prev != UpscalerKind.Off ? prev.ToString() : prevCarrier + " (post pass only)"));
             UpscalerKind failed = Upscalers.Failed; int code = Upscalers.FailedCode;
-            Native.Dlss_Shutdown();
+            ShutdownNative();
             UpscalerKind back = prev != UpscalerKind.Off ? prev : prevCarrier;
             // Restoring the carrier lands on POST_ONLY again, which is a SUCCESS for this call: InitNative sets
             // PostOnly/Available and re-latches Upscalers.PostCarrier itself, so the NEXT failed switch still finds
