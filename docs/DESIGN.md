@@ -1422,7 +1422,7 @@ Present, so the Present hook runs on it: `host: first prepare tid` ≠ `first ho
 |---|---|---|---|
 | 1 | A fence wait reports "retired" only after `GetCompletedValue() >= value` was read - never on the event alone. | `D3D12Ring::WaitOn` (`native\D3D12Ring.h`) | – (the wait runs to its original deadline) |
 | 2 | `xellSetSleepMode` is issued only behind a successful `DrainQueue` made in the same Present hook, on the submission thread, with the chain pinned and nothing of that Present queued yet; never while a thread is inside `xellSleep`. | `ServeQuiescent` (`native\FgHost.cpp`) → `ProviderXess::Quiescent`, `SleepGate` (`native\FgXess.cpp`) | `wantUs` (main, `SetFrameLimit`) → next Present; no proof = no call, retried 30 presents later |
-| 3 | `xefgSwapChainSetEnabled(1)` only once a low-latency sleep mode is set on that XeLL context. | `ProviderXess::Quiescent` / `SetEnabled`; `Prepare` refuses until then | `enabled && !fgOn` → the first quiescent point of the chain |
+| 3 | `xefgSwapChainSetEnabled(1)` only once a low-latency sleep mode is set on that XeLL context - set = the SDK ACCEPTED it (review 3, "SDK results decide state"). | `ProviderXess::Quiescent` / `EnableFg` / `SetEnabled`; `Prepare` refuses until then | `enabled && !fgOn` → the first quiescent point of the chain |
 | 4 | `IFgProvider::SetEnabled` runs on a live chain only between a successful `PinMain` and its `Unpin` (no Prepare, no Present inside). | `ApplyEnabled` (`native\FgHost.cpp`) | `H.provWant`, gate `H.enabled = 0` meanwhile → `FgHostPump`, every frame, no wait |
 | 5 | No pace id a prepare event was issued for stays "event still to come" after that event returned. | `EventRan` on every exit of `FgHostPrepare`; `PrepareDone(H.evDone)` from the next pinned thread | – |
 | 6 | Every skipped XeLL id's `PRESENT_START` / `PRESENT_END` bracket one real Present call. | `ProviderXess::OpenSkipped` / `EndSkipped`; `FG_PRESENT_HELD` + `FgHostAfterForwardedPresent` (`native\FgHook.cpp`) | – |
@@ -1457,7 +1457,8 @@ Present, so the Present hook runs on it: `host: first prepare tid` ≠ `first ho
   (evidence: the tids above; `ExecuteCommandList` "executes a given command list on a worker thread",
   `IUnityGraphicsD3D12.h`; the back-buffer copy and `Fg_Capture` already run on Unity's queue from this hook and
   the debug layer names no state error on our resources). The served log line carries Unity's frame-fence values
-  for the regression run to look at.
+  for the regression run to look at. Review 3 narrowed what is claimed and added runtime measurements for the
+  rest: "Present thread = submission thread" below.
 - **3 - XeSS-FG chain start.** `Create` issues no sleep mode. XeLL runs in pass-through (`xellSleep` and markers
   still go out - the guide's own "disabled" shape, `:112-115`) and the proxy presents the application's frames
   (`xess_fg_developer_guide_english.md:652`) until the chain's first Present: sleep mode on, then
@@ -1492,8 +1493,116 @@ Present, so the Present hook runs on it: `host: first prepare tid` ≠ `first ho
 - **Counters:** `Fg_Status` `quiesce=served/refused pendingEnable=`; log lines `host: quiescent point #n served …`,
   `host: quiescent point refused …`, `host: enabled=N deferred …`, `xess: XeLL sleep mode: low latency on, frame cap …`,
   `xess: frame generation on (behind the XeLL sleep mode)`.
-- **Status:** built and probed without the game (`retirement_probe`: 360 checks, WARP); in-game regression pending -
-  scenarios in the session's `regression-checklist.md`.
+- **Status:** built and probed without the game (`retirement_probe`, WARP; 385 checks with review 3); in-game
+  regression pending - scenarios in the session's `regression-checklist.md`.
+
+### SDK results decide state (2026-10-12, review 3)
+
+Rule: **a provider's "applied" state says what the SDK accepted, never what was asked.** A refused call changes
+nothing, the request stays pending, the retry is bounded and backed off, and a provider that cannot get there
+FAILS where the managed side can see it - it prepares nothing, `FrameGen.Starved` (`src\FrameGen.cs:112`, 120 fed
+frames and 2 s without a prepared one) marks it failed for the session, `Pump` (`:245`) releases the chain,
+`Pacing(false)` + `ApplyFrameRate` restore Unity's limiter, Auto moves on / the picker shows `LastReason`. No
+managed change was needed.
+
+| Call | State it guards | On refusal | Bound | Where |
+|---|---|---|---|---|
+| `xellSetSleepMode` | `appliedUs` (>= 0 = low latency IS on) | `appliedUs` unchanged, FG not enabled behind it, `Quiescent` returns false | host back-off 30 presents; 8 in a row → `dead` | `native\FgXess.cpp:330` |
+| `xefgSwapChainSetEnabled(1)` | `fgOn` (Prepare accepts frames on it) | `fgOn` stays 0, no frame tagged | same; 8 in a row → `dead` | `EnableFg` `:364` |
+| `xefgSwapChainSetEnabled(0)` | `fgOn` | stays 1 (true to the SDK); Prepare also wants `enabled`, host gate closed | – | `SetEnabled` `:576` |
+| XeSS tags / constants | – (per frame) | frame presented, SDK skips its interpolation | 120 frames in a row → `dead` | `:524` |
+| `slReflexSetOptions` | `g_sl.reflexMode/Us` | unchanged; `reflexBad` while a low-latency request stands refused → Prepare feeds nothing, `SetFrameLimit` returns false | retry every 30 calls (was: every frame) | `ReflexApply` `native\FgStreamline.cpp:150` |
+| `slDLSSGSetOptions` (Prepare) | `isOn`, `sentW/H` | unchanged; Prepare returns false - no token / constants / tags for a DLSS-G that is off or sized for other inputs | retry every 30 prepares (was: every frame, frame tagged anyway) | `IssueOptions` `:419`, `:540` |
+| `slSetConstants` / `slSetTagForFrame` | – (per frame) | warn, frame presented | 120 frames in a row → `dead` | `:635` |
+| `ffxConfigure` / prepare dispatch | none kept (the wish travels in each Configure) | Prepare returns false, `preparedId` unchanged | watchdog | `native\FgFsr.cpp:256` |
+| `CreateFence` (present-queue handoff) | `c.xfence` | chain published detached, destroyed by the ordinary path (was: DLSS-G copies on Unity's queue) | – | `native\FgHost.cpp:666` |
+
+- Also: `maxSupportedInterpolations` / `numFramesToGenerateMax` are cached for the process only when the query
+  succeeded (a failed query used to pin the caps at 2x until restart); XeLL marker, `SetPresentId`,
+  `SetUiCompositionState`, `xellDestroyContext`, FSR pre-destroy `Configure` / wait results are logged, capped.
+- XeSS-FG warnings are positive codes (`XEFG_SWAPCHAIN_RESULT_WARNING_*`): the call took effect (`XefgOk`).
+- `dead` is per chain (`Zero()` clears it): a rebuilt chain tries again; the watchdog is what makes it per session.
+- **Test lever** `RENDERFORGE_FG_TEST_SDK_FAIL=<call>[,<count>]` (`FgTestSdkFail`, `native\FgHost.cpp:787`, read
+  once in `FgHostInit`): `xell_mode`, `xefg_enable`, `sl_options`, `sl_reflex`, `fsr_configure`. The named call is
+  NOT made and an error is reported in its place; `<count>` = the first N calls, omitted = every call. Unset = one
+  branch per call site. Log: `host: TEST forced SDK failure #n: <call>`.
+- Log lines: `xess: xellSetSleepMode(...) REFUSED rc (n of 8 in a row)`, `xess: xefgSwapChainSetEnabled(1) REFUSED`,
+  `xess: ... kept failing ... provider FAILED for this chain`, `sl: slReflexSetOptions(...) REFUSED`,
+  `sl: slDLSSGSetOptions(n) REFUSED rc ... frames are not prepared`. `Fg_Latency` (XeSS): `wantUs= fgOn= dead=
+  sdkFails=mode/enable/input markFails=`.
+- Probe: the host's half only (`Quiescent` false → not served, request kept, back-off, retried). The provider
+  halves need the vendor DLLs: in-game, with the lever.
+
+### FG chain epoch (2026-10-12, review 3)
+
+Defect: `FrameGen.Apply` (`src\FrameGen.cs:231`) releases and rebuilds the chain on a multiplier change and does not
+wait for the render thread's queue. A prepare event queued for the old chain could run on the new one. Its
+`paceId` (say 500) numbers frames of a provider that is gone; the new chain's ids start at 1. `EventRan(500)`
+declared every pending id of the new chain settled and XeSS `OpenSkipped` closed them before their Prepare, or the
+old event prepared the wrong id / superseded a prepared frame.
+
+- `H.epoch` (`native\FgHost.cpp`, under `g_lock`) = generation of the chain in `H.c`. Written only by
+  `PublishChain` (`:584`), in the critical section that makes the new chain pinnable, together with `evDone` and
+  `lastEvPace`. Never 0 once a chain was built.
+- Every block carries the epoch it was fed to: `FgFrame::epoch` (`native\Fg.h:96`), stamped by `FgHostSetFrame`
+  under the lock (`:868`); 0 = no live chain then.
+
+| # | Invariant | Enforced at |
+|---|---|---|
+| E1 | A prepare event whose block carries another generation touches nothing: not the duplicate filter, the pin, `prepared`, `EventRan`, the provider. The block is copied under the lock the ring is written under. | `FgHostPrepare` `:919`-`:952` |
+| E2 | The generation is re-checked after every wake of the pin wait, in the critical section that takes the pin. A pinned thread sees one generation until it unpins (a new chain is published only after `DestroyDetached` saw nobody pinned). | `Pin(forPrepare, epoch, &stale)` `:311` |
+| E3 | A pace id is recorded as "event ran" only for the generation that issued it. | `EventRan(epoch, id)` `:912` |
+| E4 | A capture is noted and written only by the generation it was armed on; a rebuilt chain may be armed at once. | `FgCaptureArmed` `:1033`, `FgHostOnPresent` `:1170`, `FgHostCapture` |
+| E5 | The result of Unity's own Present (reported after the pin is gone) detaches only the generation that Present belonged to. Per thread - no single-presenting-thread assumption. | `t_presentEpoch` `:1120`, `Detach(why, epoch)` `:259` |
+| E6 | Backstop: a provider refuses a block of another generation. | `Prepare` in `FgXess.cpp:468`, `FgStreamline.cpp:532`, `FgFsr.cpp:235` (`FgSetup::epoch`) |
+
+- Not epoch-stamped, by design: `DLSS_EV_RELEASE` / `DLSS_EV_CREATE`. The driver keeps exactly one RELEASE
+  outstanding (`Dlss_ReleaseStatus` 0 = queued, re-issued only after -1; `DlssDriver.TryRetire`), queues CREATE only
+  behind its acknowledgement, and `FrameGen.Retry` does not build a chain while the driver is retiring. A RELEASE
+  that meets a live chain answers -1 (`FgHostRetired`) - the safe direction.
+- Main-thread calls (`Fg_FrameBegin`, `Fg_SimEnd`, `Fg_SetFrameLimit`, `Fg_SetEnabled`) run on the thread that
+  builds the chain: never stale. Resize / fullscreen / window teardown mean "whatever is live now".
+- `Fg_Status`: `epoch=` `stale=` (dropped events). Log: `host: stale prepare event dropped (#n): block of chain
+  epoch a (pace id p, frame f), live epoch b`.
+- Probe (`retirement_probe`): stale event after a republish settles and prepares nothing; dropped without the pin
+  wait behind a Present; generation replaced during the pin wait (second thread) → dropped after the wake; control
+  event of the live generation prepared; capture and Present-result cases.
+
+### Present thread = submission thread (2026-10-12, review 3)
+
+The quiescent point (review 2, invariant 2) needs "nothing reaches Unity's queue while the presenting thread sits
+in the Present hook". That holds if the thread calling Present is the one that submits Unity's command lists.
+**It is an assumption.** `FgHookInstall` (`native\FgHook.cpp`) patches the DXGI vtable; it controls no thread
+affinity, and `ID3D12CommandQueue::ExecuteCommandLists` is not hooked (no hook was added for this).
+
+- **Proven at the point, independent of the assumption:** Unity's queue was empty at one instant (`DrainQueue`);
+  our own Prepare cannot hand Unity a list meanwhile (pin); nothing of this Present is queued yet.
+- **Made independent:** the generation a Present result belongs to is per thread (E5).
+- **Still resting on it:** that the queue STAYS empty for the microseconds of `xellSetSleepMode`. If another
+  thread submits Unity's lists, work can start on the GPU during the call - what xell guide `:131` forbids, with
+  the consequence the SDK does not document (review 2 saw `0x887A0005` once before the quiescent point existed).
+- **Measured instead** (always on; `Fg_Status`):
+
+| Counter | What it is | Reads as |
+|---|---|---|
+| `quiesceBusy=` | Served quiescent points where a `Signal` right BEFORE the provider's call completed at once (control) and one right BEHIND it did not (`D3D12Ring::SignalDone`, `native\D3D12Ring.h:226`; `ServeQuiescent` `native\FgHost.cpp:761`). | > 0 = work reached the queue during the SDK call: assumption FALSE (or the XeSS proxy's own present thread used Unity's queue then - the log line of that point tells which frame). 0 over all served points = no violation observed. |
+| `fenceMoved=` | Hooked Presents during which `GetNextFrameFenceValue()` changed between entry and exit of the host (`FenceWatch`, `:1103`). Two interface calls per Present. | > 0 = another thread advanced Unity's frame bookkeeping while the presenting thread sat in the hook: Present is not the only thread driving Unity's frames. Indicator, not proof of a submission. |
+| `presentTid=tid/n` `prepareTid=tid/n` | Thread of the last hooked Present / prepare event and how often it changed. | `n` = 0 and the two tids differ = one dedicated presenting thread (consistent with the assumption). `presentTid` n > 0 = Present moves between threads: assumption false as stated. |
+
+- Served log line: `host: quiescent point #n served: ... next a -> b; queue empty before the call 1, behind it 1) tid=…`;
+  a violation appends `WORK REACHED THE QUEUE DURING THE CALL`.
+- **What the regression run must read** (each provider, after a soak that includes cap changes, and once under
+  `RENDERFORGE_FG_TEST_PRESENT_DELAY=300,2`, which holds the presenting thread in the hook 300 ms): `quiesceBusy=0`,
+  `fenceMoved=0`, `presentTid=…/0`, every served line `before the call 1, behind it 1`. Control `0` on a served
+  line = the probe was inconclusive there (an idle queue did not complete a Signal within 200 µs) - note it, it
+  is not a violation.
+- **Falsifiers:** `quiesceBusy > 0`; `presentTid` switches; `fenceMoved > 0` together with either. Then the
+  quiescent point is not a proof on this engine build and the sleep-mode call needs a real submission gate - a
+  hook on `ID3D12CommandQueue::ExecuteCommandLists` of Unity's queue (count + thread id, hold submissions across
+  the call). Deliberately not built on a guess.
+- **Residual risk if all three read clean:** a submitting thread that happened never to overlap a served point or a
+  hooked Present in that run. Not excluded by measurement; excluded only by the hook above.
+- Probe: an empty queue behind the call is not reported, a queue left waiting on a fence is (`quiesceBusy == 1`).
 
 ### HUD
 
