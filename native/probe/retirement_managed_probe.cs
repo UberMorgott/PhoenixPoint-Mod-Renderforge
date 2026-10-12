@@ -31,7 +31,7 @@ namespace Renderforge {
  public static int Fg_Pump()=>ShutdownReady; public static int Fg_Shutdown(){if(ShutdownReady==1)Alive=0; return ShutdownReady;}
  public static int Fg_Alive()=>Alive; public static int Fg_Provider()=>FG_PROVIDER_DLSS; public static uint Fg_Caps()=>1;
  public static int Fg_Init(int p,uint m,string dir){InitCalls++;Alive=1;return 0;} public static void Fg_SetEnabled(int on){}
- public static string Fg_Status()=>"mock"; public static string Fg_Reason()=>"mock";
+ public static string Fg_Status()=>"mock"; public static int Fg_PacerState()=>0; public static string Fg_Reason()=>"mock";
  public static void Dlss_Passthrough(int i){} public static void Dlss_BeginRelease(){Result=0;} public static int Dlss_ReleaseStatus()=>Result;
  }
  partial class DlssDriver : MonoBehaviour {

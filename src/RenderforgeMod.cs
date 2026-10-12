@@ -293,9 +293,17 @@ namespace Renderforge
             if (cfg == null) return;
             int presented = Mathf.Clamp(cfg.FrameRateLimit, 30, 300);
             bool flowing = FrameGen.Flowing;
-            bool providerPaces = FrameGen.Live && Native.Fg_SetFrameLimit(cfg.LimitFrameRate && flowing ? (uint)presented : 0u) != 0 && flowing;
+            // ONE PACER AT EVERY INSTANT (docs\DESIGN.md): the provider's SDK paces only while it has ACCEPTED this cap
+            // (FG_PACER_HELD) - a cap that is asked for, pending, refused or backed off is not held, and Unity's
+            // limiter keeps the user's limit until the SDK's answer arrives. FrameGen.FrameStart polls Fg_PacerState and
+            // comes back here whenever it changes. While Unity paces a chain that generates nothing (the SDK did not
+            // accept "on", or the feed is gated by a refusal), rendered = presented: the ceiling applies undivided.
+            int pacer = FrameGen.Live ? Native.Fg_SetFrameLimit(cfg.LimitFrameRate && flowing ? (uint)presented : 0u) : 0;
+            FrameGen.NotePacer(pacer);
+            bool providerPaces = flowing && (pacer & Native.FG_PACER_HELD) != 0;
+            bool generating = flowing && (pacer & Native.FG_PACER_GENERATING) != 0;
             Application.targetFrameRate = cfg.LimitFrameRate && !providerPaces
-                ? NativeFrameRateFor(presented, flowing ? FrameGen.OutputMultiplier : 1)
+                ? NativeFrameRateFor(presented, generating ? FrameGen.OutputMultiplier : 1)
                 : -1;
         }
 

@@ -132,7 +132,17 @@ struct IFgProvider
     // SDK enforces it (XeLL: "FPS Cap is controlled via xellSetSleepMode", other limiters "should be disabled",
     // xell_developer_guide_english.md:93-100,129) and the caller must switch its own limiter off; false = the caller
     // keeps limiting rendered frames itself.
+    enum { FG_PACER_HELD = 1, FG_PACER_GENERATING = 2 };
+    // The return value is the WISH being recorded, not the SDK's acceptance: who paces is decided by PacerState().
     virtual bool     SetFrameLimit(unsigned) { return false; }
+    // Main thread, any time. ONE PACER (docs\DESIGN.md "One pacer at every instant"): what the SDK has ACCEPTED, never
+    // what was asked. FG_PACER_HELD = the cap last given to SetFrameLimit (> 0) is in effect in this provider's latency
+    // SDK right now and its sleep enforces it - only then may the caller switch its own limiter off. A cap that was
+    // asked for and not (yet) accepted, refused, or backed off is NOT held. FG_PACER_GENERATING = the provider takes
+    // prepared frames (the SDK accepted "frame generation on" and nothing gates the feed): the caller's own limiter,
+    // while it is the pacer, divides the presented ceiling by the multiplier only then - with nothing generated,
+    // rendered = presented and the ceiling applies undivided. Default: no latency SDK, always generating (FSR-FG).
+    virtual int      PacerState() { return FG_PACER_GENERATING; }
     // PACING (docs\DESIGN.md "FG pacing"). Main thread, the very start of EVERY frame of a live, enabled chain - before
     // Unity samples input. `pace` = frames flow through the chain and this provider is the frame pacer: the latency
     // SDK's sleep, then SIMULATION_START. Returns that frame's id (> 0); when paced it comes back as FgFrame::paceId in
@@ -255,7 +265,11 @@ int  FgHostCreateChildSwapChain(const FgSetup& s, IDXGISwapChain4** out);
 // the child cannot be made.
 HWND FgHostChildHwnd(const FgSetup& s);
 int  FgHostProvider(void);
-int  FgHostSetFrameLimit(unsigned presentedFps);   // main thread; 1 = the live provider paces to it (IFgProvider::SetFrameLimit)
+// Main thread. Both return the live provider's PacerState() (FG_PACER_* bits; 0 = no live chain): SetFrameLimit records
+// the presented-fps ceiling wanted first, PacerState only reads. The driver polls PacerState every frame and re-decides
+// who paces whenever it changes (FrameGen.FrameStart -> RenderforgeMod.ApplyFrameRate).
+int  FgHostSetFrameLimit(unsigned presentedFps);
+int  FgHostPacerState(void);
 // Main thread, start of the managed frame / end of LateUpdate (IFgProvider::FrameBegin / SimEnd on the live, enabled
 // provider). `pace` 0 = this frame is not paced (no frames flow): the provider only keeps its SDK's per-frame calls
 // going (IFgProvider::FrameBegin) and the previous frame's pace id is forgotten. Returns the pace id (0 = not paced

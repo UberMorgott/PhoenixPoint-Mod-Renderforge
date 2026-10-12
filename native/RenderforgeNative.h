@@ -170,11 +170,15 @@ enum { FG_PROVIDER_NONE = 0, FG_PROVIDER_FSR = 1, FG_PROVIDER_XESS = 2, FG_PROVI
 
 // Presented frames per second counted in the Present hook (includes generated frames). 0 = no data yet.
 DLSS_API int __cdecl Fg_PresentedFps(void);
-// Main thread. The frame-rate ceiling in PRESENTED frames per second (0 = none) for the live chain. Returns 1 when the
-// provider's own latency SDK enforces it (XeSS-FG: XeLL minimumIntervalUs, DLSS-G: Reflex frameLimitUs) - the caller
-// must then switch its own limiter off while it calls Fg_FrameBegin - and 0 when the caller has to keep capping
-// rendered frames itself (FSR-FG, no chain).
+// Main thread. Fg_SetFrameLimit records the frame-rate ceiling in PRESENTED frames per second (0 = none) for the live
+// chain; both calls return what the provider's SDK holds NOW (Fg.h FG_PACER_*, 0 = no live chain):
+//   bit 0 (1) HELD        the cap is ACCEPTED by the provider's latency SDK (XeSS-FG: XeLL minimumIntervalUs, DLSS-G:
+//                         Reflex frameLimitUs) and its sleep enforces it: only then the caller's own limiter goes off
+//   bit 1 (2) GENERATING  the provider takes prepared frames: the caller's limiter, while it paces, caps rendered
+//                         frames at ceiling / multiplier; without the bit nothing is generated and the ceiling is undivided
+// The state changes on other threads (a quiescent point accepts or refuses a cap): poll Fg_PacerState every frame.
 DLSS_API int __cdecl Fg_SetFrameLimit(unsigned presentedFps);
+DLSS_API int __cdecl Fg_PacerState(void);
 // Main thread, the very start of every frame while a chain is live (before Unity samples input). pace = 1 while frames
 // are being fed to the chain: the latency SDK's sleep + SIMULATION_START as the frame PACER; returns the frame's pace
 // id, 0 = this frame is not paced here (pace 0, no chain, FSR-FG, render-thread pacing). pace = 0: Unity's limiter

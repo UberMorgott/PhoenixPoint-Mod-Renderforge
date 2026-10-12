@@ -80,8 +80,11 @@ namespace Renderforge
         private static bool pacingFailed;      // FrameStart / SimEnd threw: FG stays off until the provider is forced again
         private static bool starvedOut;        // Starved() marked the provider failed: the next Pump releases the chain
 
-        /// <summary>Frames are reaching the live chain: the provider generates and (XeSS-FG, DLSS-G) owns the frame cap.</summary>
+        /// <summary>Frames are reaching the live chain: the provider generates and (XeSS-FG, DLSS-G) owns the frame cap
+        /// once its SDK accepted it (Native.FG_PACER_HELD).</summary>
         internal static bool Flowing => live && flowing;
+        private static int pacer;              // FG_PACER_* bits ApplyFrameRate last decided on (FrameStart re-decides on a change)
+        internal static void NotePacer(int bits) { pacer = bits; }
         internal static void Fed() { fedThisFrame = true; }
 
         /// <summary>Diagnostics (FgCaps): PostProcessLayer.OnPreCull calls of the bound layer beyond the first inside one
@@ -102,7 +105,9 @@ namespace Renderforge
                 unfed = fedThisFrame ? 0 : Math.Min(unfed + 1, IdleAfter);
                 fedThisFrame = false;
                 bool now = unfed < IdleAfter;
-                if (now != flowing) { flowing = now; RenderforgeMod.ApplyFrameRate(); }
+                // Who paces follows the SDK's ANSWER, which arrives on other threads (a quiescent point accepts or
+                // refuses the cap, an option is refused): re-decide whenever what the provider holds changes.
+                if (now != flowing || Native.Fg_PacerState() != pacer) { flowing = now; RenderforgeMod.ApplyFrameRate(); }
                 paceId = Native.Fg_FrameBegin(flowing ? 1 : 0);
             }
             catch (Exception ex) { PacingFailed(ex); }

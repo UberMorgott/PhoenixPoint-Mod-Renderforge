@@ -460,6 +460,19 @@ struct ProviderStreamline : IFgProvider
         return !g_sl.reflex.bad;
     }
 
+    // Main thread (Fg.h). HELD: the Reflex options the SDK last ACCEPTED are low latency with exactly the cap wanted,
+    // and the sleep that enforces them runs (a paced frame). On a fresh chain the first paced FrameBegin has not asked
+    // yet, a refused or backed-off request leaves the previous options in effect: neither is held, the caller's
+    // limiter stays on. GENERATING: slDLSSGSetOptions(eOn) was accepted and Prepare feeds DLSS-G (not `dead`, Reflex
+    // not refused - Prepare's own gate).
+    int PacerState()
+    {
+        if (!proxy) return 0;
+        const FgReflexLatch& l = g_sl.reflex;
+        const bool held = limitFps && (paced || !mainPacing) && !l.bad && l.mode == (int)sl::ReflexMode::eLowLatency && l.us == LimitUs();
+        return (held ? FG_PACER_HELD : 0) | (isOn && !dead && !l.bad ? FG_PACER_GENERATING : 0);
+    }
+
     // Main thread, start of every frame: a fresh index, the Reflex sleep, SIMULATION_START (Reflex guide: sleep at the
     // start of the simulation thread's frame, before input; SIMULATION_START right after it). `pace` decides who paces:
     // true = Reflex (eLowLatency + frameLimitUs), false = Unity's limiter (Reflex eOff, no cap: the sleep returns at

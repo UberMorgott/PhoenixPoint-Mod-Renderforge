@@ -169,6 +169,14 @@ namespace Renderforge
         [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
         public static extern int Fg_SetFrameLimit(uint presentedFps);
 
+        /// <summary>What the live provider's SDK holds now (0 = no live chain); Fg_SetFrameLimit returns the same.</summary>
+        [DllImport("RenderforgeNative", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int Fg_PacerState();
+        /// <summary>The cap asked for is ACCEPTED by the provider's latency SDK and its sleep enforces it.</summary>
+        public const int FG_PACER_HELD = 1;
+        /// <summary>The provider takes prepared frames (frame generation on per the SDK's answer).</summary>
+        public const int FG_PACER_GENERATING = 2;
+
         /// <summary>Start of the main thread's frame while a chain is live. pace = 1 while frames are fed: the latency SDK's
         /// sleep + SIMULATION_START as the frame pacer; returns the frame's pace id (0 = not paced here). pace = 0: Unity's
         /// limiter paces and the provider's own pacing is off (DLSS-G: Reflex eOff; its sleep + markers still go out).</summary>

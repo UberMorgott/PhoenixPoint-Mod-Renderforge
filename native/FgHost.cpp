@@ -700,7 +700,19 @@ int FgHostSetFrameLimit(unsigned presentedFps)
         Locked lk;
         if (H.state == kLive) p = H.c.prov;
     }
-    return p && p->SetFrameLimit(presentedFps) ? 1 : 0;
+    if (!p) return 0;
+    p->SetFrameLimit(presentedFps);
+    return p->PacerState();
+}
+
+int FgHostPacerState(void)
+{
+    IFgProvider* p = NULL;
+    {
+        Locked lk;
+        if (H.state == kLive) p = H.c.prov;
+    }
+    return p ? p->PacerState() : 0;
 }
 
 // Main thread, both: Create / SetEnabled / Destroy are main-thread too, so the provider cannot go away underneath.

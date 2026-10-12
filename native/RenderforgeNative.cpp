@@ -427,6 +427,7 @@ int __cdecl Dlss_ReleaseStatus(void) { return (int)InterlockedCompareExchange(&g
 
 int __cdecl Fg_PresentedFps(void) { return FgPresentedFps(); }
 int __cdecl Fg_SetFrameLimit(unsigned presentedFps) { return FgHostSetFrameLimit(presentedFps); }
+int __cdecl Fg_PacerState(void) { return FgHostPacerState(); }
 unsigned __cdecl Fg_FrameBegin(int pace) { return FgHostFrameBegin(pace); }
 void __cdecl Fg_SimEnd(void) { FgHostSimEnd(); }
 unsigned __cdecl Fg_PreparedCount(void) { return FgHostPreparedCount(); }

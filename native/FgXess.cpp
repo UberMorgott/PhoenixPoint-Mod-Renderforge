@@ -326,7 +326,15 @@ struct ProviderXess : IFgProvider
     // thread is inside xellSleep. INVARIANT: `appliedUs` changes only when xellSetSleepMode returned SUCCESS, so
     // appliedUs >= 0 means a low-latency sleep mode IS in effect on this context. INVARIANT: xefgSwapChainSetEnabled(1)
     // is issued only then, and `fgOn` becomes 1 only when that call was accepted - Prepare accepts frames on fgOn alone.
-    bool WantsQuiescent() { return ll && fg && !dead && (wantUs != appliedUs || (enabled && !fgOn)); }
+    // A refused cap change that was taken back (wantUs is the accepted cap again) needs no quiescent point - and gets
+    // none, so the run of refusals ends HERE: the host asks this on the presenting thread, chain pinned, every present.
+    // (Quiescent's own reset only ran when another reason brought the host there: `sdkFails=1/0/0` stayed for good.)
+    bool WantsQuiescent()
+    {
+        if (!ll || !fg || dead) return false;
+        if (wantUs == appliedUs) { modeFails = 0; return enabled && !fgOn; }
+        return true;
+    }
     bool Quiescent()
     {
         if (!ll || !fg || dead) return true;
@@ -566,6 +574,16 @@ struct ProviderXess : IFgProvider
     {
         InterlockedExchange(&wantUs, presentedFps ? (LONG)(1000000u / presentedFps) : 0);
         return true;
+    }
+
+    // Main thread (Fg.h). HELD: the cap wanted is the one xellSetSleepMode last ACCEPTED on this context - a fresh
+    // chain (appliedUs -1), a cap change waiting for its quiescent point and a refused one are not held, so the
+    // caller's limiter stays on until the SDK's answer arrives. GENERATING: xefgSwapChainSetEnabled(1) was accepted.
+    int PacerState()
+    {
+        if (!ll || dead) return 0;
+        const LONG want = InterlockedCompareExchange(&wantUs, 0, 0);
+        return (want > 0 && InterlockedCompareExchange(&appliedUs, 0, 0) == want ? FG_PACER_HELD : 0) | (fgOn ? FG_PACER_GENERATING : 0);
     }
 
     // Main thread with the chain pinned (FgHost.cpp ApplyEnabled) or detached and unpinned (DestroyChain). Off goes out
