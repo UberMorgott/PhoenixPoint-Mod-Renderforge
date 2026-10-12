@@ -32,6 +32,9 @@ GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
 ## FG test levers and diagnostics lines (2026-10-12)
 
 - `RENDERFORGE_FG_TEST_SDK_FAIL=<call>[,<count>][,skip=<n>]`, `RENDERFORGE_FG_TEST_PRESENT_DELAY=<ms>,<every>` - see DESIGN.
+- `RENDERFORGE_FG_TEST_PRESENT_STUCK=<ms>,<every>` - every every-th shadow Present sleeps ms inside the window the present
+  watchdog times (a vendor Present that does not return). `> 2000` ms = the three `WATCHDOG` lines + `returned`; quit the
+  game while it sleeps = the regression for the watchdog thread's lifetime (clean exit, no `did not stop` line).
 - `RENDERFORGE_FG_TEST_VRAM_MB=<n>` - commit n MB of throwaway textures on Unity's device before the first FG chain
   (`host: TEST RENDERFORGE_FG_TEST_VRAM_MB=... committed k of m textures, vram local u/b MB`). Check `nvidia-smi`
   first and leave room for whatever else runs on the GPU.

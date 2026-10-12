@@ -1350,6 +1350,17 @@ static void TestPresentDelay()
     if (ms > 0 && FgHostAlive() && ++n % (unsigned)every == 0) Sleep((DWORD)ms);
 }
 
+// TEST ONLY, RENDERFORGE_FG_TEST_PRESENT_STUCK="ms,every": every every-th shadow Present is held ms INSIDE the window
+// the present watchdog times (WdShot published, chain pinned, right before the vendor Present) - a vendor Present
+// that does not return, without the vendor. With ms > kPresentStuckMs: the three WATCHDOG lines, then "returned".
+// Quitting the game / shutting the device down while it sleeps is the regression for the watchdog's lifetime.
+static void TestPresentStuck()
+{
+    static int ms = -1, every = 0; static unsigned n = 0;
+    if (ms < 0) { char v[32] = {}; ms = 0; if (GetEnvironmentVariableA("RENDERFORGE_FG_TEST_PRESENT_STUCK", v, sizeof(v)) && sscanf_s(v, "%d,%d", &ms, &every) == 2 && ms > 0 && every > 0) FgLog("host: TEST RENDERFORGE_FG_TEST_PRESENT_STUCK=%d,%d", ms, every); else ms = 0; }
+    if (ms > 0 && ++n % (unsigned)every == 0) Sleep((DWORD)ms);
+}
+
 // Always-on diagnostic for the assumption "the thread that calls Present is the thread that submits Unity's lists"
 // (docs\DESIGN.md "Present thread = submission thread"): Unity's next-frame-fence value read when the Present hook
 // enters the host and when it leaves. Unity moves that value when it closes a frame / flushes its queue. It moving
@@ -1472,6 +1483,7 @@ int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
         g_wd.since = presentT0 ? presentT0 : 1;
         ReleaseSRWLockExclusive(&g_wdLock);
     }
+    TestPresentStuck();
     HRESULT hr = c.shadow->Present(syncInterval, pf);
     LONG flagged;
     {
