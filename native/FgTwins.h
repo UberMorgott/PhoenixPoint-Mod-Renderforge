@@ -124,7 +124,7 @@ struct FgTwins
     // twins (the frame cannot be prepared). A missing hud-less twin alone is not a failure (hudFmt stays UNKNOWN).
     bool Ensure(ID3D12Device* dev, D3D12Ring& ring, const OwnedSet12& o, DXGI_FORMAT backFmt)
     {
-        if (!o.depth || !o.mv || !o.out || !Pipeline(dev)) return false;
+        if (dead || !o.depth || !o.mv || !o.out || !Pipeline(dev)) return false;   // dead: a failed create is never retried
         DXGI_FORMAT wantHud = HudPair(o.outFmt, backFmt) ? backFmt : DXGI_FORMAT_UNKNOWN;
         if (tex[kDepth] && w == o.w && h == o.h && outW == o.outW && outH == o.outH && hudFmt == wantHud && srcOutFmt == o.outFmt) return true;
         if (tex[kDepth] && !ring.WaitIdle()) return false;
