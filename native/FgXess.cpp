@@ -209,15 +209,21 @@ struct ProviderXess : IFgProvider
         return FG_OK;
     }
 
-    void Tag(xefg_swapchain_resource_type_t type, ID3D12Resource* res, unsigned w, unsigned h, const char* what)
+    // ONLY_NOW: XeSS-FG records its own copy on the prep list, right behind the host's flipped copies on that list
+    // (guide "Resource Tagging": reusable "as soon as the tagging command list has been submitted").
+    // UNTIL_NEXT_PRESENT promised the twins untouched until the Present with THIS id (guide: "can only be reused after
+    // the Present/Present1 call with the matching frame ID") - the host cannot: a frame whose Present does not come
+    // within kPinWaitMs is superseded and the next Prepare rewrites the same three textures, and a quality switch
+    // releases them (FgTwins::Ensure).
+    void Tag(ID3D12GraphicsCommandList* list, xefg_swapchain_resource_type_t type, ID3D12Resource* res, unsigned w, unsigned h, const char* what)
     {
         xefg_swapchain_d3d12_resource_data_t rd = {};
         rd.type = type;
-        rd.validity = XEFG_SWAPCHAIN_RV_UNTIL_NEXT_PRESENT;
+        rd.validity = XEFG_SWAPCHAIN_RV_ONLY_NOW;
         rd.resourceSize.x = w; rd.resourceSize.y = h;
         rd.pResource = res;
         rd.incomingState = D3D12_RESOURCE_STATE_COMMON;
-        xefg_swapchain_result_t r = xefgSwapChainD3D12TagFrameResource(fg, NULL, presentId, &rd);
+        xefg_swapchain_result_t r = xefgSwapChainD3D12TagFrameResource(fg, list, presentId, &rd);
         if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (warned < 8) { ++warned; FgLog("xess: tag %s %d", what, (int)r); } }
     }
 
@@ -281,7 +287,7 @@ struct ProviderXess : IFgProvider
     }
 
     // Render thread, DLSS_EV_FG_PREPARE: the pre-present markers, then tag this frame's inputs.
-    bool Prepare(ID3D12GraphicsCommandList*, const FgFrame& f)
+    bool Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
         ID3D12Resource* depth = FgDepth12();
@@ -309,9 +315,9 @@ struct ProviderXess : IFgProvider
         marked = 0;
         Mark(ll, presentId, XELL_RENDERSUBMIT_START);
 
-        Tag(XEFG_SWAPCHAIN_RES_MOTION_VECTOR, mv, o->w, o->h, "mv");
-        Tag(XEFG_SWAPCHAIN_RES_DEPTH, depth, o->w, o->h, "depth");
-        if (hud) Tag(XEFG_SWAPCHAIN_RES_HUDLESS_COLOR, hud, o->outW, o->outH, "hudless");
+        Tag(list, XEFG_SWAPCHAIN_RES_MOTION_VECTOR, mv, o->w, o->h, "mv");
+        Tag(list, XEFG_SWAPCHAIN_RES_DEPTH, depth, o->w, o->h, "depth");
+        if (hud) Tag(list, XEFG_SWAPCHAIN_RES_HUDLESS_COLOR, hud, o->outW, o->outH, "hudless");
 
         xefg_swapchain_frame_constant_data_t c = {};
         // Row-major, non-jittered (guide :879-880), and ROW-VECTOR like the guide's own example, which memcpy's an

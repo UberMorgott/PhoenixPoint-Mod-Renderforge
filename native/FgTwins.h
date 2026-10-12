@@ -120,14 +120,16 @@ struct FgTwins
 
     void ReleaseTex() { for (int i = 0; i < kCount; ++i) if (tex[i]) { tex[i]->Release(); tex[i] = NULL; } }
 
-    // Sized after the owned set; a size/format change waits for the prep ring (render thread). False = no depth/mv
-    // twins (the frame cannot be prepared). A missing hud-less twin alone is not a failure (hudFmt stays UNKNOWN).
+    // Sized after the owned set; a size/format change waits for the prep ring AND for Unity's queue (render thread):
+    // FSR-FG reads the hud-less twin from inside its Present, queued after the list that wrote it, so the ring's own
+    // slots retiring does not prove the old textures idle. False = no depth/mv twins (the frame cannot be prepared).
+    // A missing hud-less twin alone is not a failure (hudFmt stays UNKNOWN).
     bool Ensure(ID3D12Device* dev, D3D12Ring& ring, const OwnedSet12& o, DXGI_FORMAT backFmt)
     {
         if (dead || !o.depth || !o.mv || !o.out || !Pipeline(dev)) return false;   // dead: a failed create is never retried
         DXGI_FORMAT wantHud = HudPair(o.outFmt, backFmt) ? backFmt : DXGI_FORMAT_UNKNOWN;
         if (tex[kDepth] && w == o.w && h == o.h && outW == o.outW && outH == o.outH && hudFmt == wantHud && srcOutFmt == o.outFmt) return true;
-        if (tex[kDepth] && !ring.WaitIdle()) return false;
+        if (tex[kDepth] && (!ring.WaitIdle() || !ring.DrainQueue())) return false;
         ReleaseTex();
         w = o.w; h = o.h; outW = o.outW; outH = o.outH; hudFmt = wantHud; srcOutFmt = o.outFmt;
         tex[kDepth] = OwnedSet12::Make(device, w, h, DXGI_FORMAT_R32_FLOAT, true, L"Renderforge fg depth");
