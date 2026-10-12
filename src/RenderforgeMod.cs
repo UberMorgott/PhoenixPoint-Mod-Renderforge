@@ -722,7 +722,7 @@ namespace Renderforge
         /// <summary>{"member":"DumpOut","args":["C:\\Temp\\out.png"]} - outRT (SDK output, before the present Blit) to PNG.</summary>
         public static string DumpOut(string absPath) => DlssDriver.Instance?.DumpOut(absPath) ?? "no driver";
 
-        /// <summary>{"member":"GetMarkerOverlayStatus"} - GeoMarkerOverlay: layers, canvas count, RenderforgeMarkerCam settings.</summary>
+        /// <summary>{"member":"GetMarkerOverlayStatus"} - GeoMarkerOverlay: sites, aircraft, globe markers, lights, layers, canvas count, present camera settings.</summary>
         public static string GetMarkerOverlayStatus() => GeoMarkerOverlay.Status();
 
         /// <summary>{"member":"ProbeMarkerClick"} - a near site's pivot projected through RenderforgeMarkerCam, picked back through GeoscapeCamera.</summary>
@@ -740,8 +740,25 @@ namespace Renderforge
             return "markerOverlay=" + on + " " + GeoMarkerOverlay.Status();
         }
 
+        /// <summary>{"member":"ProbeCraftClick"} - every shown near-side aircraft projected through the present camera, picked back through GeoscapeCamera.</summary>
+        public static string ProbeCraftClick() => GeoMarkerOverlay.ProbeCraftClick();
+
+        /// <summary>{"member":"SetMarkerOverlayOptions","args":[true,-1]} - A/B levers: aircraft in the overlay, and the pose the
+        /// present camera draws with (-1 = by API, 0 = this frame's, 1 = the previous frame's). Re-arms the overlay. Runtime-only.</summary>
+        public static string SetMarkerOverlayOptions(bool aircraft, int poseDelay)
+        {
+            GeoMarkerOverlay.Restore();
+            Diagnostics.MarkerCraft = aircraft; Diagnostics.MarkerPoseDelay = poseDelay;
+            var d = DlssDriver.Instance;
+            if (d != null && d.IsLive) GeoMarkerOverlay.Tick(d.SceneCamera, d.Passthrough);
+            return "aircraft=" + aircraft + " poseDelay=" + poseDelay + " " + GeoMarkerOverlay.Status();
+        }
+
         /// <summary>{"member":"DumpScreen","args":["C:\\Temp\\s.png"]} - the backbuffer at the end of this frame + a .txt sidecar (frame, base marker screen pos).</summary>
         public static string DumpScreen(string absPath) => GeoMarkerOverlay.DumpScreen(absPath);
+
+        /// <summary>{"member":"SetDumpAnchor","args":["UI_GS_Site (196)"]} - DumpScreen's `base` = that site ("" = nearest the screen centre again).</summary>
+        public static string SetDumpAnchor(string siteName) { GeoMarkerOverlay.DumpAnchor = string.IsNullOrEmpty(siteName) ? null : siteName; return "dumpAnchor=" + (GeoMarkerOverlay.DumpAnchor ?? "-"); }
 
         /// <summary>{"member":"DumpHierarchy","args":["UI_GS_Site (191)","C:\\Temp\\h.txt"]} - scene hierarchy under a named object with renderers/canvases.</summary>
         public static string DumpHierarchy(string rootName, string absPath) => GeoMarkerOverlay.DumpHierarchy(rootName, absPath);

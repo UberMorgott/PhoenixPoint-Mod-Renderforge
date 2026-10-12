@@ -5,7 +5,9 @@ using Base.Cameras;
 using Base.Core;
 using Base.Utils;
 using HarmonyLib;
+using MaterialDecals;
 using PhoenixPoint.Common.Core;
+using PhoenixPoint.Geoscape.Entities;
 using PhoenixPoint.Geoscape.View;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -28,6 +30,10 @@ namespace Renderforge
     /// the globe's depth buffer, which the cleared depth cannot, so a segment/sphere test hands far-side sites back to
     /// their original layers (the game names every layer but one, so a hidden layer was not available). Layer ownership
     /// changes only in GeoscapeCamera's own pre-cull (Camera.onPreCull), so both cameras draw one frame with one split.
+    /// Aircraft (the lit model with its selection circles) and the GlobeMarker ground rings ride the same layer ("aircraft
+    /// and globe markers" below); the layer is lit like Default (LightLayer) and, on Direct3D 12, drawn one frame late
+    /// like the picture under it (PoseLag). Frame generation keeps the overlay: the markers are in the back buffer and
+    /// not in the hud-less colour the generators are handed, which is what every SDK documents for UI (Blocker).
     /// Everything is restored on release; an exception anywhere here disables the overlay until the next level start, never the upscaler.</summary>
     internal static class GeoMarkerOverlay
     {
@@ -48,6 +54,8 @@ namespace Renderforge
         private static bool disabledByFailure;        // a Fail this level; ResetFailure (level start) clears it. Diagnostics.MarkerOverlay stays the user's own choice
         private static int origMask;                  // GeoscapeCamera's mask before the takeover (Walk: "was this ever drawn by it")
         private static readonly Dictionary<Camera, int> camMasks = new Dictionary<Camera, int>();   // every camera that lost bit `layer`
+        private static readonly Dictionary<Light, int> lightMasks = new Dictionary<Light, int>();                       // every light that gained bit `layer`
+        private static readonly Dictionary<Light, LightRenderMode> lightModes = new Dictionary<Light, LightRenderMode>();   // directional lights forced per-pixel
         private static readonly Dictionary<Transform, int> origLayers = new Dictionary<Transform, int>();
         private static readonly Dictionary<Canvas, Camera> origWorldCam = new Dictionary<Canvas, Camera>();
         private static readonly Dictionary<GeoSiteVisualsController, bool> near = new Dictionary<GeoSiteVisualsController, bool>();
@@ -56,6 +64,20 @@ namespace Renderforge
         private static readonly HashSet<GeoSiteVisualsController> dirty = new HashSet<GeoSiteVisualsController>();   // seams, drained in OnScenePreCull
         private static readonly Queue<GeoSiteVisualsController> rewalk = new Queue<GeoSiteVisualsController>();       // fallback, RewalkPerFrame per frame
         private static bool sitesDied;                // a GeoSiteVisualsController.OnDestroy since the last drain
+        /// <summary>Set by the seams' Prepare (GeoVehicle.Initialize, GlobeMarker.Awake). The fallback searches the scene either way.</summary>
+        internal static bool CraftHooked, GlobeMarkerHooked;
+        /// <summary>Marker objects that are not under a site's VisualsContainer: an aircraft (V set; Root = its MeshRoot,
+        /// resolved once GeoVehicle.Initialize ran) or a GlobeMarker (Root = the marker, Pivot = its surface offset child).</summary>
+        private sealed class Loose
+        {
+            public Object Owner; public GeoVehicle V; public Transform Root, Pivot; public bool Near; public int Kids = -1;
+            // World pose at this and the previous GeoscapeCamera pre-cull (PoseFrame = Time.frameCount of Pos), and the
+            // local pose Sync put aside while the present camera draws the previous one (Shifted).
+            public Vector3 Pos, PrevPos, HeldPos; public Quaternion Rot, PrevRot, HeldRot; public int PoseFrame = -1; public bool Shifted;
+        }
+        private static readonly List<Loose> loose = new List<Loose>();                  // horizon-tested every frame (aircraft fly)
+        private static readonly HashSet<Object> looseKnown = new HashSet<Object>();
+        private static readonly List<Object> looseSpawned = new List<Object>();          // seams, drained in OnScenePreCull
         private static Transform hcRoot;              // the geoscape hierarchy the sites live in (hierarchyCount is per root)
         private static int walkedHc;
         private static float nextScan;
@@ -114,11 +136,23 @@ namespace Renderforge
         /// The game's own pause is authoritative too: a geoscape cutscene (UIStateGeoCutscene.cs:62) sets
         /// CameraManager.PauseObjectRendering, whose CullEverythingController zeroes GeoscapeCamera's mask for the whole video;
         /// the overlay stays released until the pause lifts (re-arming on the mask alone flapped every other frame, 1.6.2).
-        /// ponytail: no frame generation, no colour vision - the markers bypass the shim's post pass, so daltonisation
-        /// would stop covering the colour-coded icons and FG's interpolated frames would lack them. Every other
-        /// combination keeps the vanilla path unchanged. D3D12 runs the same pass as D3D11 (measured 2026-10-12, DLSS /
-        /// FSR / XeSS Performance: the present camera's backbuffer write encodes and blends like D3D11 - same texel
-        /// colours, same label-gradient blend - and site picking is unchanged).</summary>
+        /// ponytail: no colour vision - the markers bypass the shim's post pass, so daltonisation would stop covering
+        /// the colour-coded icons. D3D12 runs the same pass as D3D11 (measured 2026-10-12, DLSS / FSR / XeSS Performance:
+        /// the present camera's backbuffer write encodes and blends like D3D11 - same texel colours, same label-gradient
+        /// blend - and site picking is unchanged).
+        /// Frame generation is NOT a gate (it was until 2026-10-12, on the guess that interpolated frames would lack the
+        /// markers). The generators get the upscaler's `out` twin as hud-less colour and Unity's back buffer as the
+        /// final frame (docs\DESIGN.md "FG input contract" / "HUD"); the markers are drawn after the outRT blit, so they
+        /// are in the back buffer only - the same class as the HUD. Each SDK keeps that class out of the interpolation:
+        /// DLSS-G "Hudless - the scene color before any UI/HUD elements are drawn" (Streamline ProgrammingGuideDLSS_G.md:247,
+        /// :268), XeSS-FG BACKBUFFER_HUDLESS "interpolates on the HUD-less color texture and extracts the UI from the
+        /// back buffer" (xess_fg_developer_guide_english.md:602-605), FSR-FG "the frame interpolation shader will detect
+        /// UI areas in the frame and suppress distortion in those areas" (frame-interpolation-swap-chain.md:91-92).
+        /// Measured with Fg_Capture under all three: tagged hud-less without markers / aircraft, back buffer with them.
+        /// ponytail: composited UI updates at the rendered rate (XeSS guide :521-522 "waypoints or enemy markers may
+        /// stutter"): under an orbit the markers step at the base rate over an interpolated globe. Markers inside the
+        /// hud-less colour (composited natively into the `out` twin before the generators read it) would interpolate
+        /// with the globe's motion vectors - the upgrade path if that stutter is ever reported.</summary>
         private static string Blocker(Camera sceneCam, bool passthrough)
         {
             if (!Diagnostics.MarkerOverlay) return "disabled";
@@ -127,7 +161,6 @@ namespace Renderforge
             if (passthrough) return "passthrough generation";
             if (!Availability.IsD3D11 && !Availability.IsD3D12) return "API " + Availability.ApiName + " (marker pass only verified on D3D11 and D3D12)";
             var cfg = RenderforgeMod.Instance?.Cfg;
-            if (FrameGen.Live || (cfg != null && cfg.FrameGen != FrameGenMode.Off)) return "frame generation on (interpolated frames would lack the markers)";
             if (cfg != null && cfg.ColorVision != ColorVisionMode.None) return "colour vision " + cfg.ColorVision + " (markers would bypass the daltonisation pass)";
             if (camMgr == null) camMgr = GameUtl.GameComponent<CameraManager>();
             if (curtain == null) curtain = camMgr?.GetComponentInParent<LevelSwitchCurtainController>();
@@ -170,9 +203,12 @@ namespace Renderforge
             hcRoot = null; walkedHc = -1; nextScan = Time.unscaledTime + FallbackInterval; cursor = 0; lastGate = null;
             fullScans = eventWalks = fallbackPasses = 0;
             dirty.Clear(); rewalk.Clear(); sitesDied = false;
+            LightLayer();
             int n = FullScan();
+            ScanLoose();
+            UpdateLoose();   // classified and layered before the first frame, like the sites
             walkedHc = hcRoot ? hcRoot.hierarchyCount : -1;
-            Log("drawn after reconstruction by the DlssPresent camera, layer " + layer + ", " + n + " sites / " + origLayers.Count + " objects, " + camMasks.Count + " cameras lost the bit, GeoscapeCamera mask 0x" + origMask.ToString("X") + " -> 0x" + geo.cullingMask.ToString("X"));
+            Log("drawn after reconstruction by the DlssPresent camera, layer " + layer + ", " + n + " sites / " + loose.Count + " aircraft + globe markers / " + origLayers.Count + " objects, " + camMasks.Count + " cameras lost the bit, GeoscapeCamera mask 0x" + origMask.ToString("X") + " -> 0x" + geo.cullingMask.ToString("X"));
         }
 
         /// <summary>Bit `layer` off every enabled camera but M (it was free: nobody drew it, but a mask of ~0 includes it).</summary>
@@ -192,10 +228,29 @@ namespace Renderforge
             }
         }
 
+        /// <summary>The marker layer lit like the layer its lit objects came from (Default: the aircraft model and the
+        /// Standard-shader marker frames). Two things differ between GeoscapeCamera's deferred pass and the present camera's
+        /// forward one. A light's culling mask: `Geoscape_Lights` (directional, 1.2) lists its layers and the free layer is
+        /// not among them, so every light that lights Default gains the bit. And QualitySettings.pixelLightCount is 0
+        /// in this game: forward shades only the brightest directional light per pixel and folds the other three
+        /// into spherical harmonics, which left the aircraft flat (no speculars); the directional lights go ForcePixel
+        /// while armed. Activation and every fallback pass; both are put back on release.</summary>
+        private static void LightLayer()
+        {
+            int bit = 1 << layer;
+            foreach (var l in Object.FindObjectsOfType<Light>())
+            {
+                if ((l.cullingMask & 1) == 0) continue;
+                if ((l.cullingMask & bit) == 0) { if (!lightMasks.ContainsKey(l)) lightMasks[l] = l.cullingMask; l.cullingMask |= bit; }
+                if (l.type == LightType.Directional && l.renderMode == LightRenderMode.Auto) { lightModes[l] = LightRenderMode.Auto; l.renderMode = LightRenderMode.ForcePixel; }
+            }
+        }
+
         internal static void Restore()
         {
             if (M == null && geo == null) return;
             Camera.onPreCull -= OnScenePreCull;
+            UnshiftCrafts();
             int objects = 0;
             foreach (var kv in origLayers) if (kv.Key) { kv.Key.gameObject.layer = kv.Value; objects++; }
             foreach (var kv in origWorldCam) if (kv.Key) kv.Key.worldCamera = kv.Value;
@@ -204,6 +259,8 @@ namespace Renderforge
             // onto 0 made the next Tick see a non-zero mask, re-arm, strip, release, every other frame.
             int bit = 1 << layer;
             foreach (var kv in camMasks) if (kv.Key && kv.Key.cullingMask != 0 && kv.Key.cullingMask == (kv.Value & ~bit)) kv.Key.cullingMask |= kv.Value & bit;
+            foreach (var kv in lightMasks) if (kv.Key && kv.Key.cullingMask == (kv.Value | bit)) kv.Key.cullingMask = kv.Value;
+            foreach (var kv in lightModes) if (kv.Key && kv.Key.renderMode == LightRenderMode.ForcePixel) kv.Key.renderMode = kv.Value;
             if (M)
             {
                 if (sync) Object.Destroy(sync);
@@ -218,7 +275,7 @@ namespace Renderforge
                 M.ResetProjectionMatrix();   // the snapshot had no custom projection; Sync installed one
                 M.transform.localPosition = sPos; M.transform.localRotation = sRot;
             }
-            Log("restored " + near.Count + " sites / " + objects + " objects / " + camMasks.Count + " cameras, GeoscapeCamera mask 0x" + (geo ? geo.cullingMask.ToString("X") : "-"));
+            Log("restored " + near.Count + " sites / " + loose.Count + " aircraft + globe markers / " + objects + " objects / " + camMasks.Count + " cameras, GeoscapeCamera mask 0x" + (geo ? geo.cullingMask.ToString("X") : "-"));
             Forget();
         }
 
@@ -227,8 +284,9 @@ namespace Renderforge
         private static void Forget()
         {
             if (pendingFail != null) { Disable(pendingFail); pendingFail = null; }
-            origLayers.Clear(); origWorldCam.Clear(); near.Clear(); camMasks.Clear();
+            origLayers.Clear(); origWorldCam.Clear(); near.Clear(); camMasks.Clear(); lightMasks.Clear(); lightModes.Clear();
             active.Clear(); cursor = 0; dirty.Clear(); rewalk.Clear(); sitesDied = false;
+            loose.Clear(); looseKnown.Clear(); looseSpawned.Clear();
             geo = null; M = null; curtain = null; camMgr = null; sync = null; cbPresent = null; hcRoot = null; layer = -1;
         }
 
@@ -310,10 +368,13 @@ namespace Renderforge
             fallbackPasses++;
             if (hc < walkedHc)
             {
-                PruneDead(near); PruneDead(origLayers); PruneDead(origWorldCam); PruneDead(camMasks);
+                PruneDead(near); PruneDead(origLayers); PruneDead(origWorldCam); PruneDead(camMasks); PruneDead(lightMasks); PruneDead(lightModes);
                 active.RemoveAll(deadSite); cursor = 0;
             }
             if (!Hooked || hc < 0) { FullScan(); if (hc < 0 && hcRoot) hc = hcRoot.hierarchyCount; }
+            LightLayer();
+            ScanLoose();   // an aircraft or globe marker the seams did not see (instantiated inactive, seam missing)
+            for (int i = 0; i < loose.Count; i++) loose[i].Kids = -1;   // something spawned somewhere: UpdateLoose re-walks the near ones this frame
             walkedHc = hc;
             rewalk.Clear();
             foreach (var kv in near) if (kv.Value && kv.Key) rewalk.Enqueue(kv.Key);
@@ -406,6 +467,126 @@ namespace Renderforge
             }
         }
 
+        // ---------------------------------------------------------------- aircraft and globe markers
+        // A GeoVehicle's picture (decompile GeoVehicle.cs) is `GlobeOffset` (VisualsRoot :316): `Visuals` (MeshRoot :317 -
+        // the lit 3D model, its base disc, blob shadow, selection circles; disengage visuals are spawned under it :378),
+        // `Trails` and the `RangeIndicator` decal. Only MeshRoot is taken: the model is opaque and writes depth, so the
+        // site labels behind it are hidden again exactly as in the scene (left to the scene camera it was a
+        // render-resolution model UNDER every label). A GlobeMarker (GlobeMarker.cs: the pulsing ground ring of a
+        // destination / selected site, a sibling of the site's SphereOffset) is taken whole.
+        // Left with the upscaler: range rings and travel paths (MaterialDecals - a projection box that needs the
+        // deferred G-buffer and the globe's depth; WalkGuarded never enters one) and the aircraft Trails (a ribbon along
+        // the flight path can reach behind the limb, and the cleared depth has no globe to hide it).
+
+        /// <summary>Seams (GeoVehicle.Initialize, GlobeMarker.Awake). Cheap no-op while unarmed.</summary>
+        internal static void LooseSpawned(Object o)
+        {
+            if (M == null || ReferenceEquals(o, null)) return;
+            looseSpawned.Add(o);
+        }
+
+        private static void ScanLoose()
+        {
+            foreach (var v in Object.FindObjectsOfType<GeoVehicle>()) AddLoose(v);
+            foreach (var m in Object.FindObjectsOfType<GlobeMarker>()) AddLoose(m);
+        }
+
+        private static void AddLoose(Object o)
+        {
+            if (!o || !looseKnown.Add(o)) return;
+            var k = new Loose { Owner = o, V = o as GeoVehicle };
+            var m = o as GlobeMarker;
+            if (m != null) { k.Root = m.transform; k.Pivot = k.Root.childCount > 0 ? k.Root.GetChild(0) : k.Root; }
+            loose.Add(k);
+        }
+
+        /// <summary>Every aircraft and globe marker, every frame (a few dozen): the same segment/sphere test as the sites,
+        /// on the pivot (an aircraft's carries the flight altitude) - behind the globe the object goes back to its own
+        /// layers and the globe's depth hides it. A near one is re-walked when something was spawned under its root.</summary>
+        private static void UpdateLoose()
+        {
+            if (looseSpawned.Count > 0) { foreach (var o in looseSpawned) AddLoose(o); looseSpawned.Clear(); }
+            Vector3 c = geo.transform.position, g = GlobeUnits.GlobeCenter;
+            float r2 = GlobeUnits.GlobeRadius * GlobeUnits.GlobeRadius;
+            for (int i = loose.Count - 1; i >= 0; i--)
+            {
+                var k = loose[i];
+                if (!k.Owner) { looseKnown.Remove(k.Owner); loose.RemoveAt(i); continue; }   // its transforms died with it; the fallback prunes origLayers
+                if (!k.Root)
+                {
+                    var mr = k.V ? k.V.MeshRoot : null;
+                    if (!mr) continue;
+                    k.Root = k.Pivot = mr.transform; k.Near = false; k.Kids = -1;
+                }
+                if (!k.Pivot) k.Pivot = k.Root;
+                bool visible = FacesCamera(k.Pivot.position, c, g, r2) && (Diagnostics.MarkerCraft || k.V == null);
+                int kids = k.Root.childCount;
+                if (visible == k.Near && (!visible || kids == k.Kids)) continue;
+                k.Near = visible; k.Kids = kids;
+                WalkGuarded(k.Root, visible);
+            }
+            // The pose every near aircraft had one frame ago, for PoseLag: a flying one moves every frame.
+            int f = Time.frameCount;
+            for (int i = 0; i < loose.Count; i++)
+            {
+                var k = loose[i];
+                if (k.V == null || !k.Near || !k.Root) continue;
+                Vector3 p = k.Root.position; Quaternion q = k.Root.rotation;
+                bool fresh = k.PoseFrame == f - 1;
+                k.PrevPos = fresh ? k.Pos : p; k.PrevRot = fresh ? k.Rot : q;
+                k.Pos = p; k.Rot = q; k.PoseFrame = f;
+            }
+        }
+
+        /// <summary>Direct3D 12 presents the scene one frame late: the shim's list runs before Unity's own of the same frame
+        /// (docs\DESIGN.md "D3D12 frame pairing"), so the outRT the present camera blits in frame N holds what GeoscapeCamera
+        /// rendered in frame N-1. Drawn with frame N's camera the markers led the globe by one frame of camera motion
+        /// (measured: 10 px at 30 fps under an orbit; 0 on D3D11) and a flying aircraft led its own trails and range ring.
+        /// So on D3D12 the present camera draws frame N-1: the previous pose and projection (Sync) and, for the aircraft
+        /// that moved, the previous world pose - put on the transform for the present camera's cull and render only.</summary>
+        private static bool PoseLag => Diagnostics.MarkerPoseDelay < 0 ? Availability.IsD3D12 : Diagnostics.MarkerPoseDelay > 0;
+
+        private static void ShiftCrafts()
+        {
+            int f = Time.frameCount;
+            for (int i = 0; i < loose.Count; i++)
+            {
+                var k = loose[i];
+                if (k.V == null || !k.Near || k.Shifted || k.PoseFrame != f || !k.Root || (k.PrevPos == k.Pos && k.PrevRot == k.Rot)) continue;
+                k.HeldPos = k.Root.localPosition; k.HeldRot = k.Root.localRotation; k.Shifted = true;
+                k.Root.SetPositionAndRotation(k.PrevPos, k.PrevRot);
+            }
+        }
+
+        private static void UnshiftCrafts()
+        {
+            for (int i = 0; i < loose.Count; i++)
+            {
+                var k = loose[i];
+                if (!k.Shifted) continue;
+                k.Shifted = false;
+                if (k.Root) { k.Root.localPosition = k.HeldPos; k.Root.localRotation = k.HeldRot; }
+            }
+        }
+
+        /// <summary>Walk with two exclusions: a GameObject carrying a Collider keeps its layer (an aircraft's PickingCollider,
+        /// layer 20 - picking is a physics raycast, and GeoscapeCamera's mask is everything, so the "ever drawn by it"
+        /// test cannot tell) and a MaterialDecalComponent subtree is not entered (deferred-only projection volume).</summary>
+        private static void WalkGuarded(Transform t, bool take)
+        {
+            if (t.GetComponent<MaterialDecalComponent>() != null) return;
+            var go = t.gameObject;
+            int orig;
+            if (!take) { if (origLayers.TryGetValue(t, out orig)) go.layer = orig; }
+            else if (go.layer != layer && t.GetComponent<Collider>() == null
+                     && (origLayers.ContainsKey(t) || (origMask & (1 << go.layer)) != 0))
+            {
+                if (!origLayers.ContainsKey(t)) origLayers[t] = go.layer;
+                go.layer = layer;
+            }
+            for (int i = 0, n = t.childCount; i < n; i++) WalkGuarded(t.GetChild(i), take);
+        }
+
         /// <summary>False when the segment camera c -> p crosses the globe sphere (centre g, radius^2 = r2; GlobeUnits holds the
         /// GlobeCollider's transform position and its unscaled SphereCollider.radius, GeoLevelController.cs:444 - the globe is unscaled).</summary>
         private static bool FacesCamera(Vector3 p, Vector3 c, Vector3 g, float r2)
@@ -430,6 +611,7 @@ namespace Renderforge
                 Fallback();
                 Rewalk();
                 UpdateHorizon();
+                UpdateLoose();
             }
             catch (Exception ex) { pendingFail = ex; }   // never Restore inside a render callback: the next Tick does
         }
@@ -438,20 +620,39 @@ namespace Renderforge
         /// DlssDriver.OnCameraPostRender reset its jitter.</summary>
         private sealed class Sync : MonoBehaviour
         {
+            private Vector3 pPos;
+            private Quaternion pRot;
+            private Matrix4x4 pProj;
+            private float pFov;
+            private bool have;
+
             private void OnPreCull()
             {
                 if (geo == null || M == null || pendingFail != null) return;
                 try
                 {
-                    M.transform.SetPositionAndRotation(geo.transform.position, geo.transform.rotation);
+                    Vector3 pos = geo.transform.position;
+                    Quaternion rot = geo.transform.rotation;
+                    Matrix4x4 proj = geo.projectionMatrix;
+                    float fov = geo.fieldOfView;
                     M.rect = geo.rect;
                     M.orthographic = geo.orthographic;
                     M.orthographicSize = geo.orthographicSize;
-                    M.fieldOfView = geo.fieldOfView;
                     M.nearClipPlane = geo.nearClipPlane;
                     M.farClipPlane = geo.farClipPlane;
-                    M.projectionMatrix = geo.projectionMatrix;
+                    bool lag = have && PoseLag;
+                    if (lag) ShiftCrafts();
+                    M.transform.SetPositionAndRotation(lag ? pPos : pos, lag ? pRot : rot);
+                    M.fieldOfView = lag ? pFov : fov;
+                    M.projectionMatrix = lag ? pProj : proj;
+                    pPos = pos; pRot = rot; pProj = proj; pFov = fov; have = true;
                 }
+                catch (Exception ex) { pendingFail = ex; }
+            }
+
+            private void OnPostRender()
+            {
+                try { UnshiftCrafts(); }
                 catch (Exception ex) { pendingFail = ex; }
             }
         }
@@ -463,7 +664,8 @@ namespace Renderforge
             if (M == null) return "inactive layer=" + layer + " gate=" + (lastGate ?? "-");
             int onNear = near.Count(kv => kv.Key && kv.Value);
             string g = geo ? geo.name : "destroyed";
-            return "active layer=" + layer + " sites=" + near.Count + " activeSites=" + active.Count + " onNear=" + onNear + " objects=" + origLayers.Count + " canvases=" + origWorldCam.Count + " cameras=" + camMasks.Count
+            return "active layer=" + layer + " sites=" + near.Count + " activeSites=" + active.Count + " onNear=" + onNear
+                 + " aircraft=" + loose.Count(k => k.V != null) + " aircraftNear=" + loose.Count(k => k.V != null && k.Near) + " globeMarkers=" + loose.Count(k => k.V == null) + " globeMarkersNear=" + loose.Count(k => k.V == null && k.Near) + " craftHooked=" + CraftHooked + " globeMarkerHooked=" + GlobeMarkerHooked + " poseDelay=" + Diagnostics.MarkerPoseDelay + " lights=" + lightMasks.Count + "/" + lightModes.Count + " objects=" + origLayers.Count + " canvases=" + origWorldCam.Count + " cameras=" + camMasks.Count
                  + " hooked=" + Hooked + " fullScans=" + fullScans + " eventWalks=" + eventWalks + " fallbackPasses=" + fallbackPasses + " rewalkQueue=" + rewalk.Count
                  + " geo=" + g + " geoMask=0x" + (geo ? geo.cullingMask.ToString("X") : "-") + " origMask=0x" + origMask.ToString("X")
                  + " M=" + M.name + " M.enabled=" + M.enabled + " M.pos=" + M.transform.position + " geo.pos=" + (geo ? geo.transform.position.ToString() : "-") + " M.rot=" + M.transform.rotation.eulerAngles + " geo.rot=" + (geo ? geo.transform.rotation.eulerAngles.ToString() : "-")
@@ -495,9 +697,35 @@ namespace Renderforge
             return "no near-side active site on screen";
         }
 
+        /// <summary>The same check for aircraft: every shown near-side one is projected through M and picked back through
+        /// GeoscapeCamera (its PickingCollider keeps layer 20, WalkGuarded).</summary>
+        internal static string ProbeCraftClick()
+        {
+            if (M == null || !geo) return "inactive";
+            var sb = new System.Text.StringBuilder();
+            int n = 0, same = 0;
+            foreach (var k in loose)
+            {
+                if (!k.V || !k.Root || !k.Near || !k.Root.gameObject.activeInHierarchy) continue;
+                Vector3 sp = M.WorldToScreenPoint(k.Root.position);
+                if (sp.z <= 0f || sp.x < 0 || sp.y < 0 || sp.x >= Screen.width || sp.y >= Screen.height) continue;
+                RaycastHit hit;
+                bool ok = Physics.Raycast(geo.ScreenPointToRay(sp), out hit, geo.farClipPlane);
+                var v = ok ? hit.collider.GetComponentInParent<GeoVehicle>() : null;
+                n++; if (v == k.V) same++;
+                sb.Append(" | ").Append(k.V.name).Append(" screen=").Append(sp.x.ToString("F1")).Append(',').Append(sp.y.ToString("F1"))
+                  .Append(" layer=").Append(k.Root.gameObject.layer).Append(" hit=").Append(ok ? hit.collider.name + " [" + hit.collider.gameObject.layer + "]" : "none")
+                  .Append(" sameCraft=").Append(v == k.V);
+            }
+            return "aircraftOnScreen=" + n + " sameCraft=" + same + sb;
+        }
+
         /// <summary>Diagnostic: the real backbuffer at the end of this frame (PPCLI's screenshot re-renders the cameras itself and
         /// loses the present blit once a second scene camera exists) as raw RGB24, plus `path.txt` with size, frame number
         /// and the screen position + name of the site marker nearest the screen centre (the sweep metrics crop around it).</summary>
+        /// <summary>Diagnostic: when set, DumpScreen anchors `base` on the site with this GameObject name instead of the one nearest the screen centre.</summary>
+        internal static string DumpAnchor;
+
         internal static string DumpScreen(string path)
         {
             var host = DlssDriver.Instance;
@@ -534,10 +762,25 @@ namespace Renderforge
                     Vector3 sp = cam.WorldToScreenPoint(p);
                     if (sp.z <= 0f) continue;
                     float dd = ((Vector2)sp - centre).sqrMagnitude;
+                    if (DumpAnchor != null) { if (v.name != DumpAnchor) continue; dd = 0f; }
                     if (dd < bestD) { bestD = dd; best = sp; site = v.name.Replace(' ', '_'); }
                 }
             }
-            System.IO.File.WriteAllText(path + ".txt", "w=" + w + " h=" + h + " frame=" + Time.frameCount + " t=" + Time.unscaledTime.ToString("F3") + " base=" + best.x.ToString("F1") + "," + best.y.ToString("F1") + " overlay=" + (M != null) + " site=" + site + "\n");
+            // Every shown aircraft on the near side, for the aircraft crops (screen px, y up like `base`).
+            var craft = new System.Text.StringBuilder();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            if (cam)
+            {
+                Vector3 c = cam.transform.position, g = GlobeUnits.GlobeCenter; float r2 = GlobeUnits.GlobeRadius * GlobeUnits.GlobeRadius;
+                foreach (var v in Object.FindObjectsOfType<GeoVehicle>())
+                {
+                    if (!v.MeshRoot || !v.MeshRoot.activeInHierarchy || !FacesCamera(v.MeshRoot.transform.position, c, g, r2)) continue;
+                    Vector3 sp = cam.WorldToScreenPoint(v.MeshRoot.transform.position);
+                    if (sp.z <= 0f || sp.x < 0 || sp.y < 0 || sp.x >= w || sp.y >= h) continue;
+                    craft.Append(" craft=").Append(sp.x.ToString("F1", inv)).Append(';').Append(sp.y.ToString("F1", inv)).Append(';').Append(v.name.Replace(' ', '_')).Append(';').Append(v.MeshRoot.layer);
+                }
+            }
+            System.IO.File.WriteAllText(path + ".txt", "w=" + w + " h=" + h + " frame=" + Time.frameCount + " t=" + Time.unscaledTime.ToString("F3") + " base=" + best.x.ToString("F1") + "," + best.y.ToString("F1") + " overlay=" + (M != null) + " site=" + site + craft + "\n");
         }
 
         /// <summary>Diagnostic: the hierarchy under the first active scene object called `rootName`, with renderers/canvases per node.</summary>
@@ -581,6 +824,22 @@ namespace Renderforge
     {
         static bool Prepare() => GeoMarkerOverlay.Hooked = AccessTools.Method(typeof(GeoSiteVisualsController), nameof(GeoSiteVisualsController.OnEnable)) != null;
         static void Postfix(GeoSiteVisualsController __instance) => GeoMarkerOverlay.MarkDirty(__instance);
+    }
+
+    /// <summary>GeoVehicle.Initialize (GeoVehicle.cs:312) resolves MeshRoot: an aircraft built, bought or revealed mid-campaign.</summary>
+    [HarmonyPatch(typeof(GeoVehicle), nameof(GeoVehicle.Initialize))]
+    internal static class GeoVehicle_Initialize_Patch
+    {
+        static bool Prepare() => GeoMarkerOverlay.CraftHooked = AccessTools.Method(typeof(GeoVehicle), nameof(GeoVehicle.Initialize)) != null;
+        static void Postfix(GeoVehicle __instance) => GeoMarkerOverlay.LooseSpawned(__instance);
+    }
+
+    /// <summary>GlobeMarker.Awake (GlobeMarker.cs:46): a ground marker instantiated under a site (destination, selection).</summary>
+    [HarmonyPatch(typeof(GlobeMarker), "Awake")]
+    internal static class GlobeMarker_Awake_Patch
+    {
+        static bool Prepare() => GeoMarkerOverlay.GlobeMarkerHooked = AccessTools.Method(typeof(GlobeMarker), "Awake") != null;
+        static void Postfix(GlobeMarker __instance) => GeoMarkerOverlay.LooseSpawned(__instance);
     }
 
     [HarmonyPatch(typeof(GeoSiteVisualsController), "OnDestroy")]

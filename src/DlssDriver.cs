@@ -287,7 +287,7 @@ namespace Renderforge
                         if ((e & 0xFFF00000) == 0xBAD00000) { Fail("NGX evaluate failed: 0x" + e.ToString("X") + " " + Native.Dlss_ResultString(e) + " lastError=" + Native.Dlss_LastError()); break; }
                     }
                     KeepCameraState();
-                    GeoMarkerOverlay.Tick(cam, passthrough);   // gated (geoscape, curtain up, D3D11 or D3D12, FG off, no colour vision); never throws
+                    GeoMarkerOverlay.Tick(cam, passthrough);   // gated (geoscape, curtain up, D3D11 or D3D12, no colour vision); never throws
                     FrameGen.Retry();
                     break;
                 case Gen.Releasing:
