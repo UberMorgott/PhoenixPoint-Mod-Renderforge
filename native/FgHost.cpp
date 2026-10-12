@@ -834,8 +834,19 @@ int FgHostCapture(const wchar_t* dir)
 
 int FgHostCaptureStatus(void) { return (int)InterlockedCompareExchange(&g_cap.state, 0, 0); }
 
+// TEST ONLY, RENDERFORGE_FG_TEST_PRESENT_DELAY="ms,every": every very-th hooked Present of a live chain is held back
+// ms before it pins - longer than kPinWaitMs the prepare of the next frame times out and supersedes the unpresented
+// one (presentStalled), the path a busy or occluded presenting thread takes on its own.
+static void TestPresentDelay()
+{
+    static int ms = -1, every = 0; static unsigned n = 0;
+    if (ms < 0) { char v[32] = {}; ms = 0; if (GetEnvironmentVariableA("RENDERFORGE_FG_TEST_PRESENT_DELAY", v, sizeof(v)) && sscanf_s(v, "%d,%d", &ms, &every) == 2 && ms > 0 && every > 0) FgLog("host: TEST RENDERFORGE_FG_TEST_PRESENT_DELAY=%d ms every %d presents", ms, every); else ms = 0; }
+    if (ms > 0 && FgHostAlive() && ++n % (unsigned)every == 0) Sleep((DWORD)ms);
+}
+
 bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
 {
+    TestPresentDelay();
     if (!Pin(false)) return false;
     if (!(H.tidLogged & 2)) { H.tidLogged |= 2; FgLog("host: first hooked present tid=%u", (unsigned)GetCurrentThreadId()); }
     Chain& c = H.c;
