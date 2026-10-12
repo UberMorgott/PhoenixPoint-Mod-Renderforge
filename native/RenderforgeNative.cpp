@@ -38,6 +38,7 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
         // backend) goes BEFORE the interface is dropped, otherwise a later Init/Shutdown would touch a dead device.
         // The one place a vendor Destroy runs off the main thread - the hook cannot be active here.
         FgHostShutdown();
+        FgHostWatchdogStop();                          // it probes this device's queue: joined before the device goes (restarted by the next chain)
         ShutdownBackend();
         g_unityD3D12 = NULL;
     }

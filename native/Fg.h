@@ -231,7 +231,7 @@ HWND FgWndChild(void);                       // the live child, NULL when none
 void FgWndShow(bool show);                   // any thread: hide the child (Unity's own chain shows through) / show it again
 bool FgWndIsOurs(HWND h);                    // a window of our child class (the hook never adopts a chain on it)
 void FgWndUnload(void);                      // plugin unload: destroy the child, restore the subclass, unregister the class
-void FgHostWatchdogStop(void);               // plugin unload: end the present watchdog thread (FgHost.cpp)
+int  FgHostWatchdogStop(void);               // device shutdown / plugin unload: join the present watchdog thread, 1 = gone (FgHost.cpp)
 struct FgWndProbe
 {
     HWND  parent, child, focus, foreground;  // focus/foreground as seen from the UI thread

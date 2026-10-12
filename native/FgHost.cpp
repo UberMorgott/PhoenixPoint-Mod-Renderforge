@@ -186,12 +186,31 @@ void TestSdkFailInit()
 // next occurrence must be decidable from the log alone: a thread of our own watches the time the presenting thread
 // spends inside the provider's Present and, past kPresentStuckMs, writes down what the queue and the memory are doing.
 // It only reads and logs - a vendor spin without a timeout cannot be interrupted from outside.
-enum { kPresentStuckMs = 2000, kWatchPeriodMs = 500 };
-volatile LONGLONG g_presentSince;       // GetTickCount64() at the entry of the shadow Present, 0 = not inside one
-volatile LONG     g_presentNo;          // counts shadow Presents (the watchdog reports each stuck one once)
-volatile LONG     g_presentFlagged;     // the Present in flight was reported stuck: its return is logged too
-HANDLE            g_watchThread, g_watchStop;
-
+enum { kPresentStuckMs = 2000, kWatchPeriodMs = 500, kWatchJoinTries = 15, kWatchStackMax = 28 };
+// What the presenting thread publishes around the shadow Present, under g_wdLock (never held across a call that can
+// block). `since` != 0 = a Present is in flight: the presenting thread is inside the chain (pinned), so the borrowed
+// pointers below are alive AT THAT MOMENT. The watchdog takes its OWN references under the same lock and from then on
+// touches neither H nor the chain - the Present may return and the main thread may tear the chain down, or Unity may
+// shut the device down, while the watchdog still probes (reviews 5: Opus #5-#7, Codex #1-#2).
+struct WdShot
+{
+    ULONGLONG           since;          // GetTickCount64() at the entry of the shadow Present, 0 = not inside one
+    LONG                no;             // counts shadow Presents (the watchdog reports each stuck one once)
+    LONG                flagged;        // `no` of the Present the watchdog reported: THAT Present logs its return
+    ID3D12Device*       dev;            // borrowed while since != 0
+    ID3D12CommandQueue* queue;          // Unity's queue, borrowed
+    ID3D12Fence*        copyFence;      // our back-buffer copy fence (may be NULL), borrowed
+    UINT64              copyVal;        // the value our last copy signalled on it
+    ID3D12Fence*        unityFence;     // Unity's frame fence (may be NULL), borrowed
+    UINT64              unityNext;      // Unity's next frame fence value at the entry of the Present
+    char                prov[16];
+    unsigned            epoch;
+    long                chainPresent;
+    DWORD               tid;
+};
+SRWLOCK g_wdLock = SRWLOCK_INIT;
+WdShot  g_wd;
+HANDLE  g_watchThread, g_watchStop;
 // Any thread. "vram local <usage>/<budget> MB, shared <usage>/<budget> MB" of the adapter the device runs on.
 void VramLine(ID3D12Device* dev, char* buf, int cap)
 {
@@ -208,61 +227,146 @@ void VramLine(ID3D12Device* dev, char* buf, int cap)
     SafeRelease(dxgi);
 }
 
+// The presenting thread's call stack, for the stuck report: which vendor wait it sits in. The thread is suspended only
+// for the unwind (no allocation, no lock of ours meanwhile); module names are resolved after it runs again. A thread
+// stuck inside a vendor spin holds no loader / unwind-table lock, which is all RtlLookupFunctionEntry could wait on.
+int WdStack(DWORD tid, DWORD64* pcs, int cap)
+{
+    int n = 0;
+#if defined(_M_X64)
+    HANDLE th = tid ? OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid) : NULL;
+    if (!th) return 0;
+    if (SuspendThread(th) != (DWORD)-1) {
+        __try {
+            CONTEXT ctx;
+            ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+            if (GetThreadContext(th, &ctx)) {
+                while (n < cap && ctx.Rip) {
+                    pcs[n++] = ctx.Rip;
+                    DWORD64 base = 0;
+                    PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &base, NULL);
+                    if (!fn) { ctx.Rip = *(DWORD64*)ctx.Rsp; ctx.Rsp += 8; }             // leaf: the return address is on top
+                    else { void* hd = NULL; DWORD64 ef = 0; RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ctx.Rip, fn, &ctx, &hd, &ef, NULL); }
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        ResumeThread(th);
+    }
+    CloseHandle(th);
+#else
+    (void)tid; (void)pcs; (void)cap;
+#endif
+    return n;
+}
+
+void WdStackLine(DWORD tid, char* buf, int cap)
+{
+    DWORD64 pcs[kWatchStackMax];
+    const int n = WdStack(tid, pcs, kWatchStackMax);
+    int at = _snprintf_s(buf, cap, _TRUNCATE, "%d frames", n);
+    for (int i = 0; i < n && at > 0 && at < cap - 80; ++i) {
+        HMODULE m = NULL;
+        char path[MAX_PATH] = "?";
+        const char* name = path;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)pcs[i], &m) && m &&
+            GetModuleFileNameA(m, path, MAX_PATH)) {
+            const char* s = strrchr(path, '\\');
+            if (s) name = s + 1;
+        }
+        const int k = _snprintf_s(buf + at, cap - at, _TRUNCATE, " < %s+0x%llX", name, (unsigned long long)(pcs[i] - (DWORD64)m));
+        if (k < 0) break;
+        at += k;
+    }
+}
+
 DWORD WINAPI PresentWatchdog(void*)
 {
     LONG reported = -1;
     while (WaitForSingleObject(g_watchStop, kWatchPeriodMs) == WAIT_TIMEOUT) {
-        const LONGLONG since = InterlockedCompareExchange64(&g_presentSince, 0, 0);
-        const LONG no = InterlockedCompareExchange(&g_presentNo, 0, 0);
-        if (!since || no == reported || (LONGLONG)GetTickCount64() - since < kPresentStuckMs) continue;
-        reported = no;
-        // The presenting thread is inside Present with the chain pinned: device, queue and provider cannot go away.
-        ID3D12Device* dev = H.device;
-        ID3D12CommandQueue* queue = H.queue;
-        if (!dev || !queue) continue;
-        InterlockedExchange(&g_presentFlagged, 1);
+        WdShot s;
+        {
+            AcquireSRWLockExclusive(&g_wdLock);
+            s = g_wd;
+            const bool stuck = s.since && s.no != reported && (LONGLONG)GetTickCount64() - (LONGLONG)s.since >= kPresentStuckMs && s.dev && s.queue;
+            if (stuck) {
+                // The Present is in flight right now (since != 0 under the lock): the objects are alive, take our own
+                // references. They are released below, on this thread, whatever happens to the chain or the device.
+                s.dev->AddRef(); s.queue->AddRef();
+                if (s.copyFence) s.copyFence->AddRef();
+                if (s.unityFence) s.unityFence->AddRef();
+                g_wd.flagged = s.no;
+            }
+            ReleaseSRWLockExclusive(&g_wdLock);
+            if (!stuck) continue;
+        }
+        reported = s.no;
+        const LONGLONG stuckMs = (LONGLONG)GetTickCount64() - (LONGLONG)s.since;
         char vram[160];
-        VramLine(dev, vram, sizeof(vram));
+        VramLine(s.dev, vram, sizeof(vram));
         // Is Unity's queue retiring work at all? A fence of our own, signalled behind everything submitted so far.
         int probe = -1;                                    // -1 not run, 0 did not complete within 1 s, 1 completed
         ULONGLONG probeMs = 0;
         ID3D12Fence* fence = NULL;
         HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
-        if (ev && SUCCEEDED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) && fence) {
+        if (ev && SUCCEEDED(s.dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))) && fence) {
             const ULONGLONG t0 = GetTickCount64();
-            if (SUCCEEDED(queue->Signal(fence, 1)) && SUCCEEDED(fence->SetEventOnCompletion(1, ev))) probe = WaitForSingleObject(ev, 1000) == WAIT_OBJECT_0 ? 1 : 0;
+            if (SUCCEEDED(s.queue->Signal(fence, 1)) && SUCCEEDED(fence->SetEventOnCompletion(1, ev))) probe = WaitForSingleObject(ev, 1000) == WAIT_OBJECT_0 ? 1 : 0;
             probeMs = GetTickCount64() - t0;
         }
         SafeRelease(fence);
         if (ev) CloseHandle(ev);
         FgLog("host: WATCHDOG shadow Present #%ld (%s, epoch %u, present %ld of this chain) has not returned for %lld ms on tid %u: removed=0x%08X, Unity queue probe %s (%llu ms), %s",
-              no, H.c.prov ? H.c.prov->Name() : "-", H.epoch, (long)H.nPresent, (LONGLONG)GetTickCount64() - since, (unsigned)H.presentTid,
-              (unsigned)dev->GetDeviceRemovedReason(), probe == 1 ? "COMPLETED - the queue retires work, the provider waits on something of its own" :
+              s.no, s.prov, s.epoch, s.chainPresent, stuckMs, (unsigned)s.tid,
+              (unsigned)s.dev->GetDeviceRemovedReason(), probe == 1 ? "COMPLETED - the queue retires work, the provider waits on something of its own" :
               probe == 0 ? "DID NOT COMPLETE in 1 s - the queue itself stands still (a queue Wait nobody signals, or the GPU scheduler holds it: paging under memory overcommit)" : "not run",
               (unsigned long long)probeMs, vram);
+        // What the next occurrence needs (2026-10-13): our copy fence (signalled on Unity's queue right before this
+        // Present) and Unity's frame fence, completed vs asked. The vendor's own game / interpolation / composition
+        // fences are private to its proxy swap chain (FrameInterpolationSwapChainDX12: no public query) - the stack
+        // of the presenting thread says which of its waits it is in.
+        FgLog("host: WATCHDOG fences: copy fence completed %llu of signalled %llu%s; Unity frame fence completed %llu, next at Present entry %llu",
+              (unsigned long long)(s.copyFence ? s.copyFence->GetCompletedValue() : 0), (unsigned long long)s.copyVal, s.copyFence ? "" : " (none)",
+              (unsigned long long)(s.unityFence ? s.unityFence->GetCompletedValue() : 0), (unsigned long long)s.unityNext);
+        static char stack[2048];                           // this thread only
+        WdStackLine(s.tid, stack, sizeof(stack));
+        FgLog("host: WATCHDOG presenting thread %u stack: %s", (unsigned)s.tid, stack);
+        SafeRelease(s.unityFence);
+        SafeRelease(s.copyFence);
+        s.queue->Release();
+        s.dev->Release();
     }
     return 0;
 }
-
 void WatchdogStart()
 {
-    if (g_watchThread) return;
-    g_watchStop = CreateEventW(NULL, TRUE, FALSE, NULL);
-    if (g_watchStop) g_watchThread = CreateThread(NULL, 0, PresentWatchdog, NULL, 0, NULL);
+    if (g_watchThread) return;                          // also: a watchdog a Stop could not join is still the one running
+    if (!g_watchStop) g_watchStop = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!g_watchStop) return;
+    ResetEvent(g_watchStop);
+    g_watchThread = CreateThread(NULL, 0, PresentWatchdog, NULL, 0, NULL);
 }
 
 } // namespace
 
-// Plugin unload (UnityPluginUnload, after FgHostShutdown): the watchdog thread must not outlive the module's code.
-void FgHostWatchdogStop(void)
+// Device shutdown (kUnityGfxDeviceEventShutdown) and plugin unload, after FgHostShutdown: the watchdog must not outlive
+// the device it probes nor the engine. It owns references to whatever it is probing, so a probe in flight is safe; it
+// is JOINED here. Only WAIT_OBJECT_0 means the thread is gone: its longest stretch is the 1 s queue probe plus three
+// log lines, so kWatchJoinTries seconds is generous - and if a driver call inside it still has not returned by then,
+// the thread and its handles stay OURS (nothing is closed under a running thread, a later Start does not create a
+// second one) and the log says so. Returns 1 = stopped (or never started).
+int FgHostWatchdogStop(void)
 {
-    if (!g_watchThread) return;
+    if (!g_watchThread) return 1;
     SetEvent(g_watchStop);
-    WaitForSingleObject(g_watchThread, 2000);
-    CloseHandle(g_watchThread); g_watchThread = NULL;
-    CloseHandle(g_watchStop); g_watchStop = NULL;
+    for (int i = 0; i < kWatchJoinTries; ++i) {
+        if (WaitForSingleObject(g_watchThread, 1000) == WAIT_OBJECT_0) {
+            CloseHandle(g_watchThread); g_watchThread = NULL;
+            return 1;
+        }
+    }
+    FgLog("host: WATCHDOG thread did not stop within %d s (a driver call inside its probe has not returned) - left running, handles kept", (int)kWatchJoinTries);
+    return 0;
 }
-
 namespace {
 
 // TEST lever RENDERFORGE_FG_TEST_VRAM_MB=<n> (env, before launch): commit n MB of throwaway 4096x4096 RGBA8 textures on
@@ -1352,13 +1456,35 @@ int FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     }
     c.prov->BeforePresent();                           // the copy is the last write into the shadow back buffer
 
-    InterlockedIncrement(&g_presentNo);
+    // Watchdog snapshot (WdShot): everything a stuck report names, published while this thread is inside the chain.
     const ULONGLONG presentT0 = GetTickCount64();
-    InterlockedExchange64(&g_presentSince, (LONGLONG)presentT0);
+    LONG presentNo;
+    {
+        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        AcquireSRWLockExclusive(&g_wdLock);
+        presentNo = ++g_wd.no;
+        g_wd.dev = H.device; g_wd.queue = H.queue;
+        g_wd.copyFence = c.copy.fence; g_wd.copyVal = c.copy.fenceVal;
+        g_wd.unityFence = unity ? unity->GetFrameFence() : NULL;
+        g_wd.unityNext = unity ? unity->GetNextFrameFenceValue() : 0;
+        strncpy_s(g_wd.prov, sizeof(g_wd.prov), c.prov->Name(), _TRUNCATE);
+        g_wd.epoch = H.epoch; g_wd.chainPresent = (long)H.nPresent; g_wd.tid = GetCurrentThreadId();
+        g_wd.since = presentT0 ? presentT0 : 1;
+        ReleaseSRWLockExclusive(&g_wdLock);
+    }
     HRESULT hr = c.shadow->Present(syncInterval, pf);
-    InterlockedExchange64(&g_presentSince, 0);
-    if (InterlockedExchange(&g_presentFlagged, 0))
-        FgLog("host: WATCHDOG shadow Present #%ld returned 0x%08X after %llu ms", (long)g_presentNo, (unsigned)hr, (unsigned long long)(GetTickCount64() - presentT0));
+    LONG flagged;
+    {
+        AcquireSRWLockExclusive(&g_wdLock);
+        g_wd.since = 0;                                    // from here the watchdog takes no new reference
+        g_wd.dev = NULL; g_wd.queue = NULL; g_wd.copyFence = NULL; g_wd.unityFence = NULL;
+        flagged = g_wd.flagged; g_wd.flagged = 0;
+        ReleaseSRWLockExclusive(&g_wdLock);
+    }
+    // The flag carries the number of the Present it was raised for, and is raised under the lock only while that
+    // Present is in flight - so it can never be read by a later Present as "returned after 0 ms".
+    if (flagged == presentNo)
+        FgLog("host: WATCHDOG shadow Present #%ld returned 0x%08X after %llu ms", (long)presentNo, (unsigned)hr, (unsigned long long)(GetTickCount64() - presentT0));
     H.lastPresentHr = (long)hr;
     c.prov->AfterPresent(hr);
     if (c.logged == 1) {
