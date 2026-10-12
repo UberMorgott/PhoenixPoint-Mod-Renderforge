@@ -112,11 +112,22 @@ struct ProviderXess : IFgProvider
     // xell guide :210-214). Main thread writes `wantUs`, the sleeping thread applies it before its next xellSleep.
     volatile LONG           wantUs;
     LONG                    appliedUs;
+    // Marker bookkeeping (CloseSkipped): the highest id with SIMULATION_END (main thread), the highest id whose
+    // prepare event has run (render thread), the ids of frames nothing was fed in (main thread) and the highest id
+    // with all six markers out.
+    enum { kOpen = 16 };
+    volatile LONG           simEnded, settledId;
+    volatile LONG           unfedId[kOpen];   // main thread: the id of an unfed frame in that slot (no prepare event will come)
+    unsigned                startedId[kOpen]; // render thread: the id that got RENDERSUBMIT_START in that slot
+    unsigned                closedId;      // presenting thread (read by Prepare, serialised by the host's pin)
+    unsigned                skippedClosed; // ids closed without a prepared frame, this chain
     char                    version[64];
 
     ProviderXess() { Zero(); }
     void Zero()
     {
+        simEnded = 0; settledId = 0; closedId = 0; skippedClosed = 0; memset(startedId, 0, sizeof(startedId));
+        for (int i = 0; i < kOpen; ++i) unfedId[i] = 0;
         fg = NULL; ll = NULL; proxy = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; caps = 0; maxInterp = 0;
         enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = 0; capDeferred = 0;
     }
@@ -255,10 +266,42 @@ struct ProviderXess : IFgProvider
         return id;
     }
 
+    // The presenting thread. "All marker types ... must be delivered each frame for XeLL to correctly calculate and
+    // execute the xellSleep API call" (xell guide "Markers", xell.h:74-79 "required"). FrameBegin opens an id for every
+    // paced frame, and some never reach Prepare: the frames of the grace period after the feed stops (FrameGen.cs
+    // IdleAfter), a refused or failed prepare, a superseded one. Each of those gets its four missing markers here,
+    // in id order, so no id is left open: before a prepared frame's own markers (every id below it is settled - the
+    // prepare events come in id order), and on a Present without a prepared frame every id that can no longer be
+    // prepared - nothing was fed in its frame (FrameUnfed, main thread) or its prepare event has run (PrepareDone,
+    // render thread; a Present without a prepared frame means that event left it unprepared). An id whose event is
+    // still to come stops the walk. Prepare refuses an id closed this way (cannot happen by the above; a backstop).
+    void CloseSkipped(unsigned upTo, bool onlySettled)
+    {
+        const unsigned settled = (unsigned)InterlockedCompareExchange(&settledId, 0, 0);
+        while (closedId < upTo) {
+            const unsigned id = closedId + 1;
+            if (onlySettled && id > settled && (unsigned)unfedId[id % kOpen] != id && upTo - id < kOpen) break;
+            if (startedId[id % kOpen] != id) Mark(ll, id, XELL_RENDERSUBMIT_START);   // a superseded frame already has it (Prepare)
+            Mark(ll, id, XELL_RENDERSUBMIT_END);
+            Mark(ll, id, XELL_PRESENT_START);
+            Mark(ll, id, XELL_PRESENT_END);
+            closedId = id;
+            ++skippedClosed;
+        }
+    }
+
+    void UnpreparedPresent()
+    {
+        if (!ll || !fg || !mainPacing) return;
+        CloseSkipped((unsigned)InterlockedCompareExchange(&simEnded, 0, 0), true);
+    }
+    void FrameUnfed(unsigned id) { if (id) InterlockedExchange(&unfedId[id % kOpen], (LONG)id); }
+    void PrepareDone(unsigned id) { if ((LONG)id > settledId) InterlockedExchange(&settledId, (LONG)id); }
+
     // Main thread, start of the frame / after LateUpdate. An unpaced frame (nothing fed to the chain) gets no XeLL
     // frame: XeLL ids must be consecutive AND each one must see all its markers through a Present (xell.h:74-79).
     unsigned FrameBegin(bool pace) { return ll && fg && mainPacing && pace ? Sleep() : 0; }
-    void SimEnd(unsigned id) { if (ll && fg && mainPacing && id) Mark(ll, id, XELL_SIMULATION_END); }
+    void SimEnd(unsigned id) { if (ll && fg && mainPacing && id) { Mark(ll, id, XELL_SIMULATION_END); InterlockedExchange(&simEnded, (LONG)id); } }
 
     // Main thread. XeLL's last 64 frame reports (xell.h xell_frame_report_t, nanoseconds).
     void Stats(char* buf, int cap)
@@ -296,7 +339,7 @@ struct ProviderXess : IFgProvider
         // Main-thread pacing: this frame's id was opened by FrameBegin. None = the frame was fed before the pacer started
         // (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same id twice =
         // a second prepare event inside one frame.
-        if (mainPacing && (!f.paceId || f.paceId == presentId)) return false;
+        if (mainPacing && (!f.paceId || f.paceId == presentId || f.paceId <= closedId)) return false;
         // FgHudless12: the host's flipped copy in the back buffer's format (FgTwins.h). None = tag depth/mv/constants
         // anyway (XeSS-FG interpolates from the back buffer; hudless is optional).
         DXGI_FORMAT hudFmt = DXGI_FORMAT_UNKNOWN;
@@ -313,6 +356,7 @@ struct ProviderXess : IFgProvider
             Mark(ll, presentId, XELL_SIMULATION_END);
         }
         marked = 0;
+        startedId[presentId % kOpen] = presentId;
         Mark(ll, presentId, XELL_RENDERSUBMIT_START);
 
         Tag(list, XEFG_SWAPCHAIN_RES_MOTION_VECTOR, mv, o->w, o->h, "mv");
@@ -357,6 +401,7 @@ struct ProviderXess : IFgProvider
     {
         if (!fg || marked) return;
         marked = 1;
+        if (mainPacing && presentId) CloseSkipped(presentId - 1, false);
         Mark(ll, presentId, XELL_RENDERSUBMIT_END);
         Mark(ll, presentId, XELL_PRESENT_START);
     }
@@ -364,7 +409,7 @@ struct ProviderXess : IFgProvider
     void AfterPresent(HRESULT)
     {
         if (!fg) return;
-        if (marked == 1) { marked = 2; Mark(ll, presentId, XELL_PRESENT_END); }
+        if (marked == 1) { marked = 2; Mark(ll, presentId, XELL_PRESENT_END); if (mainPacing && presentId > closedId) closedId = presentId; }
         xefg_swapchain_present_status_t st = {};
         if (xefgSwapChainGetLastPresentStatus(fg, &st) != XEFG_SWAPCHAIN_RESULT_SUCCESS) return;
         lastRc = (int)st.frameGenResult;
@@ -399,7 +444,7 @@ struct ProviderXess : IFgProvider
         }
         if (ll && !force) { xellDestroyContext(ll); }
         ll = NULL;
-        FgLog("xess: destroyed (XeSS-FG %s, generated %lld, lastRc %d)", version, generated, lastRc);
+        FgLog("xess: destroyed (XeSS-FG %s, generated %lld, lastRc %d, XeLL ids %u, closed without a prepared frame %u)", version, generated, lastRc, nextId, skippedClosed);
         Zero();                                                    // the Intel modules stay resident (delay-load bound)
         return true;
     }

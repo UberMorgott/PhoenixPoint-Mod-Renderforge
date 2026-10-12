@@ -99,6 +99,7 @@ struct Host
     volatile LONG         hudless;      // the last provider Prepare of this chain: 1 = tagged a hud-less colour, 0 = did not, -1 = none yet
     unsigned              paceId;       // main thread: the pace id of the frame in progress (0 = this frame is not paced)
     unsigned              simId;        // main thread: the id FrameBegin opened this frame, paced or not (SimEnd closes it)
+    int                   fed;          // main thread: FgHostSetFrame ran since the last FgHostFrameBegin
     // Totals of the live chain (status line): prepare events, prepared frames, presents seen, presents taken the idle way,
     // prepares that waited for a Present, duplicate prepare events refused, Pin timeouts; the longest prepare wait (ms).
     volatile LONG         nPrepare, nPrepared, nPresent, nIdle, nWaited, nDup, nStall;
@@ -547,7 +548,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.reason = NULL;
     H.lastPresentHr = 0;
     H.prepared = 0; H.idle = 0; H.hidden = 0; H.prepFails = 0; H.havePaired = 0; H.haveSent = 0; H.twinsOk = 0;              // a fresh child starts shown (FgWnd WM_RF_CREATE)
-    H.paceId = 0; H.simId = 0; H.lastEvPace = 0; H.maxWaitMs = 0;
+    H.paceId = 0; H.simId = 0; H.fed = 0; H.lastEvPace = 0; H.maxWaitMs = 0;
     H.nPrepare = H.nPrepared = H.nPresent = H.nIdle = H.nWaited = H.nDup = H.nStall = 0;
     H.hudless = -1;
     H.presentStalled = 0; H.tidLogged = 0;
@@ -584,6 +585,8 @@ static IFgProvider* LiveEnabled()
 unsigned FgHostFrameBegin(int pace)
 {
     IFgProvider* p = LiveEnabled();
+    if (p && H.paceId && !H.fed) p->FrameUnfed(H.paceId);   // the frame before this one was paced and fed nothing
+    H.fed = 0;
     H.simId = p ? p->FrameBegin(pace != 0) : 0;
     H.paceId = pace ? H.simId : 0;
     return H.paceId;
@@ -664,6 +667,7 @@ const FgFrame* FgHostSetFrame(const FgFrame& f)
         oh = H.slot.hudless; od = H.slot.depth; om = H.slot.mv;
         H.slot = f;
         H.slot.paceId = H.paceId;       // the frame the main thread is in (FgHostFrameBegin)
+        H.fed = 1;
         r = &H.ring[H.ringIdx++ % kFrameRing];
         *r = H.slot;
     }
@@ -765,6 +769,7 @@ void FgHostPrepare(const FgFrame* ev)
         H.prepared = ok;
         if (ok) InterlockedIncrement(&H.nPrepared);
     }
+    if (ev && ev->paceId) H.c.prov->PrepareDone(ev->paceId);
     Unpin(NULL);
 }
 
@@ -863,6 +868,7 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
         if (++H.idle == 1) { H.hidden = 1; FgWndShow(false); FgLog("host: idle: no prepared frame - child hidden, provider untouched, Unity presents on its own"); }
         // A real idle stretch (a menu, a loading screen), not one skipped frame: tell the provider (DLSS-G goes eOff).
         if (H.idle == kIdleNotify) c.prov->Idle();
+        c.prov->UnpreparedPresent();
         Unpin(NULL);
         return false;
     }
