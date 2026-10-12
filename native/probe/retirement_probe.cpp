@@ -29,17 +29,26 @@ struct PendingProvider : ProviderNone {
     bool Destroy(bool force) override { ++calls; Check(!force, "retries never force destruction"); return ready; }
 };
 // Review 2 (2026-10-12): what the host asks of a provider at its deferred-request points.
+static ID3D12CommandQueue* s_queue;
 struct ProbeProvider : ProviderNone {
     int setEnabled = 0, lastOn = -1, quiescent = 0, unprepared = 0, after = 0; unsigned done = 0; bool wants = false, hold = false;
+    int refuse = 0;                     // review 3: the next `refuse` Quiescent calls report "the SDK refused"
+    ID3D12Fence* block = NULL;          // review 3: Quiescent leaves the queue waiting on this fence = work behind the SDK call
     void SetEnabled(bool on) override { ++setEnabled; lastOn = on ? 1 : 0; }
     bool WantsQuiescent() override { return wants; }
-    bool Quiescent() override { ++quiescent; wants = false; return true; }
+    bool Quiescent() override
+    {
+        ++quiescent;
+        if (refuse > 0) { --refuse; return false; }
+        if (block) s_queue->Wait(block, 1);
+        wants = false; return true;
+    }
     void PrepareDone(unsigned id) override { if (id > done) done = id; }
     bool UnpreparedPresent() override { ++unprepared; return hold; }
     void AfterUnpreparedPresent() override { ++after; }
 };
 // A Unity D3D12 interface over a real WARP queue: D3D12Ring::DrainQueue signals and waits on it.
-static ID3D12Device* s_dev; static ID3D12CommandQueue* s_queue; static ID3D12Fence* s_frameFence;
+static ID3D12Device* s_dev; static ID3D12Fence* s_frameFence;
 static ID3D12Device* UNITY_INTERFACE_API FakeDevice() { return s_dev; }
 static ID3D12Fence* UNITY_INTERFACE_API FakeFrameFence() { return s_frameFence; }
 static UINT64 UNITY_INTERFACE_API FakeNextFrame() { return 1; }
@@ -52,6 +61,7 @@ static DWORD OldWaitOn(HANDLE ev, ID3D12Fence* f, UINT64 value, DWORD ms)
     return WaitForSingleObject(ev, ms);
 }
 static DWORD WINAPI SignalThreeLater(void* f) { Sleep(120); ((ID3D12Fence*)f)->Signal(3); return 0; }
+static DWORD WINAPI PrepareThread(void* ev) { FgHostPrepare((const FgFrame*)ev); return 0; }
 int main()
 {
     Dlss_BeginRelease();
@@ -135,6 +145,7 @@ int main()
         ProbeProvider pp;
         H.state = kLive; H.enabled = 0; H.c.prov = &pp; H.provWant = -1; H.provOn = -1; H.evDone = 0; H.quiesceSkip = 0; H.prepared = 0; H.idle = 0;
         H.nQuiesce = H.nQuiesceFail = 0;
+        H.epoch = 5;                                                  // a chain generation, as FgHostInit publishes one
         H.c.copy.Attach(device);
 
         // Provider on/off: only between a successful PinMain and its Unpin.
@@ -154,7 +165,7 @@ int main()
 
         // A prepare event that never gets the pin still counts as run.
         Check(Pin(false), "a Present inside the chain");
-        FgFrame e7 = {}; e7.paceId = 7;
+        FgFrame e7 = {}; e7.paceId = 7; e7.epoch = 5;
         FgHostPrepare(&e7);
         Check(H.evDone == 7 && pp.done == 0 && H.pinned == 1, "prepare event that timed out on the pin is recorded as run");
         Unpin(NULL);
@@ -165,7 +176,9 @@ int main()
         pp.wants = true; pp.hold = true;
         int r = FgHostOnPresent(app, 0, 0);
         Check(r == FG_PRESENT_HELD && H.pinned == 1 && pp.unprepared == 1 && pp.after == 0, "unprepared Present with opened ids: forwarded with the pin held");
-        Check(pp.quiescent == 1 && H.nQuiesce == 1 && H.c.copy.fenceVal == 1 && H.c.copy.fence->GetCompletedValue() == 1, "quiescent point served behind a real drain of the queue");
+        // Three Signals of the copy ring's fence: the drain (waited for), the control probe before the provider's call
+        // and the probe behind it (review 3, ServeQuiescent).
+        Check(pp.quiescent == 1 && H.nQuiesce == 1 && H.c.copy.fenceVal == 3 && H.c.copy.fence->GetCompletedValue() >= 1, "quiescent point served behind a real drain of the queue");
         Check(pp.done == 7, "the presenting thread tells the provider of the event that gave up without the pin");
         FgHostAfterForwardedPresent();
         Check(pp.after == 1 && H.pinned == 0, "present end reported after the forwarded Present, pin dropped");
@@ -179,9 +192,96 @@ int main()
         Check(pp.quiescent == 1, "backoff: no drain per Present while the request waits");
         FgHostOnPresent(app, 0, 0);
         Check(pp.quiescent == 2 && !pp.wants && H.nQuiesce == 2, "served at the retry");
-        FgFrame e8 = {}; e8.paceId = 8;
+        FgFrame e8 = {}; e8.paceId = 8; e8.epoch = 5;
         FgHostPrepare(&e8);
         Check(H.evDone == 8 && pp.done == 8 && H.pinned == 0, "a prepare event that ran settles its id before it unpins");
+
+        // ---- review 3 (2026-10-12) --------------------------------------------------------------------------
+        // Finding 1, the host's half: a provider whose SDK call was refused (Quiescent false) keeps its request - the
+        // point is neither counted as served nor dropped, and it is tried again with the same back-off as a failed drain.
+        {
+            const int q0 = pp.quiescent; const LONG s0 = H.nQuiesce, f0 = H.nQuiesceFail;
+            pp.wants = true; pp.hold = false; pp.refuse = 2; H.quiesceSkip = 0;
+            FgHostOnPresent(app, 0, 0);
+            Check(pp.quiescent == q0 + 1 && pp.wants && H.nQuiesce == s0 && H.nQuiesceFail == f0 + 1 && H.quiesceSkip == kQuiesceRetry, "SDK refusal: not served, the request stays pending, back-off armed");
+            for (int i = 0; i < kQuiesceRetry; ++i) FgHostOnPresent(app, 0, 0);
+            Check(pp.quiescent == q0 + 1, "SDK refusal: no call per Present during the back-off");
+            FgHostOnPresent(app, 0, 0);
+            Check(pp.quiescent == q0 + 2 && pp.wants && H.nQuiesceFail == f0 + 2, "SDK refusal: retried after the back-off, refused again, still pending");
+            for (int i = 0; i < kQuiesceRetry; ++i) FgHostOnPresent(app, 0, 0);
+            FgHostOnPresent(app, 0, 0);
+            Check(pp.quiescent == q0 + 3 && !pp.wants && H.nQuiesce == s0 + 1, "SDK accepts at the third try: served once");
+            Check(H.nQuiesceBusy == 0, "an empty queue behind the SDK call is not reported busy");
+            // Unknown 3: work that reaches the queue while the provider's call runs is noticed (the queue is probed
+            // before and behind the call). The queue is left waiting on an unsignalled fence = something in flight.
+            ID3D12Fence* blk = NULL;
+            Check(SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&blk))), "block fence");
+            pp.wants = true; pp.block = blk;
+            FgHostOnPresent(app, 0, 0);
+            Check(!pp.wants && H.nQuiesce == s0 + 2 && H.nQuiesceBusy == 1, "work on the queue behind the SDK call is counted (quiesceBusy)");
+            blk->Signal(1);
+            Check(H.c.copy.WaitOn(H.c.copy.fence, H.c.copy.fenceVal, 2000) == WAIT_OBJECT_0, "the queue runs on once that work is done");
+            pp.block = NULL; blk->Release();
+            Check(H.presentTid == GetCurrentThreadId() && H.nPresentTidSw == 0, "one presenting thread: tid recorded, no switch");
+        }
+        // Finding 2: a prepare event queued for a chain that was destroyed and rebuilt before the render thread ran it.
+        {
+            auto in = OwnedSet12::Make(device, 8, 8, DXGI_FORMAT_R8G8B8A8_UNORM, false, L"in");
+            Check(in != NULL, "input texture");
+            FgFrame fr = {}; fr.hudless = in; fr.depth = in; fr.mv = in; fr.frameId = 100;
+            H.prepared = 0; H.presentStalled = 0; H.evDone = 0; H.lastEvPace = 0; pp.done = 0;
+            H.paceId = 500;                                           // the old chain's pacer is at id 500
+            const FgFrame* evOld = FgHostSetFrame(fr);
+            Check(evOld->epoch == 5 && evOld->paceId == 500, "a fed block carries its chain's epoch and pace id");
+            // ... the chain is released and rebuilt (FrameGen.Apply, multiplier change); the event is still queued.
+            PublishChain(&pp, 6);
+            Check(H.epoch == 6 && H.evDone == 0 && H.lastEvPace == 0, "a new generation is published with a clean slate");
+            const LONG prep0 = H.nPrepare;
+            FgHostPrepare(evOld);
+            Check(H.nStale == 1 && H.evDone == 0 && pp.done == 0, "stale event: the new chain's pending ids are NOT declared settled");
+            Check(H.prepared == 0 && H.nPrepare == prep0 && H.lastEvPace == 0 && H.pinned == 0, "stale event: nothing prepared, nothing pinned, the duplicate filter untouched");
+            EventRan(5, 900);
+            Check(H.evDone == 0, "EventRan of another generation records nothing");
+            // The same event with a thread inside the chain: dropped at once, it does not even wait for the pin.
+            Check(Pin(false), "a Present inside the new chain");
+            ULONGLONG t0 = GetTickCount64();
+            FgHostPrepare(evOld);
+            Check(GetTickCount64() - t0 < 50 && H.nStale == 2 && H.evDone == 0 && H.pinned == 1, "stale event behind a Present: dropped without the pin wait");
+            // An event of the LIVE generation that waits for the pin while the chain is replaced under it: the wait
+            // re-checks the generation when it wakes and gives up without recording its id.
+            H.paceId = 1;
+            fr.frameId = 101;
+            const FgFrame* evLive = FgHostSetFrame(fr);
+            Check(evLive->epoch == 6 && evLive->paceId == 1, "the new chain's ids start again at 1");
+            HANDLE th = CreateThread(NULL, 0, PrepareThread, (void*)evLive, 0, NULL);
+            Sleep(30);                                                // it is inside Pin(true) now, waiting for this thread
+            PublishChain(&pp, 7);
+            Unpin(NULL);
+            WaitForSingleObject(th, INFINITE); CloseHandle(th);
+            Check(H.nStale == 3 && H.evDone == 0 && H.prepared == 0 && H.pinned == 0, "generation changed during the pin wait: re-checked after the wake, event dropped");
+            // Control: the generation is the only thing between such an event and the chain.
+            H.paceId = 2;
+            fr.frameId = 102;
+            const FgFrame* evNew = FgHostSetFrame(fr);
+            FgHostPrepare(evNew);
+            Check(H.nStale == 3 && H.prepared == 1 && H.evDone == 2 && pp.done == 2 && H.lastEvPace == 2, "an event of the live generation is prepared and settles its own id");
+            FgHostPrepare(evNew);
+            Check(H.nDup == 1 && H.prepared == 1, "its duplicate is still refused as a duplicate");
+            // A capture armed on one generation is neither noted nor written by the next.
+            H.prepared = 0;
+            Check(FgHostCapture(L".") == 1 && FgCaptureArmed(), "capture armed on the live chain");
+            PublishChain(&pp, 8);
+            Check(!FgCaptureArmed() && FgHostCaptureStatus() == 1, "a rebuilt chain does not take the old chain's capture");
+            Check(FgHostCapture(L".") == 1 && FgCaptureArmed(), "and a new one can be armed at once");
+            InterlockedExchange(&g_cap.state, 0);
+            // The result of Unity's own Present comes back unpinned: it detaches the chain it belonged to, no other.
+            t_presentEpoch = 7;
+            FgHostAfterUnityPresent(E_FAIL);
+            Check(FgHostAlive() == 1, "a failed Unity Present of the previous generation does not detach the new chain");
+            H.paceId = 0;
+            fr.hudless = fr.depth = fr.mv = NULL; FgHostSetFrame(fr);  // drop the slot's references
+            in->Release();
+        }
 
         H.c.app = NULL; H.c.shadow = NULL;
         Check(FgHostShutdown() && FgHostRetired() && pp.lastOn == 0, "probe chain torn down, provider switched off detached");
@@ -203,5 +303,5 @@ int main()
     Check(ring.Release(), "ring release idempotent");
     owned.Release(); idle.Release(); a->Release(); b->Release();
     device->Release(); warp->Release(); factory->Release();
-    printf("retirement_probe: PASS %d checks (pinned/refused/success/re-enable/real WARP fence+resize/stale fence wake/deferred enable/quiescent point/event settling/capture retention)\n", checks);
+    printf("retirement_probe: PASS %d checks (pinned/refused/success/re-enable/real WARP fence+resize/stale fence wake/deferred enable/quiescent point/event settling/capture retention/SDK refusal back-off/queue probe/stale chain epoch)\n", checks);
 }
