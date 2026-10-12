@@ -106,6 +106,8 @@ struct ProviderXess : IFgProvider
     int                     marked;        // RENDERSUBMIT_END/PRESENT_START issued for presentId (Generate ran)
     long long               generated;     // interpolated frames the proxy reported presenting
     int                     warned;
+    unsigned                capDeferred;   // cap changes put off because the chain could not be quiesced (log throttle)
+    enum { kQuiesceMs = 200 };             // the longest a cap change waits for the chain and Unity's queue
     // XeLL frame cap: minimumIntervalUs for the PRESENTED rate (XeLL halves the rendered rate itself with XeSS-FG,
     // xell guide :210-214). Main thread writes `wantUs`, the sleeping thread applies it before its next xellSleep.
     volatile LONG           wantUs;
@@ -116,7 +118,7 @@ struct ProviderXess : IFgProvider
     void Zero()
     {
         fg = NULL; ll = NULL; proxy = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; caps = 0; maxInterp = 0;
-        enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = 0;
+        enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = 0; capDeferred = 0;
     }
 
     int Id() const { return FG_PROVIDER_XESS; }
@@ -185,7 +187,17 @@ struct ProviderXess : IFgProvider
         s.factory->MakeWindowAssociation(child, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
         xefgSwapChainSetUiCompositionState(fg, XEFG_SWAPCHAIN_UI_COMPOSITION_STATE_ENABLED);
 
-        // XeLL on; the fps cap follows through SetFrameLimit. Render is idle here (Init runs on the main thread).
+        // XeLL on; the fps cap follows through SetFrameLimit. Init runs on the main thread with no chain live (nothing
+        // of ours is in flight); Unity's queue is drained first all the same (xell guide :131, as in Sleep()).
+        {
+            ID3D12Fence* idle = NULL;
+            HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
+            if (ev && SUCCEEDED(s.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&idle))) &&
+                SUCCEEDED(s.queue->Signal(idle, 1)) && SUCCEEDED(idle->SetEventOnCompletion(1, ev)))
+                WaitForSingleObject(ev, kQuiesceMs);
+            if (idle) idle->Release();
+            if (ev) CloseHandle(ev);
+        }
         xell_sleep_params_t sp = {};
         sp.bLowLatencyMode = 1;
         lr = xellSetSleepMode(ll, &sp);
@@ -214,13 +226,22 @@ struct ProviderXess : IFgProvider
     {
         LONG us = InterlockedCompareExchange(&wantUs, 0, 0);
         if (us != appliedUs) {
-            xell_sleep_params_t sp = {};
-            sp.bLowLatencyMode = 1;
-            sp.minimumIntervalUs = (uint32_t)us;
-            xell_result_t lr;
-            { XellLock lk; lr = xellSetSleepMode(ll, &sp); }
-            appliedUs = us;
-            FgLog("xess: XeLL frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
+            // "application must ensure any GPU activity is finished before xellSetSleepMode is called" (xell guide
+            // :131). Main thread, between two frames: the chain is taken from the render and presenting threads and
+            // Unity's queue drained first (FgHostQuiesce). What Unity's own render thread still has to submit of the
+            // frame in flight is out of reach from here; a quiesce that fails (a Present stuck in the proxy's pacing
+            // wait) leaves the cap for the next frame. Render-thread pacing (diagnostic) is already inside the pin.
+            const bool held = mainPacing ? FgHostQuiesce(kQuiesceMs) : false;
+            if (held || !mainPacing) {
+                xell_sleep_params_t sp = {};
+                sp.bLowLatencyMode = 1;
+                sp.minimumIntervalUs = (uint32_t)us;
+                xell_result_t lr;
+                { XellLock lk; lr = xellSetSleepMode(ll, &sp); }
+                appliedUs = us;
+                FgLog("xess: XeLL frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
+            } else if (capDeferred++ % 240 == 0) FgLog("xess: XeLL frame cap %ld us deferred - chain busy", us);
+            if (held) FgHostResume();
         }
         unsigned id = ++nextId;
         xellSleep(ll, id);                                 // never under the lock: it blocks for the pacing interval

@@ -231,6 +231,11 @@ int  FgHostSetFrameLimit(unsigned presentedFps);   // main thread; 1 = the live 
 // here); FgHostSetFrame stamps it into the frame's block.
 unsigned FgHostFrameBegin(int pace);
 void FgHostSimEnd(void);
+// Main thread, from a provider's FrameBegin: the chain pinned by the caller (no Prepare, no Present inside it) and
+// Unity's queue drained, for an SDK call that wants the GPU work finished (xellSetSleepMode, xell guide :131).
+// True = held, FgHostResume() must follow; false = no live chain or the thread inside did not leave in `waitMs`.
+bool FgHostQuiesce(unsigned waitMs);
+void FgHostResume(void);
 // Main thread. Frames the live chain prepared so far (provider Prepare recorded + submitted); restarts with a chain.
 unsigned FgHostPreparedCount(void);
 // Main thread. The live chain's last Prepare: 1 = hud-less colour tagged, 0 = not, -1 = no Prepare yet / no chain since.

@@ -290,6 +290,25 @@ void Unpin(const char* tearWhy)
     if (tearWhy) Detach(tearWhy);
 }
 
+// Main thread: the chain to itself - no Prepare and no Present inside it - for a vendor call that must not overlap
+// either: slDLSSGSetOptions "is NOT thread safe" (sl_dlss_g.h:207) and the render thread issues it from Prepare;
+// xellSetSleepMode wants the GPU work finished first (xell guide :131). Waits (bounded) for the thread inside to
+// leave. False = no live chain, or the wait timed out: nothing is pinned then. Unpin(NULL) ends it.
+bool PinMain(DWORD waitMs)
+{
+    Locked lk;
+    const ULONGLONG until = GetTickCount64() + waitMs;
+    for (;;) {
+        if (H.state != kLive) return false;
+        if (!H.pinned) break;
+        ULONGLONG now = GetTickCount64();
+        if (now >= until) return false;
+        SleepConditionVariableSRW(&g_unpinned, &g_lock, (DWORD)(until - now), 0);
+    }
+    H.pinned = 1;
+    return true;
+}
+
 // ---------------------------------------------------------------- capture (diagnostic, Fg_Capture)
 
 struct Capture
@@ -567,6 +586,16 @@ void FgHostSimEnd(void)
     IFgProvider* p = H.simId ? LiveEnabled() : NULL;
     if (p) p->SimEnd(H.simId);
 }
+
+// Main thread (a provider's FrameBegin). True = the chain is pinned by this thread and everything on Unity's queue has
+// retired (the prep ring's fence: only pinned threads touch that ring); FgHostResume must follow. False = nothing held.
+bool FgHostQuiesce(unsigned waitMs)
+{
+    if (!PinMain(waitMs)) return false;
+    if (!H.c.prep.DrainQueue(waitMs)) FgLog("host: quiesce: Unity's queue did not drain within %u ms", waitMs);
+    return true;
+}
+void FgHostResume(void) { Unpin(NULL); }
 
 unsigned FgHostPreparedCount(void) { return (unsigned)H.nPrepared; }
 void FgNoteHudless(bool tagged) { InterlockedExchange(&H.hudless, tagged ? 1 : 0); }

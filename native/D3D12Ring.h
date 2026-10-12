@@ -191,6 +191,19 @@ struct D3D12Ring
 
     bool Removed() { return device && FAILED(device->GetDeviceRemovedReason()); }
 
+    // Everything on Unity's queue at this moment has retired - a fresh Signal of our own fence, not a slot's. For a
+    // resource that work queued OUTSIDE this ring may still read (a vendor chain reads its inputs from inside Present,
+    // after the list that wrote them). False = no queue / fence, a failed Signal or a timeout.
+    bool DrainQueue(DWORD waitMs = kFenceWaitMs)
+    {
+        IUnityGraphicsD3D12v5* unity = g_unityD3D12;
+        ID3D12CommandQueue* q = unity ? unity->GetCommandQueue() : NULL;
+        if (!q || !fence || trackingLost) return false;
+        if (FAILED(q->Signal(fence, fenceVal + 1))) return false;
+        ++fenceVal;
+        return WaitOn(fence, fenceVal, waitMs) == WAIT_OBJECT_0;
+    }
+
     // A failed Signal loses proof of retirement. Retain the complete ring and stop submitting until
     // device removal; starting another generation cannot make its referenced resources safe to destroy.
     void Quarantine(int i)
