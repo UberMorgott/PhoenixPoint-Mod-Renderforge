@@ -22,6 +22,12 @@
 // then the wish waits in `wantUs` and XeLL runs in pass-through, which the guide describes as the normal disabled
 // state (:112-115). Frame generation itself is switched on right behind the first sleep mode, never before it
 // ("XeLL must be enabled before enabling frame generation", xess_fg guide :237, :648).
+// SDK RESULTS (docs\DESIGN.md "SDK results decide state"): `appliedUs` and `fgOn` say what the SDK ACCEPTED, never what
+// was asked. A refused xellSetSleepMode leaves appliedUs alone - so frame generation is not enabled behind it and the
+// request stays pending; a refused xefgSwapChainSetEnabled leaves fgOn alone - so Prepare keeps refusing frames. Both
+// are retried at later quiescent points (the host backs off kQuiesceRetry presents after a `false`), kSdkFailMax
+// times in a row; then the provider is DEAD: it asks for nothing more, prepares nothing, and the managed starvation
+// watchdog (FrameGen.Starved) tears the chain down, marks the provider failed and restores Unity's limiter.
 // THREADS: XeLL is called from three - main (xellSleep, SIMULATION_*, reports), render (RENDERSUBMIT_START) and the
 // presenting thread (RENDERSUBMIT_END, PRESENT_*, xellSetSleepMode). The XeLL guide and xell.h say nothing
 // about thread safety (only that the logging callback "can be called from other threads", xell.h:114; the XeSS-FG
@@ -83,12 +89,17 @@ struct XellLock
     XellLock()  { AcquireSRWLockExclusive(&g_xellLock); }
     ~XellLock() { ReleaseSRWLockExclusive(&g_xellLock); }
 };
-// Any thread: one XeLL marker, serialised with every other XeLL call of ours (file header THREADS).
+volatile LONG g_markFails;  // refused xellAddMarkerData calls, process lifetime (Stats line; the first few are logged)
+// Any thread: one XeLL marker, serialised with every other XeLL call of ours (file header THREADS). A refused marker
+// changes no state of ours (the id bookkeeping follows what was SENT, in order); it is counted and logged.
 void Mark(xell_context_handle_t ll, unsigned id, xell_latency_marker_type_t m)
 {
-    XellLock lk;
-    xellAddMarkerData(ll, id, m);
+    xell_result_t r;
+    { XellLock lk; r = xellAddMarkerData(ll, id, m); }
+    if (r != XELL_RESULT_SUCCESS && InterlockedIncrement(&g_markFails) <= 8) FgLog("xess: xellAddMarkerData(id %u, marker %d) %d", id, (int)m, (int)r);
 }
+// XeSS-FG reports warnings as positive codes (xefg_swapchain.h: WARNING_* > 0): the call took effect.
+bool XefgOk(xefg_swapchain_result_t r) { return (int)r >= 0; }
 
 // xellSleep (the sleeping thread: main, or the render thread under the diagnostic render pacing) and xellSetSleepMode
 // (the presenting thread) never run inside XeLL together. g_sleepLock guards the STATE WORD only and is never held
@@ -155,6 +166,11 @@ struct ProviderXess : IFgProvider
     int                     warned;
     unsigned                modeDeferred;  // sleep-mode changes put off because the sleeping thread did not leave xellSleep (log throttle)
     enum { kSleepWaitMs = 100 };           // the longest Quiescent waits for the sleeping thread to leave xellSleep
+    // SDK refusals in a row (file header SDK RESULTS; pinned threads only): xellSetSleepMode, xefgSwapChainSetEnabled(1),
+    // Prepares whose tags / constants the SDK refused. `dead`: one of them reached its limit.
+    enum { kSdkFailMax = 8, kInputFailMax = 120 };
+    int                     modeFails, enableFails, inputFails, inputBad;
+    volatile LONG           dead;
     unsigned                epoch;         // the host's chain generation this provider was created for (FgSetup::epoch)
     // XeLL sleep mode: low latency on + minimumIntervalUs for the PRESENTED rate (XeLL halves the rendered rate itself
     // with XeSS-FG, xell guide :210-214). Main thread writes `wantUs` (SetFrameLimit); the presenting thread issues
@@ -182,7 +198,14 @@ struct ProviderXess : IFgProvider
         for (int i = 0; i < kOpen; ++i) unfedId[i] = 0;
         fg = NULL; ll = NULL; proxy = NULL; backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; caps = 0; maxInterp = 0;
         enabled = 0; lastRc = 0; nextId = 0; presentId = 0; mainPacing = 1; marked = 1; generated = 0; warned = 0; version[0] = 0; wantUs = 0; appliedUs = -1; fgOn = 0; modeDeferred = 0;
-        epoch = 0;
+        modeFails = enableFails = inputFails = inputBad = 0; dead = 0; epoch = 0;
+    }
+
+    // Pinned threads. The provider failed for good: nothing more is asked of the SDK for this chain except its teardown.
+    void GiveUp(const char* what, int rc)
+    {
+        if (InterlockedExchange(&dead, 1)) return;
+        FgLog("xess: %s kept failing (last result %d) - provider FAILED for this chain: no frame is prepared any more, the driver's starvation watchdog drops it and restores the frame limiter", what, rc);
     }
 
     int Id() const { return FG_PROVIDER_XESS; }
@@ -228,8 +251,9 @@ struct ProviderXess : IFgProvider
         // Before init only maxSupportedInterpolations is reported (xefg_swapchain.h:339-340); 1 on non-Intel GPUs.
         xefg_swapchain_properties_t props = {};
         r = xefgSwapChainGetProperties(fg, &props);
-        maxInterp = (r == XEFG_SWAPCHAIN_RESULT_SUCCESS && props.maxSupportedInterpolations) ? props.maxSupportedInterpolations : 1;
-        g_maxInterp = maxInterp;
+        const bool measured = XefgOk(r) && props.maxSupportedInterpolations;
+        maxInterp = measured ? props.maxSupportedInterpolations : 1;
+        if (measured) g_maxInterp = maxInterp;                    // a failed query is not a measurement: asked again next time
         caps = CapsFor(maxInterp);
         FgLog("xess: maxSupportedInterpolations=%u (rc %d) -> caps 0x%X", maxInterp, (int)r, caps);
         if (s.multiplier - 1 > maxInterp) { FgLog("xess: %ux asked, %ux supported", s.multiplier, maxInterp + 1); return Fail(FG_ERR_UNSUPPORTED_MULTIPLIER); }
@@ -250,7 +274,8 @@ struct ProviderXess : IFgProvider
         r = xefgSwapChainD3D12GetSwapChainPtr(fg, __uuidof(IDXGISwapChain4), (void**)&proxy);
         if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS || !proxy) { FgLog("xess: GetSwapChainPtr %d", (int)r); proxy = NULL; return Fail(FG_ERR_NO_SWAPCHAIN); }
         s.factory->MakeWindowAssociation(child, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
-        xefgSwapChainSetUiCompositionState(fg, XEFG_SWAPCHAIN_UI_COMPOSITION_STATE_ENABLED);
+        r = xefgSwapChainSetUiCompositionState(fg, XEFG_SWAPCHAIN_UI_COMPOSITION_STATE_ENABLED);
+        if (!XefgOk(r)) FgLog("xess: SetUiCompositionState %d - the HUD is interpolated with the frame", (int)r);
 
         // No xellSetSleepMode here: Create runs on the main thread while Unity renders, and nothing this thread can
         // do proves the GPU idle (xell guide :131). appliedUs stays -1 = WantsQuiescent(): the first Present of the
@@ -277,7 +302,7 @@ struct ProviderXess : IFgProvider
         rd.pResource = res;
         rd.incomingState = D3D12_RESOURCE_STATE_COMMON;
         xefg_swapchain_result_t r = xefgSwapChainD3D12TagFrameResource(fg, list, presentId, &rd);
-        if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (warned < 8) { ++warned; FgLog("xess: tag %s %d", what, (int)r); } }
+        if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (!XefgOk(r)) inputBad = 1; if (warned < 8) { ++warned; FgLog("xess: tag %s %d", what, (int)r); } }
     }
 
     // The sleeping thread: a fresh id, xellSleep (first call for a new id), SIMULATION_START. The sleep mode is not
@@ -298,12 +323,13 @@ struct ProviderXess : IFgProvider
     // the XeSS-FG proxy's own present thread still does with the previous frame (the SDK's work, not the
     // application's).
     // INVARIANT: xellSetSleepMode is issued only from here, i.e. only behind a successful drain, and never while a
-    // thread is inside xellSleep. INVARIANT: xefgSwapChainSetEnabled(1) is issued only once a sleep mode with low
-    // latency has been set on this context (appliedUs >= 0).
-    bool WantsQuiescent() { return ll && fg && (wantUs != appliedUs || (enabled && !fgOn)); }
+    // thread is inside xellSleep. INVARIANT: `appliedUs` changes only when xellSetSleepMode returned SUCCESS, so
+    // appliedUs >= 0 means a low-latency sleep mode IS in effect on this context. INVARIANT: xefgSwapChainSetEnabled(1)
+    // is issued only then, and `fgOn` becomes 1 only when that call was accepted - Prepare accepts frames on fgOn alone.
+    bool WantsQuiescent() { return ll && fg && !dead && (wantUs != appliedUs || (enabled && !fgOn)); }
     bool Quiescent()
     {
-        if (!ll || !fg) return true;
+        if (!ll || !fg || dead) return true;
         const LONG us = InterlockedCompareExchange(&wantUs, 0, 0);
         if (us != appliedUs) {
             if (!SleepGate::EnterMode(kSleepWaitMs)) {
@@ -314,17 +340,40 @@ struct ProviderXess : IFgProvider
             sp.bLowLatencyMode = 1;
             sp.minimumIntervalUs = (uint32_t)us;
             xell_result_t lr;
-            { XellLock lk; lr = xellSetSleepMode(ll, &sp); }
+            if (FgTestSdkFail("xell_mode")) lr = XELL_RESULT_ERROR_UNKNOWN;
+            else { XellLock lk; lr = xellSetSleepMode(ll, &sp); }
             SleepGate::Leave();
-            // An SDK refusal is not a missing synchronisation: recorded as applied, so it is reported once, not every Present.
+            if (lr != XELL_RESULT_SUCCESS) {
+                // Refused: nothing is recorded as applied, frame generation is NOT enabled behind it, and the wish
+                // stays in wantUs. False = the host tries this point again kQuiesceRetry presents later.
+                ++modeFails;
+                FgLog("xess: xellSetSleepMode(low latency, cap %ld us) REFUSED %d (%d of %d in a row) - mode unchanged (applied %ld), frame generation %s", us, (int)lr,
+                      modeFails, (int)kSdkFailMax, appliedUs, fgOn ? "stays as it is" : "stays off");
+                if (modeFails >= kSdkFailMax) GiveUp("xellSetSleepMode", (int)lr);
+                return false;
+            }
+            modeFails = 0;
             InterlockedExchange(&appliedUs, us);
             FgLog("xess: XeLL sleep mode: low latency on, frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
         }
-        if (enabled && !fgOn) {
-            xefg_swapchain_result_t r = xefgSwapChainSetEnabled(fg, 1u);   // thread-safe (guide :1098-1107)
-            fgOn = 1;
-            FgLog("xess: frame generation on (behind the XeLL sleep mode) -> %d", (int)r);
+        if (enabled && !fgOn && !EnableFg()) return false;
+        return true;
+    }
+
+    // Pinned threads, appliedUs >= 0 only (the callers check). True = the SDK accepted it and fgOn is 1.
+    bool EnableFg()
+    {
+        const xefg_swapchain_result_t r = FgTestSdkFail("xefg_enable") ? XEFG_SWAPCHAIN_RESULT_ERROR_UNKNOWN
+                                                                          : xefgSwapChainSetEnabled(fg, 1u);   // thread-safe (guide :1098-1107)
+        if (!XefgOk(r)) {
+            ++enableFails;
+            FgLog("xess: xefgSwapChainSetEnabled(1) REFUSED %d (%d of %d in a row) - frame generation stays off, no frame is tagged", (int)r, enableFails, (int)kSdkFailMax);
+            if (enableFails >= kSdkFailMax) GiveUp("xefgSwapChainSetEnabled(1)", (int)r);
+            return false;
         }
+        enableFails = 0;
+        fgOn = 1;
+        FgLog("xess: frame generation on (behind the XeLL sleep mode, cap %ld us) -> %d", appliedUs, (int)r);
         return true;
     }
 
@@ -405,8 +454,8 @@ struct ProviderXess : IFgProvider
             submit += (double)(e.m_render_submit_end_ts - e.m_render_submit_start_ts);
         }
         double k = n ? 1.0 / (1000000.0 * n) : 0.0;
-        _snprintf_s(buf, cap, _TRUNCATE, "xell: frames=%u simMs=%.2f simToPresentEndMs=%.2f renderSubmitMs=%.2f minimumIntervalUs=%ld pacing=%s",
-                    n, sim * k, toPresent * k, submit * k, appliedUs, mainPacing ? "main" : "render");
+        _snprintf_s(buf, cap, _TRUNCATE, "xell: frames=%u simMs=%.2f simToPresentEndMs=%.2f renderSubmitMs=%.2f minimumIntervalUs=%ld wantUs=%ld fgOn=%d dead=%ld sdkFails=%d/%d/%d markFails=%ld pacing=%s",
+                    n, sim * k, toPresent * k, submit * k, appliedUs, wantUs, fgOn, dead, modeFails, enableFails, inputFails, (long)g_markFails, mainPacing ? "main" : "render");
     }
 
     // Render thread, DLSS_EV_FG_PREPARE: the pre-present markers, then tag this frame's inputs.
@@ -419,7 +468,8 @@ struct ProviderXess : IFgProvider
         if (f.epoch != epoch) return false;                // a block of another chain generation (the host drops these first)
         // Frame generation is not on yet: the chain's first Present switches it on behind the XeLL sleep mode
         // (Quiescent). Nothing is tagged to a disabled chain; the frame goes out the idle way, its id is closed there.
-        if (!fgOn) return false;
+        // The same for a provider the SDK kept refusing (GiveUp): the watchdog sees a chain that prepares nothing.
+        if (!fgOn || !enabled || dead) return false;
         // Main-thread pacing: this frame's id was opened by FrameBegin. None = the frame was fed before the pacer started
         // (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same id twice =
         // a second prepare event inside one frame.
@@ -440,6 +490,7 @@ struct ProviderXess : IFgProvider
             Mark(ll, presentId, XELL_SIMULATION_END);
         }
         marked = 0;
+        inputBad = 0;
         startedId[presentId % kOpen] = presentId;
         Mark(ll, presentId, XELL_RENDERSUBMIT_START);
 
@@ -465,9 +516,13 @@ struct ProviderXess : IFgProvider
                           c.motionVectorScaleX, c.motionVectorScaleY, c.resetHistory, c.frameRenderTime, presentId, enabled);
         }
         xefg_swapchain_result_t r = xefgSwapChainTagFrameConstants(fg, presentId, &c);
-        if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (warned < 8) { ++warned; FgLog("xess: tag constants %d", (int)r); } }
+        if (r != XEFG_SWAPCHAIN_RESULT_SUCCESS) { lastRc = (int)r; if (!XefgOk(r)) inputBad = 1; if (warned < 8) { ++warned; FgLog("xess: tag constants %d", (int)r); } }
         // Still prepared: presentId advanced and XeLL's SIMULATION/RENDERSUBMIT_START markers are out, so this frame's
-        // Present must follow to close them (a constants failure was warn-only before too).
+        // Present must follow to close them. One refused input costs that frame its interpolation (the SDK validates
+        // per present id); inputs refused kInputFailMax frames in a row are a provider that generates nothing while
+        // every counter says "prepared" - it fails instead (GiveUp), where the starvation watchdog can see it.
+        inputFails = inputBad ? inputFails + 1 : 0;
+        if (inputFails >= kInputFailMax) GiveUp("tagging the frame inputs", lastRc);
         return true;
     }
 
@@ -475,7 +530,9 @@ struct ProviderXess : IFgProvider
     // identifies this frame's tags (guide :1020-1022). The proxy generates inside its Present, so 0 here.
     int Generate(const FgFrame&, ID3D12Resource*, IDXGISwapChain4*, UINT, UINT)
     {
-        if (fg) xefgSwapChainSetPresentId(fg, presentId);
+        if (!fg) return 0;
+        const xefg_swapchain_result_t r = xefgSwapChainSetPresentId(fg, presentId);
+        if (!XefgOk(r)) { lastRc = (int)r; if (warned < 8) { ++warned; FgLog("xess: SetPresentId(%u) %d - this Present is not matched to its tags", presentId, (int)r); } }
         return 0;
     }
 
@@ -513,12 +570,19 @@ struct ProviderXess : IFgProvider
     // Quiescent() that issues it, right behind the first xellSetSleepMode ("When enabling frame generation, the
     // application must ensure that XeLL latency reduction is enabled", xess_fg guide :648) - the proxy presents the
     // application's frames unchanged until then (:652 "passthrough mode").
+    // `enabled` is the wish; `fgOn` follows the SDK's answer in both directions (file header SDK RESULTS): a refused
+    // "off" leaves fgOn 1 - true to the SDK, and harmless, since Prepare wants `enabled` too and the host has closed
+    // its gate; a refused "on" leaves it 0 and Quiescent() retries.
     void SetEnabled(bool on)
     {
         enabled = on ? 1 : 0;
         if (!fg) return;
-        if (!on) { xefgSwapChainSetEnabled(fg, 0u); fgOn = 0; }  // thread-safe (guide :1098-1107)
-        else if (appliedUs >= 0 && !fgOn) { xefgSwapChainSetEnabled(fg, 1u); fgOn = 1; }
+        if (!on) {
+            const xefg_swapchain_result_t r = xefgSwapChainSetEnabled(fg, 0u);   // thread-safe (guide :1098-1107)
+            if (XefgOk(r)) fgOn = 0;
+            else FgLog("xess: xefgSwapChainSetEnabled(0) REFUSED %d - the SDK still has frame generation on (fgOn %d); nothing is fed to it", (int)r, fgOn);
+        }
+        else if (appliedUs >= 0 && !fgOn && !dead) EnableFg();
     }
 
     // Main thread, chain detached. The host has already released its proxy reference (FgHost.cpp DestroyChain):
@@ -534,7 +598,10 @@ struct ProviderXess : IFgProvider
             }
             fg = NULL;
         }
-        if (ll && !force) { xellDestroyContext(ll); }
+        if (ll && !force) {
+            const xell_result_t lr = xellDestroyContext(ll);
+            if (lr != XELL_RESULT_SUCCESS) FgLog("xess: xellDestroyContext %d - the XeLL context is leaked", (int)lr);
+        }
         ll = NULL;
         FgLog("xess: destroyed (XeSS-FG %s, generated %lld, lastRc %d, XeLL ids %u, closed without a prepared frame %u)", version, generated, lastRc, nextId, skippedClosed);
         Zero();                                                    // the Intel modules stay resident (delay-load bound)

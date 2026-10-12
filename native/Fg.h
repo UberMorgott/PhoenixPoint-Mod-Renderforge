@@ -269,6 +269,12 @@ int FgHostHudless(void);
 // Test lever (Fg_TestFailPrepare): every provider Prepare counts as failed while on - the "native prepare fails for
 // good" state the managed driver must notice (FrameGen starvation watchdog).
 void FgHostTestFailPrepare(int on);
+// Test lever, RENDERFORGE_FG_TEST_SDK_FAIL="<call>[,<count>]" (read once in FgHostInit; unset = one predictable branch
+// per call site): true = the provider must NOT make the named SDK call and act as if it had returned an error.
+// <call>: xell_mode (xellSetSleepMode), xefg_enable (xefgSwapChainSetEnabled(1)), sl_options (slDLSSGSetOptions from
+// Prepare), sl_reflex (slReflexSetOptions), fsr_configure (ffxConfigure in Prepare). <count> = the first N calls fail,
+// omitted = every call. Any thread.
+bool FgTestSdkFail(const char* what);
 // Where the latency SDK sleeps: 1 = main thread at frame start (production), 0 = render thread inside Prepare (the
 // placement before 2026-10-12, kept as a diagnostic A/B). The providers read it at Create; FgSetMainPacing: main thread.
 bool FgMainPacing(void);

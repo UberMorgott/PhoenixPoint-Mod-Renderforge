@@ -101,8 +101,13 @@ struct SlCore
     PFun_slReflexGetState*      reflexGetState;
     unsigned                    maxGen;        // DLSSGState::numFramesToGenerateMax once measured, 0 = not yet
     volatile LONG               frameIdx;      // process-wide: SL refuses constants/options set twice for one index
-    int                         reflexMode;    // last ReflexOptions issued (-1 = none yet)
+    int                         reflexMode;    // last ReflexOptions the SDK ACCEPTED (-1 = none yet)
     unsigned                    reflexUs;
+    // A refused slReflexSetOptions (ReflexApply): the request it was, calls to let pass before it is tried again,
+    // refusals in a row. reflexBad: the last request for a mode other than eOff was refused - DLSS-G must not be fed.
+    int                         reflexFailMode;
+    unsigned                    reflexFailUs, reflexSkip, reflexFails;
+    volatile LONG               reflexBad;
     char                        version[64];
 };
 SlCore g_sl;
@@ -135,15 +140,35 @@ sl::FrameToken* Tok(unsigned idx)
 
 // Reflex mode + frame cap, only when they change (Reflex.md:176-177; "the value is used each time you call
 // slReflexSetOptions", sl_reflex.h:49). Thread safe on SL's side (reflexEntry.cpp slSetData); called on the main thread.
-void ReflexApply(sl::ReflexMode mode, unsigned frameLimitUs)
+// SDK RESULTS (docs\DESIGN.md "SDK results decide state"): reflexMode / reflexUs record what the SDK ACCEPTED. A
+// refusal records nothing, is retried kReflexRetry calls later (FrameBegin calls this every frame: not once per frame
+// against a call that keeps failing) and is logged with a throttle. DLSS-G needs Reflex at run time (DLSS_G.md
+// eFailReflexNotDetectedAtRuntime; the cap, DLSS_G.md:769): while the last low-latency request stands refused
+// (reflexBad) Prepare feeds DLSS-G nothing, and the managed starvation watchdog drops the provider if that lasts.
+// True = the mode and cap asked for are in effect.
+enum { kReflexRetry = 30 };
+bool ReflexApply(sl::ReflexMode mode, unsigned frameLimitUs)
 {
-    if (g_sl.reflexMode == (int)mode && g_sl.reflexUs == frameLimitUs) return;
+    if (g_sl.reflexMode == (int)mode && g_sl.reflexUs == frameLimitUs) return true;
+    if (g_sl.reflexSkip && g_sl.reflexFailMode == (int)mode && g_sl.reflexFailUs == frameLimitUs) { --g_sl.reflexSkip; return false; }
     sl::ReflexOptions ro{};
     ro.mode = mode;
     ro.frameLimitUs = frameLimitUs;
-    sl::Result r = g_sl.reflexSetOptions(ro);
-    FgLog("sl: Reflex mode %d frameLimitUs %u -> %d", (int)mode, frameLimitUs, (int)r);
-    if (r == sl::Result::eOk) { g_sl.reflexMode = (int)mode; g_sl.reflexUs = frameLimitUs; }
+    const sl::Result r = FgTestSdkFail("sl_reflex") ? sl::Result::eErrorInvalidParameter : g_sl.reflexSetOptions(ro);
+    if (r == sl::Result::eOk) {
+        g_sl.reflexMode = (int)mode; g_sl.reflexUs = frameLimitUs;
+        g_sl.reflexSkip = 0; g_sl.reflexFails = 0;
+        if (mode != sl::ReflexMode::eOff) InterlockedExchange(&g_sl.reflexBad, 0);
+        FgLog("sl: Reflex mode %d frameLimitUs %u -> %d", (int)mode, frameLimitUs, (int)r);
+        return true;
+    }
+    g_sl.reflexFailMode = (int)mode; g_sl.reflexFailUs = frameLimitUs; g_sl.reflexSkip = kReflexRetry;
+    if (mode != sl::ReflexMode::eOff) InterlockedExchange(&g_sl.reflexBad, 1);
+    const unsigned n = ++g_sl.reflexFails;
+    if (n <= 8 || n % 64 == 0)
+        FgLog("sl: slReflexSetOptions(mode %d, frameLimitUs %u) REFUSED %d (#%u in a row) - in effect: mode %d, %u us; retry in %d frames%s", (int)mode, frameLimitUs, (int)r, n,
+              g_sl.reflexMode, g_sl.reflexUs, (int)kReflexRetry, mode != sl::ReflexMode::eOff ? "; DLSS-G is fed nothing meanwhile" : "");
+    return false;
 }
 
 // Once per process. Returns FG_OK or the FG_ERR_* to hand back from Create.
@@ -235,8 +260,13 @@ struct ProviderStreamline : IFgProvider
     unsigned            caps;
     int                 wantOn, isOn;  // desired / applied DLSSGMode (render thread applies in Generate)
     unsigned            sentW, sentH;  // mvecDepthWidth/Height last issued via slDLSSGSetOptions (re-issued on a quality switch)
-    unsigned            failW, failH;  // last refused options size + result: logged once, retried every frame
+    unsigned            failW, failH;  // last refused options size + result: logged once
     int                 failRc;
+    // SDK RESULTS: Prepares to let pass before refused options are issued again, Prepares in a row whose constants /
+    // tags the SDK refused, and `dead` - those reached kInputFailMax: the provider prepares nothing more.
+    enum { kOptRetry = 30, kInputFailMax = 120 };
+    unsigned            optSkip, inputFails;
+    int                 dead;
     unsigned            epoch;         // the host's chain generation this provider was created for (FgSetup::epoch)
     unsigned            frames;        // Prepare calls on this chain
     // Frame indices awaiting their proxy Present, in order: Prepare pushes one (constants + tags carry it), BeforePresent
@@ -267,7 +297,7 @@ struct ProviderStreamline : IFgProvider
         for (unsigned i = 0; i < kTokens; ++i) fifo[i] = 0;
         head = tail = 0; mainPacing = 1; paced = 0; lastPrepared = 0; limitFps = 0;
         generated = 0; warned = 0; havePrev = 0;
-        epoch = 0;
+        optSkip = 0; inputFails = 0; dead = 0; epoch = 0;
     }
 
     int Id() const { return FG_PROVIDER_DLSS; }
@@ -333,8 +363,9 @@ struct ProviderStreamline : IFgProvider
         sl::DLSSGState st{};
         sl::ViewportHandle vp(0u);
         r = g_sl.fgGetState(vp, st, NULL);
-        unsigned maxGen = (r == sl::Result::eOk && st.numFramesToGenerateMax) ? st.numFramesToGenerateMax : 1;
-        g_sl.maxGen = maxGen;
+        const bool measured = r == sl::Result::eOk && st.numFramesToGenerateMax;
+        unsigned maxGen = measured ? st.numFramesToGenerateMax : 1;
+        if (measured) g_sl.maxGen = maxGen;            // a failed query is not a measurement: asked again with the next chain
         caps = CapsFor(maxGen);
         FgLog("sl: numFramesToGenerateMax=%u (rc %d, minWidthOrHeight %u, vsync %d) -> caps 0x%X", maxGen, (int)r, st.minWidthOrHeight, (int)st.bIsVsyncSupportAvailable, caps);
         if (framesToGen > maxGen) { FgLog("sl: %ux asked, %ux supported", s.multiplier, maxGen + 1); return Fail(FG_ERR_UNSUPPORTED_MULTIPLIER); }
@@ -379,23 +410,33 @@ struct ProviderStreamline : IFgProvider
     // size (sl_dlss_g.h:89-91): a quality switch resizes the owned twins while the chain (outW/outH/backFmt) stays - re-issue
     // on a size change, or DLSS-G interpolates with stale dimensions (heat-haze shimmer at Quality/Performance, DLAA fine).
     // eWarnOutOfVRAM (39, sl_result.h:74) = options applied, DXGI budget exhausted (commonInterface.cpp:556-565); treating it
-    // as a failure re-issued the options every frame until the device was removed (measured 2026-09-03). A real refusal is
-    // logged once per size/result and retried next frame.
-    void IssueOptions(unsigned w, unsigned h)
+    // as a failure re-issued the options every frame until the device was removed (measured 2026-09-03).
+    // SDK RESULTS: isOn / sentW / sentH record what the SDK ACCEPTED. True = the mode and the mvec/depth size DLSS-G
+    // has are the ones this frame needs. False = they are not (refused, or waiting out the kOptRetry back-off): the
+    // caller prepares NOTHING - no token, no constants, no tags reach a DLSS-G that is off or sized for other inputs,
+    // and the frame goes out the idle way. A refusal is logged once per size/result; if it lasts, the starvation
+    // watchdog drops the provider.
+    bool IssueOptions(unsigned w, unsigned h)
     {
-        if (wantOn == isOn && (!wantOn || (w == sentW && h == sentH))) return;
+        if (wantOn == isOn && (!wantOn || (w == sentW && h == sentH))) return true;
+        if (optSkip) { --optSkip; return false; }
         sl::DLSSGOptions op{};
         Options(op, wantOn ? (unsigned)sl::DLSSGMode::eOn : (unsigned)sl::DLSSGMode::eOff);
         sl::ViewportHandle vp(0u);
-        sl::Result r = g_sl.fgSetOptions(vp, op);
+        const sl::Result r = FgTestSdkFail("sl_options") ? sl::Result::eErrorInvalidParameter : g_sl.fgSetOptions(vp, op);
         if (r == sl::Result::eOk || r == sl::Result::eWarnOutOfVRAM) {
             isOn = wantOn; sentW = w; sentH = h; failRc = 0;
             FgLog("sl: DLSS-G mode %s, numFramesToGenerate=%u, options %ux%u -> %ux%u fmt %u%s", wantOn ? "eOn" : "eOff", framesToGen, w, h, outW, outH, (unsigned)backFmt,
                   r == sl::Result::eWarnOutOfVRAM ? " (eWarnOutOfVRAM: DXGI budget exhausted)" : "");
-        } else if (failRc != (int)r || failW != w || failH != h) {
-            failRc = (int)r; failW = w; failH = h;
-            FgLog("sl: slDLSSGSetOptions(%d) %d for %ux%u - retrying every frame", wantOn, (int)r, w, h);
+            return true;
         }
+        optSkip = kOptRetry;
+        if (failRc != (int)r || failW != w || failH != h) {
+            failRc = (int)r; failW = w; failH = h;
+            FgLog("sl: slDLSSGSetOptions(%d) REFUSED %d for %ux%u - DLSS-G stays %s (%ux%u), frames are not prepared, retry every %d prepares", wantOn, (int)r, w, h,
+                  isOn ? "eOn" : "eOff", sentW, sentH, (int)kOptRetry);
+        }
+        return false;
     }
 
     // frameLimitUs is the interval between PRESENTED frames: the driver knows about frame generation and spaces the
@@ -406,11 +447,13 @@ struct ProviderStreamline : IFgProvider
 
     // Main thread. Reflex's own limiter is the only cap while frames flow (DLSS_G.md:769); while they do not, the cap
     // is only remembered - FrameBegin(true) applies it together with eLowLatency.
+    // False = Reflex refused its last low-latency request: this provider does NOT enforce the cap now, the caller keeps
+    // its own limiter (and the refusal is being retried, ReflexApply).
     bool SetFrameLimit(unsigned presentedFps)
     {
         limitFps = presentedFps;
         if (proxy && (paced || !mainPacing)) ReflexApply(sl::ReflexMode::eLowLatency, LimitUs());
-        return true;
+        return !g_sl.reflexBad;
     }
 
     // Main thread, start of every frame: a fresh index, the Reflex sleep, SIMULATION_START (Reflex guide: sleep at the
@@ -487,11 +530,14 @@ struct ProviderStreamline : IFgProvider
         ID3D12Resource* mv = FgMv12();
         if (!proxy || !o || !depth || !mv) return false;
         if (f.epoch != epoch) return false;                // a block of another chain generation (the host drops these first)
+        // SDK RESULTS: a provider whose inputs the SDK kept refusing, or whose Reflex low-latency mode was refused,
+        // prepares nothing - the starvation watchdog sees it.
+        if (dead || g_sl.reflexBad) return false;
         // Main-thread pacing: this frame's index was opened by FrameBegin. None = the frame was fed before the pacer
         // started (the first one after an idle stretch): left unprepared, the host presents it the idle way. The same
         // index twice = a second prepare event inside one frame: one set of constants per index.
         if (mainPacing && (!f.paceId || f.paceId == lastPrepared)) return false;
-        IssueOptions(o->w, o->h);
+        if (!IssueOptions(o->w, o->h)) return false;
         // The hud-less in the back buffer's format and row order (FgHudless12, the host's flipped copy). Without one the
         // frame still gets its token, constants and depth/mv tags - a skipped hudless is a quality loss, a skipped
         // token/constants wedges DLSS-G ("missing common constants", generated=0; measured 2026-09-03).
@@ -564,6 +610,7 @@ struct ProviderStreamline : IFgProvider
         }
         sl::ViewportHandle vp(0u);
         sl::Result r = g_sl.setConstants(c, *t, vp);
+        bool inputBad = r != sl::Result::eOk;
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetConstants %d", (int)r); }
 
         // The host's flipped copies rest in COMMON (FgTwins.h); SL copies them on `list` (eOnlyValidNow, ManualHooking.md:501-517).
@@ -579,8 +626,17 @@ struct ProviderStreamline : IFgProvider
             sl::ResourceTag(&rHud,   sl::kBufferTypeHUDLessColor,  sl::ResourceLifecycle::eOnlyValidNow, &eOut),
         };
         r = g_sl.setTag(*t, vp, tags, hud ? 3 : 2, list);
+        if (r != sl::Result::eOk) inputBad = true;
         if (r != sl::Result::eOk && warned < 8) { ++warned; FgLog("sl: slSetTagForFrame %d", (int)r); }
-        // Constants/tag failures stay warn-only: the token is in the FIFO and only a Present pops it (BeforePresent).
+        // One refused constants/tag call stays warn-only: the token is in the FIFO and only a Present pops it
+        // (BeforePresent), and DLSS-G skips a frame it has no valid inputs for (DLSSGStatus). Refused kInputFailMax
+        // frames in a row it is a provider that generates nothing while every counter says "prepared": dead from the
+        // next Prepare on, where the starvation watchdog can see it.
+        inputFails = inputBad ? inputFails + 1 : 0;
+        if (inputFails >= kInputFailMax && !dead) {
+            dead = 1;
+            FgLog("sl: slSetConstants / slSetTagForFrame refused %u frames in a row (last %d) - provider FAILED for this chain: no frame is prepared any more", inputFails, (int)r);
+        }
         return true;
     }
 

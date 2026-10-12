@@ -39,6 +39,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 namespace {
@@ -144,6 +145,26 @@ struct Locked
     Locked()  { AcquireSRWLockExclusive(&g_lock); }
     ~Locked() { ReleaseSRWLockExclusive(&g_lock); }
 };
+
+// FgTestSdkFail (Fg.h). `on` is written once, on the main thread, before any chain exists (FgHostInit).
+struct TestSdkFail { int on; char what[32]; volatile LONG left; volatile LONG hits; };
+TestSdkFail g_testSdk;
+void TestSdkFailInit()
+{
+    static bool done = false;
+    if (done) return;
+    done = true;
+    char v[64] = {};
+    if (!GetEnvironmentVariableA("RENDERFORGE_FG_TEST_SDK_FAIL", v, sizeof(v)) || !v[0]) return;
+    int count = -1;
+    char* comma = strchr(v, ',');
+    if (comma) { *comma = 0; count = atoi(comma + 1); }
+    strncpy_s(g_testSdk.what, sizeof(g_testSdk.what), v, _TRUNCATE);
+    g_testSdk.left = count > 0 ? count : -1;           // -1 = every call
+    g_testSdk.on = 1;
+    FgLog("host: TEST RENDERFORGE_FG_TEST_SDK_FAIL=%s,%d - the named SDK call is skipped and reported as failed (%s)", g_testSdk.what, count,
+          count > 0 ? "that many times" : "every time");
+}
 
 // Barrier src PRESENT->COPY_SOURCE and dst PRESENT->COPY_DEST, CopyResource, barrier back, execute on the queue.
 // A provider with its own presenting queue (DLSS-G) gets the copy on THAT queue: it first waits for everything Unity's
@@ -614,6 +635,7 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     H.multiplier = s.multiplier;
     c.backFmt = s.desc.Format;
 
+    TestSdkFailInit();
     IDXGISwapChain4* shadow = NULL;
     FgHookHide();                                          // the new chain's vtable shows dxgi, not us (Fg.h)
     int rc = p->Create(s, &shadow);
@@ -632,7 +654,17 @@ int FgHostInit(int provider, unsigned multiplier, const wchar_t* dllDir)
     c.shadow = shadow;
     c.prep.Attach(H.device);
     c.copy.Attach(H.device);
-    if (p->PresentQueue()) H.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&c.xfence));
+    // A provider with a presenting queue of its own cannot be driven without the handoff fence (CopyBackBuffer would
+    // run the copy on Unity's queue, unordered against that provider's presents): the chain is published DEAD -
+    // detached, never live - and the ordinary teardown path destroys it.
+    const bool noHandoff = p->PresentQueue() && (FAILED(H.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&c.xfence))) || !c.xfence);
+    if (noHandoff) {
+        FgLog("host: CreateFence for the %s present-queue handoff failed (removed=0x%08X) - chain not started", p->Name(), (unsigned)H.device->GetDeviceRemovedReason());
+        { Locked lk; c.prov = p; H.state = kDetached; H.enabled = 0; H.destroyTries = 0; strncpy_s(H.why, sizeof(H.why), "no handoff fence", _TRUNCATE); }
+        H.lastError = FG_ERR_NO_SWAPCHAIN;
+        DestroyDetached(0);
+        return FG_ERR_NO_SWAPCHAIN;
+    }
     H.lastError = FG_OK;
     H.reason = NULL;
     H.lastPresentHr = 0;
@@ -729,6 +761,16 @@ unsigned FgHostPreparedCount(void) { return (unsigned)H.nPrepared; }
 void FgNoteHudless(bool tagged) { InterlockedExchange(&H.hudless, tagged ? 1 : 0); }
 int FgHostHudless(void) { return (int)H.hudless; }
 void FgHostTestFailPrepare(int on) { InterlockedExchange(&g_testFailPrepare, on ? 1 : 0); }
+
+bool FgTestSdkFail(const char* what)
+{
+    if (!g_testSdk.on) return false;
+    if (strcmp(g_testSdk.what, what)) return false;
+    if (g_testSdk.left >= 0 && InterlockedDecrement(&g_testSdk.left) < 0) { InterlockedExchange(&g_testSdk.left, 0); return false; }
+    const LONG n = InterlockedIncrement(&g_testSdk.hits);
+    if (n <= 16 || n % 256 == 0) FgLog("host: TEST forced SDK failure #%ld: %s", n, what);
+    return true;
+}
 
 bool FgMainPacing(void) { return g_mainPacing; }
 void FgSetMainPacing(bool on) { g_mainPacing = on; }

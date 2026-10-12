@@ -63,6 +63,7 @@ struct ProviderFsr : IFgProvider
     long long           generated;     // frames the proxy's callback generated (chain=child)
     int                 hudlessWarned;
     unsigned            epoch;         // the host's chain generation this provider was created for (FgSetup::epoch)
+    int                 cfgWarned;     // refused Configure / prepare dispatches logged so far (capped)
     char                version[64];
     char                scVersion[64];
 
@@ -80,7 +81,7 @@ struct ProviderFsr : IFgProvider
     {
         fn = NULL; fgCtx = NULL; scCtx = NULL; proxy = NULL; device = NULL; queue = NULL;
         backFmt = DXGI_FORMAT_UNKNOWN; outW = outH = 0; enabled = 0; lastRc = 0;
-        preparedId = generatedId = ~0ull; generated = 0; hudlessWarned = 0; epoch = 0; version[0] = 0; scVersion[0] = 0;
+        preparedId = generatedId = ~0ull; generated = 0; hudlessWarned = 0; epoch = 0; cfgWarned = 0; version[0] = 0; scVersion[0] = 0;
         memset(&descFg, 0, sizeof(descFg)); memset(&descVer, 0, sizeof(descVer));
         memset(&descBackend, 0, sizeof(descBackend)); memset(&descOverride, 0, sizeof(descOverride));
         memset(&descSc, 0, sizeof(descSc)); memset(&descScVer, 0, sizeof(descScVer)); memset(&scDesc, 0, sizeof(scDesc));
@@ -222,6 +223,9 @@ struct ProviderFsr : IFgProvider
     }
 
     // Configure (once per frame, frameID must step by exactly 1) + the prepare pass, on the host's prep list.
+    // SDK RESULTS (docs\DESIGN.md "SDK results decide state"): this provider keeps no "applied" state of its own - the
+    // on/off wish travels in every frame's Configure - and a refused Configure or prepare dispatch returns false: the
+    // frame is not prepared, preparedId does not move, and a refusal that lasts is what the starvation watchdog drops.
     bool Prepare(ID3D12GraphicsCommandList* list, const FgFrame& f)
     {
         const OwnedSet12* o = FgOwned12();
@@ -249,8 +253,8 @@ struct ProviderFsr : IFgProvider
             cfg.HUDLessColor = ffxApiGetResourceDX12(hud, FFX_API_RESOURCE_STATE_COMMON);
         FgNoteHudless(cfg.HUDLessColor.resource != NULL);
         if (!cfg.HUDLessColor.resource && !hudlessWarned) { hudlessWarned = 1; FgLog("fsr: hudless skipped: out %ux%u fmt %u vs backbuffer %ux%u fmt %u", o->outW, o->outH, (unsigned)hudFmt, outW, outH, (unsigned)backFmt); }
-        lastRc = (int)fn->Configure(&fgCtx, &cfg.header);
-        if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: configure %d", lastRc); return false; }
+        lastRc = FgTestSdkFail("fsr_configure") ? (int)FFX_API_RETURN_ERROR : (int)fn->Configure(&fgCtx, &cfg.header);
+        if (lastRc != FFX_API_RETURN_OK) { if (cfgWarned < 16) { ++cfgWarned; FgLog("fsr: configure %d - frame %llu not prepared", lastRc, (unsigned long long)f.frameId); } return false; }
 
         ffxDispatchDescFrameGenerationPrepareV2 pr = {};
         pr.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2;
@@ -286,7 +290,7 @@ struct ProviderFsr : IFgProvider
             FgCaptureFloats("fsr.cameraForward", pr.cameraForward, 3);
         }
         lastRc = (int)fn->Dispatch(&fgCtx, &pr.header);
-        if (lastRc != FFX_API_RETURN_OK) { FgLog("fsr: prepare %d", lastRc); return false; }
+        if (lastRc != FFX_API_RETURN_OK) { if (cfgWarned < 16) { ++cfgWarned; FgLog("fsr: prepare %d - frame %llu not prepared", lastRc, (unsigned long long)f.frameId); } return false; }
         preparedId = f.frameId;
         return true;
     }
@@ -307,10 +311,14 @@ struct ProviderFsr : IFgProvider
             off.swapChain = proxy;
             off.frameGenerationEnabled = false;
             off.frameID = preparedId == ~0ull ? 0 : preparedId + 1;
-            fn->Configure(&fgCtx, &off.header);
+            // Results are logged, not acted on: the DestroyContext calls below are the ones whose refusal retains the
+            // contexts (the host retries), and they refuse while the proxy still uses FG resources.
+            ffxReturnCode_t rc = fn->Configure(&fgCtx, &off.header);
+            if (rc != FFX_API_RETURN_OK) FgLog("fsr: configure(off) %u before the destroy", rc);
             ffxDispatchDescFrameGenerationSwapChainWaitForPresentsDX12 wait = {};
             wait.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12;
-            fn->Dispatch(&scCtx, &wait.header);
+            rc = fn->Dispatch(&scCtx, &wait.header);
+            if (rc != FFX_API_RETURN_OK) FgLog("fsr: wait-for-presents %u before the destroy", rc);
         }
         if (fgCtx) {
             ffxReturnCode_t rc = fn->DestroyContext(&fgCtx, NULL);
