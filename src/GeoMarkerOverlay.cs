@@ -7,6 +7,7 @@ using Base.Utils;
 using HarmonyLib;
 using MaterialDecals;
 using PhoenixPoint.Common.Core;
+using PhoenixPoint.Common.Utils;
 using PhoenixPoint.Geoscape.Entities;
 using PhoenixPoint.Geoscape.View;
 using UnityEngine;
@@ -785,25 +786,49 @@ namespace Renderforge
                  + " screen=" + Screen.width + "x" + Screen.height + " globeR=" + GlobeUnits.GlobeRadius.ToString("F3");
         }
 
-        /// <summary>Site picking is a physics raycast on the scene camera (GeoscapeView.cs:912, PickingCollider on its own
-        /// layer - untouched; the game has no other picking entry point, so this does the same raycast). Project the first
-        /// near site's pivot through M, raycast the same pixel through GeoscapeCamera, report what it hits.</summary>
+        /// <summary>The game's own pick, for the pixel a marker is DRAWN at (projected through M, the present camera):
+        /// GeoscapeView.SelectActorAtCursor (GeoscapeView.cs:912-914) raycasts the cursor ray against the GLOBE layer only
+        /// (10000 units), then GeoMap.PickObjectsOnPosition (GeoMap.cs:822-851) casts a second ray from the globe's centre
+        /// through that surface point against the PICKING layer and takes the first hit's GeoActor of the asked type, if
+        /// enabled. A camera ray against every layer (what this probe did before) is NOT that path: it reports the nearest
+        /// PickingCollider along the view ray, which near the limb belongs to another site than the one the game picks.
+        /// Null = the globe ray missed (the pixel is off the globe: the game picks nothing there).</summary>
+        private static T GamePick<T>(Vector3 screen, PhoenixPoint.Geoscape.Levels.GeoLevelController level, out bool globeHit) where T : GeoActor
+        {
+            RaycastHit h;
+            globeHit = Physics.Raycast(geo.ScreenPointToRay(screen), out h, 10000f, UnityLayers.Globe);
+            return globeHit && level != null && level.Map != null ? level.Map.PickObjectOnPosition<T>(h.point, true) : null;
+        }
+
+        /// <summary>EVERY near-side site on screen: project its pivot through M and ask the game's pick path (GamePick)
+        /// what a click on that pixel selects. n = sites probed; same = the game picks that site; globeMiss = the pixel
+        /// is off the globe (nothing is picked, with or without the mod); none = on the globe, no enabled site under it;
+        /// other = the game picks a DIFFERENT site than the one drawn there. PASS = other == 0. The first few `other`
+        /// (and `none`) sites are listed.</summary>
         internal static string ProbeClick()
         {
             if (M == null || !geo) return "inactive";
+            int n = 0, same = 0, globeMiss = 0, none = 0, other = 0;
+            var sb = new System.Text.StringBuilder();
             foreach (var kv in near)
             {
                 var v = kv.Key;
                 if (!v || !kv.Value || !v.VisualsContainer || !v.gameObject.activeInHierarchy) continue;
                 Vector3 sp = M.WorldToScreenPoint(v.VisualsContainer.position);
                 if (sp.z <= 0f || sp.x < 0 || sp.y < 0 || sp.x >= Screen.width || sp.y >= Screen.height) continue;
-                RaycastHit hit;
-                bool ok = Physics.Raycast(geo.ScreenPointToRay(sp), out hit, geo.farClipPlane);
-                var site = ok ? hit.collider.GetComponentInParent<GeoSiteVisualsController>() : null;
-                return "site=" + v.name + " screen=" + sp.x.ToString("F1") + "," + sp.y.ToString("F1") + " hit=" + (ok ? hit.collider.name + " [" + hit.collider.gameObject.layer + "] of " + (site ? site.name : "-") : "none")
-                     + " sameSite=" + (site == v) + " canvasCam=" + (v.CanvasIcons && v.CanvasIcons.worldCamera ? v.CanvasIcons.worldCamera.name : "null");
+                GeoSite want = v.Site;
+                if (!want) continue;
+                bool globeHit;
+                GeoSite got = GamePick<GeoSite>(sp, want.GeoLevel, out globeHit);
+                n++;
+                if (!globeHit) { globeMiss++; continue; }
+                if (got == want) { same++; continue; }
+                if (!got) none++; else other++;
+                if (other + none <= 6)
+                    sb.Append(" | ").Append(v.name).Append(" screen=").Append(sp.x.ToString("F1")).Append(',').Append(sp.y.ToString("F1"))
+                      .Append(got ? " picks " + got.name : " picks nothing").Append(" enabled=").Append(want.enabled);
             }
-            return "no near-side active site on screen";
+            return "n=" + n + " same=" + same + " globeMiss=" + globeMiss + " none=" + none + " other=" + other + " pass=" + (other == 0) + sb;
         }
 
         /// <summary>The vehicle selection quads' move (UIStateVehicleSelected.cs:724) with a stand-in: a renderer without a
@@ -834,27 +859,29 @@ namespace Renderforge
             }
         }
 
-        /// <summary>The same check for aircraft: every shown near-side one is projected through M and picked back through
-        /// GeoscapeCamera (its PickingCollider keeps layer 20, WalkGuarded).</summary>
+        /// <summary>The same check for aircraft: every shown near-side one is projected through M and picked through the
+        /// game's own path (GamePick; its PickingCollider keeps layer 20, WalkGuarded). Same counters, PASS = other == 0.</summary>
         internal static string ProbeCraftClick()
         {
             if (M == null || !geo) return "inactive";
             var sb = new System.Text.StringBuilder();
-            int n = 0, same = 0;
+            int n = 0, same = 0, globeMiss = 0, none = 0, other = 0;
             foreach (var k in loose)
             {
                 if (!k.V || !k.Root || !k.Near || !k.Root.gameObject.activeInHierarchy) continue;
                 Vector3 sp = M.WorldToScreenPoint(k.Root.position);
                 if (sp.z <= 0f || sp.x < 0 || sp.y < 0 || sp.x >= Screen.width || sp.y >= Screen.height) continue;
-                RaycastHit hit;
-                bool ok = Physics.Raycast(geo.ScreenPointToRay(sp), out hit, geo.farClipPlane);
-                var v = ok ? hit.collider.GetComponentInParent<GeoVehicle>() : null;
-                n++; if (v == k.V) same++;
-                sb.Append(" | ").Append(k.V.name).Append(" screen=").Append(sp.x.ToString("F1")).Append(',').Append(sp.y.ToString("F1"))
-                  .Append(" layer=").Append(k.Root.gameObject.layer).Append(" hit=").Append(ok ? hit.collider.name + " [" + hit.collider.gameObject.layer + "]" : "none")
-                  .Append(" sameCraft=").Append(v == k.V);
+                bool globeHit;
+                GeoVehicle got = GamePick<GeoVehicle>(sp, k.V.GeoLevel, out globeHit);
+                n++;
+                if (!globeHit) { globeMiss++; continue; }
+                if (got == k.V) { same++; continue; }
+                if (!got) none++; else other++;
+                if (other + none <= 6)
+                    sb.Append(" | ").Append(k.V.name).Append(" screen=").Append(sp.x.ToString("F1")).Append(',').Append(sp.y.ToString("F1"))
+                      .Append(" layer=").Append(k.Root.gameObject.layer).Append(got ? " picks " + got.name : " picks nothing");
             }
-            return "aircraftOnScreen=" + n + " sameCraft=" + same + sb;
+            return "n=" + n + " same=" + same + " globeMiss=" + globeMiss + " none=" + none + " other=" + other + " pass=" + (other == 0) + sb;
         }
 
         /// <summary>Diagnostic: the real backbuffer at the end of this frame (PPCLI's screenshot re-renders the cameras itself and
