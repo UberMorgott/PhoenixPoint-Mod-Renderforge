@@ -145,8 +145,9 @@ struct IFgProvider
     // a latency SDK closes here the frames it opened in FrameBegin that never reached Prepare. Default no-op.
     virtual void     UnpreparedPresent() {}
     // What tells such a provider that an id FrameBegin returned will never be prepared. Main thread, at the next
-    // FrameBegin: nothing was fed in the frame `id` paced (no prepare event will come). Render thread, chain pinned:
-    // the prepare event of the frame paced `id` has run, prepared or not. Default no-ops.
+    // FrameBegin: nothing was fed in the frame `id` paced (no prepare event will come). A pinned thread (the render
+    // thread at the end of its event, the presenting thread before UnpreparedPresent): the prepare event of the frame
+    // paced `id` has run - prepared, refused, or given up before it got the pin (FgHost.cpp EventRan). Default no-ops.
     virtual void     FrameUnfed(unsigned /*id*/) {}
     virtual void     PrepareDone(unsigned /*id*/) {}
     // Main thread. Latency SDK statistics, one line ("" = none).

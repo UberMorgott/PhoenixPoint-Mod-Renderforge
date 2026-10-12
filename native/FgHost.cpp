@@ -771,6 +771,22 @@ FgFrame PairFrame(const FgFrame& ev, bool* paired)
     return d;
 }
 
+// Render thread, EVERY exit of FgHostPrepare once the event's outcome is final: the prepare event of pace id `id`
+// has run. INVARIANT: no pace id a prepare event was issued for stays "event still to come" after that event
+// returned - whether it prepared the frame, was refused, or never got the pin (Pin timed out behind a Present, the
+// gate closed). Without it such an id stopped the provider's marker walk (ProviderXess::OpenSkipped) for the whole
+// idle stretch once the feed ended. Plain data, no pin needed; the provider hears of it from a pinned thread
+// (FgHostPrepare's own tail, FgHostOnPresent). Written BEFORE the pin is dropped on the pinned path: a Present that
+// pins next must already see it, and must never see it while the event can still prepare the frame.
+static void EventRan(unsigned id)
+{
+    for (LONG seen = H.evDone; (LONG)id > seen; ) {
+        const LONG was = InterlockedCompareExchange(&H.evDone, (LONG)id, seen);
+        if (was == seen) break;
+        seen = was;
+    }
+}
+
 void FgHostPrepare(const FgFrame* ev)
 {
     // A second prepare event of a frame whose inputs were already taken (the bound camera rendered twice inside one
@@ -778,8 +794,9 @@ void FgHostPrepare(const FgFrame* ev)
     // Checked BEFORE the pin and the reset below - Pin(true) would wait its full timeout for a Present that cannot
     // come before this event returns, and the reset would throw the prepared frame away (the provider then refuses
     // the duplicate id and the frame is presented the idle way).
-    if (ev && ev->paceId && ev->paceId == H.lastEvPace) { InterlockedIncrement(&H.nDup); return; }
-    if (!Pin(true)) return;
+    const unsigned evPace = ev ? ev->paceId : 0;
+    if (evPace && evPace == H.lastEvPace) { InterlockedIncrement(&H.nDup); return; }   // its first event settled it
+    if (!Pin(true)) { EventRan(evPace); return; }
     H.lastEvPace = ev ? ev->paceId : 0;
     if (!(H.tidLogged & 1)) { H.tidLogged |= 1; FgLog("host: first prepare tid=%u", (unsigned)GetCurrentThreadId()); }
     // A new frame supersedes whatever is still unpresented: an earlier success nobody presented, or a token a skipped
@@ -839,7 +856,8 @@ void FgHostPrepare(const FgFrame* ev)
         H.prepared = ok;
         if (ok) InterlockedIncrement(&H.nPrepared);
     }
-    if (ev && ev->paceId) H.c.prov->PrepareDone(ev->paceId);
+    EventRan(evPace);
+    if (H.evDone) H.c.prov->PrepareDone((unsigned)H.evDone);   // this event's id and any that gave up without the pin
     Unpin(NULL);
 }
 
@@ -929,6 +947,10 @@ bool FgHostOnPresent(IDXGISwapChain* app, UINT syncInterval, UINT flags)
     // Presents of OUR chain's app are arriving again: prepares may wait for them. Only here - a Present of some other
     // chain consumes nothing, and clearing the flag for it made every following prepare wait its full timeout.
     { Locked lk; H.presentStalled = 0; }
+
+    // Prepare events that ran since the last pinned thread told the provider, including those that gave up without
+    // the pin (EventRan): their ids can be closed now.
+    if (H.evDone) c.prov->PrepareDone((unsigned)H.evDone);
 
     // No frame prepared since the last present: the provider is not driven at all this frame (no copy, no shadow
     // Present, no vendor call), the hook forwards Unity's Present unchanged, and the child hides on the first such frame.
