@@ -149,8 +149,14 @@ struct D3D12Ring
         list[i]->ResolveQueryData(qheap, D3D12_QUERY_TYPE_TIMESTAMP, (UINT)(i * kStamps), kStamps, qbuf, (UINT64)i * kStamps * sizeof(UINT64));
     }
 
-    // WAIT_OBJECT_0 once `value` has retired on `f` (0 = never submitted, retired by definition), else the
-    // WaitForSingleObject result (WAIT_TIMEOUT / WAIT_FAILED). Callers must not touch the slot otherwise.
+    // WAIT_OBJECT_0 once `value` has retired on `f` (0 = never submitted, retired by definition), else WAIT_TIMEOUT /
+    // WAIT_FAILED. Callers must not touch the slot otherwise.
+    // INVARIANT: WAIT_OBJECT_0 is returned only after GetCompletedValue() >= value was READ - never on the event alone.
+    // The event is shared by every wait of this ring and a registration cannot be withdrawn: after a timed-out wait
+    // for value 1 its SetEventOnCompletion stays armed (on this fence or on Unity's frame fence), fires when 1 retires
+    // and would wake a later wait for value 2 before 2 has retired - a "drained" queue that is still executing. So a
+    // wake only means "look again": the wait goes on until the ORIGINAL deadline (this wait's own registration is
+    // still armed and sets the event once more). A removed device completes every fence (UINT64_MAX).
     DWORD WaitOn(ID3D12Fence* f, UINT64 value, DWORD waitMs = kFenceWaitMs)
     {
         if (!value) return WAIT_OBJECT_0;
@@ -159,8 +165,14 @@ struct D3D12Ring
         if (!waitMs) return WAIT_TIMEOUT;
         if (!waitEvent) waitEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
         if (!waitEvent) return WAIT_FAILED;
+        const ULONGLONG until = GetTickCount64() + waitMs;
         if (FAILED(f->SetEventOnCompletion(value, waitEvent))) return WAIT_FAILED;
-        return WaitForSingleObject(waitEvent, waitMs);
+        for (;;) {
+            const ULONGLONG now = GetTickCount64();
+            const DWORD r = WaitForSingleObject(waitEvent, now < until ? (DWORD)(until - now) : 0);
+            if (f->GetCompletedValue() >= value) return WAIT_OBJECT_0;
+            if (r != WAIT_OBJECT_0) return r == WAIT_TIMEOUT ? WAIT_TIMEOUT : WAIT_FAILED;
+        }
     }
 
     // Slot `i` fully retired: our own fence AND Unity's frame fence (see unityVal).
@@ -194,6 +206,9 @@ struct D3D12Ring
     // Everything on Unity's queue at this moment has retired - a fresh Signal of our own fence, not a slot's. For a
     // resource that work queued OUTSIDE this ring may still read (a vendor chain reads its inputs from inside Present,
     // after the list that wrote them). False = no queue / fence, a failed Signal or a timeout.
+    // It proves NOTHING about work that has not reached the queue yet: Unity submits from its own thread (see
+    // unityVal), so "the GPU is idle and stays idle" holds only when the caller IS that thread or holds it - the
+    // Present hook (FgHost.cpp ServeQuiescent). From any other thread it covers what was queued, no more.
     bool DrainQueue(DWORD waitMs = kFenceWaitMs)
     {
         IUnityGraphicsD3D12v5* unity = g_unityD3D12;
