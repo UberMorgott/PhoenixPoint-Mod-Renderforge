@@ -15,6 +15,12 @@
 // ("at the beginning of each frame, before sampling user input", xell guide :294-298), SIMULATION_END after LateUpdate,
 // RENDERSUBMIT_* / PRESENT_* on the render thread with the same id, which travels in FgFrame::paceId. The frame cap is
 // xellSetSleepMode.minimumIntervalUs and nothing else (xell guide :93-100, :129).
+// THREADS: XeLL is called from three - main (xellSleep, xellSetSleepMode, SIMULATION_*, reports), render
+// (RENDERSUBMIT_START) and the presenting thread (RENDERSUBMIT_END, PRESENT_*). The XeLL guide and xell.h say nothing
+// about thread safety (only that the logging callback "can be called from other threads", xell.h:114; the XeSS-FG
+// guide's "thread-safe" list, :1096-1108, covers xefg* calls only), so every XeLL call except xellSleep goes through
+// one lock (XellLock). xellSleep blocks for the frame's pacing interval and is never called under it - the sleep on
+// the simulation thread while other threads mark is the shape the guide itself describes.
 //
 // UI: XEFG_SWAPCHAIN_UI_MODE_BACKBUFFER_HUDLESS with UI composition enabled (guide :531-535, :602-605, :623): the
 // SDK interpolates the hud-less colour and extracts the HUD from the composed back buffer it already holds. Inputs are
@@ -61,6 +67,19 @@ bool PinDlls(const wchar_t* dir)
     if (g_xell) { FreeLibrary(g_xell); g_xell = NULL; }
     if (g_xefg) { FreeLibrary(g_xefg); g_xefg = NULL; }
     return false;
+}
+
+SRWLOCK g_xellLock = SRWLOCK_INIT;
+struct XellLock
+{
+    XellLock()  { AcquireSRWLockExclusive(&g_xellLock); }
+    ~XellLock() { ReleaseSRWLockExclusive(&g_xellLock); }
+};
+// Any thread: one XeLL marker, serialised with every other XeLL call of ours (file header THREADS).
+void Mark(xell_context_handle_t ll, unsigned id, xell_latency_marker_type_t m)
+{
+    XellLock lk;
+    xellAddMarkerData(ll, id, m);
 }
 
 unsigned g_maxInterp;       // maxSupportedInterpolations once measured on this GPU (process lifetime), 0 = not yet
@@ -198,19 +217,21 @@ struct ProviderXess : IFgProvider
             xell_sleep_params_t sp = {};
             sp.bLowLatencyMode = 1;
             sp.minimumIntervalUs = (uint32_t)us;
-            xell_result_t lr = xellSetSleepMode(ll, &sp);
+            xell_result_t lr;
+            { XellLock lk; lr = xellSetSleepMode(ll, &sp); }
             appliedUs = us;
             FgLog("xess: XeLL frame cap %ld us (presented %ld fps) -> %d", us, us ? 1000000 / us : 0, (int)lr);
         }
         unsigned id = ++nextId;
-        xellSleep(ll, id);
-        xellAddMarkerData(ll, id, XELL_SIMULATION_START);
+        xellSleep(ll, id);                                 // never under the lock: it blocks for the pacing interval
+        Mark(ll, id, XELL_SIMULATION_START);
         return id;
     }
 
-    // Main thread, start of the frame / after LateUpdate.
+    // Main thread, start of the frame / after LateUpdate. An unpaced frame (nothing fed to the chain) gets no XeLL
+    // frame: XeLL ids must be consecutive AND each one must see all its markers through a Present (xell.h:74-79).
     unsigned FrameBegin(bool pace) { return ll && fg && mainPacing && pace ? Sleep() : 0; }
-    void SimEnd(unsigned id) { if (ll && fg && mainPacing && id) xellAddMarkerData(ll, id, XELL_SIMULATION_END); }
+    void SimEnd(unsigned id) { if (ll && fg && mainPacing && id) Mark(ll, id, XELL_SIMULATION_END); }
 
     // Main thread. XeLL's last 64 frame reports (xell.h xell_frame_report_t, nanoseconds).
     void Stats(char* buf, int cap)
@@ -220,7 +241,8 @@ struct ProviderXess : IFgProvider
         if (!ll) return;
         static xell_frame_report_t rep[64];
         memset(rep, 0, sizeof(rep));
-        xell_result_t r = xellGetFramesReports(ll, rep);
+        xell_result_t r;
+        { XellLock lk; r = xellGetFramesReports(ll, rep); }
         if (r != XELL_RESULT_SUCCESS) { _snprintf_s(buf, cap, _TRUNCATE, "xell: xellGetFramesReports %d", (int)r); return; }
         unsigned n = 0;
         double sim = 0, toPresent = 0, submit = 0;
@@ -260,10 +282,10 @@ struct ProviderXess : IFgProvider
         else {
             // Render-thread pacing (diagnostic): the simulation is not reachable from here, SIMULATION_* bracket this event.
             presentId = Sleep();
-            xellAddMarkerData(ll, presentId, XELL_SIMULATION_END);
+            Mark(ll, presentId, XELL_SIMULATION_END);
         }
         marked = 0;
-        xellAddMarkerData(ll, presentId, XELL_RENDERSUBMIT_START);
+        Mark(ll, presentId, XELL_RENDERSUBMIT_START);
 
         Tag(XEFG_SWAPCHAIN_RES_MOTION_VECTOR, mv, o->w, o->h, "mv");
         Tag(XEFG_SWAPCHAIN_RES_DEPTH, depth, o->w, o->h, "depth");
@@ -307,14 +329,14 @@ struct ProviderXess : IFgProvider
     {
         if (!fg || marked) return;
         marked = 1;
-        xellAddMarkerData(ll, presentId, XELL_RENDERSUBMIT_END);
-        xellAddMarkerData(ll, presentId, XELL_PRESENT_START);
+        Mark(ll, presentId, XELL_RENDERSUBMIT_END);
+        Mark(ll, presentId, XELL_PRESENT_START);
     }
 
     void AfterPresent(HRESULT)
     {
         if (!fg) return;
-        if (marked == 1) { marked = 2; xellAddMarkerData(ll, presentId, XELL_PRESENT_END); }
+        if (marked == 1) { marked = 2; Mark(ll, presentId, XELL_PRESENT_END); }
         xefg_swapchain_present_status_t st = {};
         if (xefgSwapChainGetLastPresentStatus(fg, &st) != XEFG_SWAPCHAIN_RESULT_SUCCESS) return;
         lastRc = (int)st.frameGenResult;
