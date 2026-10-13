@@ -62,9 +62,11 @@ GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
 ## Test rig traps and measurement recipes (RC 1.6.5 verification, 2026-10-13)
 
 - **The game window MINIMISES when it loses the foreground** (borderless `FullScreenWindow`; another app taking focus is
-  enough). Minimised / unfocused: DLSS-G presents without generating (`presentedFps` = `baseFps`), every Sleep-based
-  limiter lands on about half its target (15.6 ms timer granularity) and FSR-FG at limit 240 reads 77/153. Every
-  "limit not met" figure taken that way is void. Keep the window restored and in the foreground for FG and pacing
+  enough). With another window in the foreground (measured 2026-10-13, geoscape, D3D12): DLSS-G presents without
+  generating (`presentedFps` = `baseFps`, the cap then applies to the base rate), XeSS-FG reads 64/129 at limit 240 AND
+  uncapped (XeLL's sleep on a 15.6 ms timer), FG off reads 90 fps at limit 240 and 65 at 120 (Unity's Sleep limiter on
+  the same throttled timer); FSR-FG follows after a few seconds. Minimised but still the foreground window: unaffected.
+  Every "limit not met" figure taken that way is void. Keep the window restored and in the foreground for FG and pacing
   runs (a keeper loop: `IsIconic` -> `ShowWindow(SW_RESTORE)` + `SetForegroundWindow`) and log `focus=game fg=1` of
   `Fg_Status` with each row. Focused, every provider meets every limit exactly (60/120/144/240, 2x/3x/4x).
 - **Generated frames are only on screen**: capture the game WINDOW (Windows.Graphics.Capture bound to the HWND,
