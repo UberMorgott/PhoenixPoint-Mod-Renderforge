@@ -46,9 +46,20 @@ GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
   `ProbeMarkerClick` / `ProbeCraftClick` (both: `pass=True` = `moved=0`, the mod changes no click; `other` is geometry).
 - Stuck vendor Present, three lines (2026-10-13): `host: WATCHDOG shadow Present #n ...` (queue probe + vram),
   `host: WATCHDOG fences: copy fence completed a of signalled b; Unity frame fence completed c, next at Present entry d`,
-  `host: WATCHDOG presenting thread <tid> stack: N frames < module+0xoffset < ...` (which vendor wait it sits in; the
-  vendor's own game / interpolation / composition fences have no public query). The watchdog owns references to what it
-  probes and is joined at device shutdown and plugin unload (`... did not stop within 15 s` = a driver call hangs).
+  `host: WATCHDOG presenting thread <tid> at RIP 0x.. (module+0xoffset) RSP 0x.., still inside that Present | that
+  Present has returned meanwhile` (which module it executes in; the vendor's own game / interpolation / composition
+  fences have no public query). The watchdog owns references to what it probes and is joined at device shutdown and
+  plugin unload (`... did not stop within 15 s` = a driver call hangs).
+  - No in-process stack (2026-10-13, final gate): the watchdog suspends the presenting thread for ONE `GetThreadContext`
+    and resumes it at once - no unwind, loader call, heap or log while it is suspended (a thread suspended while it
+    holds the function-table / loader / heap lock would block the watchdog for good, the game with it). `not sampled
+    (error n)` = OpenThread / SuspendThread / GetThreadContext refused; `RESUME FAILED` must never appear.
+  - **A dump of a stuck game** (the full stack, taken from OUTSIDE the process, while the `WATCHDOG` lines are fresh
+    and before the game is closed): `procdump -ma <pid> <dir>` (Sysinternals; `-ma` = full memory), or Task Manager ->
+    Details -> `PhoenixPointWin64.exe` -> Create memory dump file (lands in `%LOCALAPPDATA%\Temp`). Open in WinDbg:
+    `~~[<tid>]s` with the tid of the WATCHDOG line (hex: `?0n<tid>`), then `k`. Keep the dump with the mod log.
+  - Cost with frame generation never switched on in a session: none (the thread starts with the first FG chain).
+    After that it lives until device shutdown: one wake per 500 ms, one uncontended SRW lock, no D3D call.
 - `AuditMvModes` keys are `family/active|inactive/mode` (inactive = pooled or hidden objects).
 - Known limits (review 5, documented, not fixed): (a) XeSS-FG - a REFUSED cap change leaves XeLL enforcing the previous
   accepted cap while Unity's limiter takes the new one (`FG_PACER_HELD` off): two pacers until the retry (every 30

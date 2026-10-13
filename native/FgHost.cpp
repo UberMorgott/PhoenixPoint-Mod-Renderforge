@@ -186,7 +186,7 @@ void TestSdkFailInit()
 // next occurrence must be decidable from the log alone: a thread of our own watches the time the presenting thread
 // spends inside the provider's Present and, past kPresentStuckMs, writes down what the queue and the memory are doing.
 // It only reads and logs - a vendor spin without a timeout cannot be interrupted from outside.
-enum { kPresentStuckMs = 2000, kWatchPeriodMs = 500, kWatchJoinTries = 15, kWatchStackMax = 28 };
+enum { kPresentStuckMs = 2000, kWatchPeriodMs = 500, kWatchJoinTries = 15 };
 // What the presenting thread publishes around the shadow Present, under g_wdLock (never held across a call that can
 // block). `since` != 0 = a Present is in flight: the presenting thread is inside the chain (pinned), so the borrowed
 // pointers below are alive AT THAT MOMENT. The watchdog takes its OWN references under the same lock and from then on
@@ -227,56 +227,69 @@ void VramLine(ID3D12Device* dev, char* buf, int cap)
     SafeRelease(dxgi);
 }
 
-// The presenting thread's call stack, for the stuck report: which vendor wait it sits in. The thread is suspended only
-// for the unwind (no allocation, no lock of ours meanwhile); module names are resolved after it runs again. A thread
-// stuck inside a vendor spin holds no loader / unwind-table lock, which is all RtlLookupFunctionEntry could wait on.
-int WdStack(DWORD tid, DWORD64* pcs, int cap)
+// Where the presenting thread is, for the stuck report: its instruction and stack pointer, nothing more.
+// INVARIANT (final gate, Codex: a diagnostic must not be able to hang the game): between SuspendThread and
+// ResumeThread this thread makes exactly ONE call, GetThreadContext - a system call that takes no user-mode lock.
+// No unwind (RtlLookupFunctionEntry / RtlVirtualUnwind take the function-table lock), no loader call, no heap, no
+// log, no lock of ours: by the time this runs the Present may have returned and the target may hold any of those,
+// and a thread suspended while holding one blocks us for good - with it still suspended
+// (devblogs.microsoft.com/oldnewthing/20250411-00/?p=111066). The context buffer is written before the suspend (no
+// first-touch page fault in between) and ResumeThread is the single exit of the suspended stretch: it is reached
+// whether GetThreadContext succeeded, failed or raised. The full stack is taken from outside the process instead
+// (docs\OPERATIONS.md "A dump of a stuck game").
+// Returns 1 = sampled, 0 = not sampled (*err: OpenThread / SuspendThread / GetThreadContext error), -1 = the thread
+// was suspended and ResumeThread FAILED (*err; retried, it cannot fail on a handle that just suspended).
+int WdWhere(DWORD tid, DWORD64* rip, DWORD64* rsp, DWORD* err)
 {
-    int n = 0;
+    *rip = *rsp = 0; *err = 0;
 #if defined(_M_X64)
-    HANDLE th = tid ? OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid) : NULL;
-    if (!th) return 0;
-    if (SuspendThread(th) != (DWORD)-1) {
-        __try {
-            CONTEXT ctx;
-            ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
-            if (GetThreadContext(th, &ctx)) {
-                while (n < cap && ctx.Rip) {
-                    pcs[n++] = ctx.Rip;
-                    DWORD64 base = 0;
-                    PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &base, NULL);
-                    if (!fn) { ctx.Rip = *(DWORD64*)ctx.Rsp; ctx.Rsp += 8; }             // leaf: the return address is on top
-                    else { void* hd = NULL; DWORD64 ef = 0; RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ctx.Rip, fn, &ctx, &hd, &ef, NULL); }
-                }
-            }
-        } __except (EXCEPTION_EXECUTE_HANDLER) {}
-        ResumeThread(th);
+    if (!tid || tid == GetCurrentThreadId()) { *err = ERROR_INVALID_PARAMETER; return 0; }
+    HANDLE th = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, tid);
+    if (!th) { *err = GetLastError(); return 0; }
+    CONTEXT ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.ContextFlags = CONTEXT_CONTROL;
+    int got = 0, resumed = 1;
+    DWORD e = 0;
+    if (SuspendThread(th) == (DWORD)-1) e = GetLastError();
+    else {
+        __try { got = GetThreadContext(th, &ctx) ? 1 : 0; if (!got) e = GetLastError(); }   // GetLastError: a TEB read
+        __except (EXCEPTION_EXECUTE_HANDLER) { got = 0; e = ERROR_NOACCESS; }
+        resumed = 0;
+        for (int i = 0; i < 3 && !resumed; ++i) resumed = ResumeThread(th) != (DWORD)-1;
+        if (!resumed) e = GetLastError();
     }
+    // ---- the target runs again: anything goes from here ----
     CloseHandle(th);
+    *err = e;
+    if (!resumed) return -1;
+    if (!got) return 0;
+    *rip = ctx.Rip; *rsp = ctx.Rsp;
+    return 1;
 #else
-    (void)tid; (void)pcs; (void)cap;
+    *err = ERROR_NOT_SUPPORTED;
+    return 0;
 #endif
-    return n;
 }
 
-void WdStackLine(DWORD tid, char* buf, int cap)
+// "RIP 0x.. (module+0xoffset) RSP 0x.." of the presenting thread. The module is resolved AFTER the thread runs again
+// (GetModuleHandleEx takes the loader lock - which a running thread gives back).
+void WdWhereLine(DWORD tid, char* buf, int cap)
 {
-    DWORD64 pcs[kWatchStackMax];
-    const int n = WdStack(tid, pcs, kWatchStackMax);
-    int at = _snprintf_s(buf, cap, _TRUNCATE, "%d frames", n);
-    for (int i = 0; i < n && at > 0 && at < cap - 80; ++i) {
-        HMODULE m = NULL;
-        char path[MAX_PATH] = "?";
-        const char* name = path;
-        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)pcs[i], &m) && m &&
-            GetModuleFileNameA(m, path, MAX_PATH)) {
-            const char* s = strrchr(path, '\\');
-            if (s) name = s + 1;
-        }
-        const int k = _snprintf_s(buf + at, cap - at, _TRUNCATE, " < %s+0x%llX", name, (unsigned long long)(pcs[i] - (DWORD64)m));
-        if (k < 0) break;
-        at += k;
+    DWORD64 rip = 0, rsp = 0;
+    DWORD err = 0;
+    const int r = WdWhere(tid, &rip, &rsp, &err);
+    if (r < 0) { _snprintf_s(buf, cap, _TRUNCATE, "RESUME FAILED (error %lu) - the thread may still be suspended", (unsigned long)err); return; }
+    if (r == 0) { _snprintf_s(buf, cap, _TRUNCATE, "not sampled (error %lu)", (unsigned long)err); return; }
+    HMODULE m = NULL;
+    char path[MAX_PATH] = "?";
+    const char* name = path;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)rip, &m) && m &&
+        GetModuleFileNameA(m, path, MAX_PATH)) {
+        const char* s = strrchr(path, '\\');
+        if (s) name = s + 1;
     }
+    _snprintf_s(buf, cap, _TRUNCATE, "RIP 0x%llX (%s+0x%llX) RSP 0x%llX", (unsigned long long)rip, name, (unsigned long long)(rip - (DWORD64)m), (unsigned long long)rsp);
 }
 
 DWORD WINAPI PresentWatchdog(void*)
@@ -322,14 +335,20 @@ DWORD WINAPI PresentWatchdog(void*)
               (unsigned long long)probeMs, vram);
         // What the next occurrence needs (2026-10-13): our copy fence (signalled on Unity's queue right before this
         // Present) and Unity's frame fence, completed vs asked. The vendor's own game / interpolation / composition
-        // fences are private to its proxy swap chain (FrameInterpolationSwapChainDX12: no public query) - the stack
-        // of the presenting thread says which of its waits it is in.
+        // fences are private to its proxy swap chain (FrameInterpolationSwapChainDX12: no public query) - the module
+        // the presenting thread executes in is logged below, which of its waits needs a dump.
         FgLog("host: WATCHDOG fences: copy fence completed %llu of signalled %llu%s; Unity frame fence completed %llu, next at Present entry %llu",
               (unsigned long long)(s.copyFence ? s.copyFence->GetCompletedValue() : 0), (unsigned long long)s.copyVal, s.copyFence ? "" : " (none)",
               (unsigned long long)(s.unityFence ? s.unityFence->GetCompletedValue() : 0), (unsigned long long)s.unityNext);
-        static char stack[2048];                           // this thread only
-        WdStackLine(s.tid, stack, sizeof(stack));
-        FgLog("host: WATCHDOG presenting thread %u stack: %s", (unsigned)s.tid, stack);
+        // Where that thread is NOW (WdWhere: suspended for one GetThreadContext, nothing else). The probe above took
+        // up to a second, so the Present may be over: the line says whether it still was in flight after the sample.
+        char where[MAX_PATH + 96];
+        WdWhereLine(s.tid, where, sizeof(where));
+        AcquireSRWLockShared(&g_wdLock);
+        const bool inFlight = g_wd.since != 0 && g_wd.no == s.no;
+        ReleaseSRWLockShared(&g_wdLock);
+        FgLog("host: WATCHDOG presenting thread %u at %s, %s", (unsigned)s.tid, where,
+              inFlight ? "still inside that Present (the full stack: an external dump, docs\\OPERATIONS.md)" : "that Present has returned meanwhile - not the stuck wait");
         SafeRelease(s.unityFence);
         SafeRelease(s.copyFence);
         s.queue->Release();
