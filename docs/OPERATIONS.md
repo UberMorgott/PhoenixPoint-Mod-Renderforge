@@ -59,6 +59,34 @@ GitHub release) is `docs\RELEASING.md`; this file covers the Steam Workshop.
   - the stamps then refuse the stale DLL at deploy/release. `refs\` SDK headers are outside the source hash: after an
   SDK update build with `-Clean`.
 
+## Test rig traps and measurement recipes (RC 1.6.5 verification, 2026-10-13)
+
+- **The game window MINIMISES when it loses the foreground** (borderless `FullScreenWindow`; another app taking focus is
+  enough). Minimised / unfocused: DLSS-G presents without generating (`presentedFps` = `baseFps`), every Sleep-based
+  limiter lands on about half its target (15.6 ms timer granularity) and FSR-FG at limit 240 reads 77/153. Every
+  "limit not met" figure taken that way is void. Keep the window restored and in the foreground for FG and pacing
+  runs (a keeper loop: `IsIconic` -> `ShowWindow(SW_RESTORE)` + `SetForegroundWindow`) and log `focus=game fg=1` of
+  `Fg_Status` with each row. Focused, every provider meets every limit exactly (60/120/144/240, 2x/3x/4x).
+- **Generated frames are only on screen**: capture the game WINDOW (Windows.Graphics.Capture bound to the HWND,
+  `MinUpdateInterval` 1 ms through `IGraphicsCaptureSession5`). WGC delivers a frame only when the window content
+  changed: DLSS-G chains come in at up to the presented rate, XeSS-FG / FSR-FG chains at ~4 Hz plus pairs 4-8 ms apart
+  (a real frame and its generated neighbour). Shake metric: displacement of 64 px blocks against the per-pixel median
+  frame (phase correlation), by radial bin. 1.6.4 geoscape: 0.04-0.13 px at the centre, 0.15-0.40 px mid-screen
+  (median; up to ~1 px between adjacent frames with XeSS-FG at base 30); HEAD: 0.005-0.018 px everywhere, every provider.
+- **A new campaign starts at a random base**: geoscape views differ per launch. For fps or image comparisons fly to a
+  fixed point first (`GeoscapeCamera.HandleHint(ChaseGeoTarget, InstantChase)` to 2,5,9). Geoscape at ~400 fps and
+  every tactical scene are CPU-bound: 5-10 foreign CPU cores cost 10-20 % - compare only samples whose foreign load
+  was measured during the sample. Fixed view, quiet: D3D11 Off 418-421 fps on 1.6.4 and HEAD alike.
+- **Stability (static geoscape, two backbuffer dumps 300 ms apart, px > 8/255 in a 400x400 land crop, sharpness 40)**:
+  D3D11 DLAA 0.02 %, Quality 0.04 %, Performance 0.08 %; D3D12 DLAA 0.08 %, Quality 0.19 %, Performance 0.86 %
+  (0.46-1.09), XeSS Quality 0.05 %, XeSS Performance 0.18 %, FSR Quality 0.00 %; sharpness 0: 0.00 % everywhere.
+  The flicker sits on the land's dot-grid texture (no coastline glow in the crop). D3D12 sharpens the FP16 output
+  through the NIS HDR-linear variant - about 18 % more Laplacian energy than the D3D11 LDR pass at the same setting;
+  with `SetD3D12HalfColor(false)` Performance drops to 0.32 %, mip bias off gives 0.00 % (and a blurred globe). 1.6.4
+  measured 0.62 % (D3D12) / 0.87 % (D3D11) at a far softer image: not a regression. Open: match the NIS strength of
+  the FP16 path to the LDR one.
+- `DumpOut` on D3D12 is not the screen (other encoding, darks lifted); `DumpScreen` (raw RGB24, bottom-up, + `.txt`)
+  is, and is identical in brightness across APIs and builds at the fixed view.
 ## Workshop
 ### Identity & paths
 
