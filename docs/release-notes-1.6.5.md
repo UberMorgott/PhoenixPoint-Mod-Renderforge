@@ -2,6 +2,8 @@
 
 Image-quality and frame-generation fix release. Vendor runtimes are unchanged (DLSS 310.9.1, Streamline 2.14.1, XeSS SDK 3.0.2, FSR SDK 2.3.0, NIS 1.0.3).
 
+**After updating, start the game, quit, and start it again.** The native part of the mod is replaced on the first launch and only loads on the next one (the mod log says `updated staged native shim (takes effect after restart)`).
+
 ## Changed - read this first
 
 - **Auto quality at 4K is now Quality (was Performance).** The image is sharper, and the frame rate is lower than in 1.6.3 / 1.6.4 for 4K players on Auto. Pick **Performance** manually to get the old frame rate back. Above 4K, Auto is Balanced; up to 1200p it stays DLAA.
